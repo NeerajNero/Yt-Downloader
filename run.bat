@@ -4,17 +4,29 @@ rem after that it just starts the server. Usage: run.bat
 setlocal
 cd /d "%~dp0"
 
-rem --- Python 3.11+ ----------------------------------------------------------
-where python >nul 2>nul
-if errorlevel 1 (
-  echo error: Python not found. Install with: winget install Python.Python.3.12
-  echo        Then reopen the terminal and run run.bat again.
-  exit /b 1
-)
-python -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)"
-if errorlevel 1 (
-  echo error: Python 3.11+ required. Install with: winget install Python.Python.3.12
-  exit /b 1
+rem --- Python env --------------------------------------------------------------
+if not exist venv\Scripts\python.exe (
+  set "PY_CMD="
+  py -3 -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)" >nul 2>nul
+  if not errorlevel 1 (
+    set "PY_CMD=py -3"
+  ) else (
+    where python >nul 2>nul
+    if not errorlevel 1 (
+      python -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)" >nul 2>nul
+      if not errorlevel 1 set "PY_CMD=python"
+    )
+  )
+
+  if "%PY_CMD%"=="" (
+    echo error: Python 3.11+ required. Install with: winget install Python.Python.3.12
+    echo        Then reopen the terminal and run run.bat again.
+    exit /b 1
+  )
+
+  echo Creating venv...
+  %PY_CMD% -m venv venv
+  if errorlevel 1 exit /b 1
 )
 
 rem --- ffmpeg ------------------------------------------------------------------
@@ -28,12 +40,6 @@ if errorlevel 1 (
   )
 )
 
-rem --- Python env --------------------------------------------------------------
-if not exist venv\Scripts\python.exe (
-  echo Creating venv...
-  python -m venv venv
-  if errorlevel 1 exit /b 1
-)
 venv\Scripts\python -c "import fastapi, uvicorn, yt_dlp, faster_whisper" >nul 2>nul
 if errorlevel 1 (
   echo Installing Python dependencies...
