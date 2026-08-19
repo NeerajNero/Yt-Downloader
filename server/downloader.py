@@ -426,7 +426,8 @@ def detect_borders(src):
 
 
 def start_export(src, start, end, style="crop", vivid=False,
-                 trim_x=0.0, trim_y=0.0, fg_crop=0.0, captions=False):
+                 trim_x=0.0, trim_y=0.0, fg_crop=0.0, captions=False,
+                 caption_source="auto", caption_pos="bottom"):
     src = Path(src)
     job = _new_job("export", src.stem)
     job["src"] = str(src)
@@ -434,7 +435,7 @@ def start_export(src, start, end, style="crop", vivid=False,
         target=_export_worker,
         args=(job, _EVENTS[job["id"]], src, float(start), float(end),
               style, vivid, float(trim_x), float(trim_y), float(fg_crop),
-              captions),
+              captions, caption_source, caption_pos),
         daemon=True,
     )
     thread.start()
@@ -442,7 +443,8 @@ def start_export(src, start, end, style="crop", vivid=False,
 
 
 def run_export(job, event, src, start, end, style="blur", vivid=False,
-               trim_x=0.0, trim_y=0.0, fg_crop=0.0, captions=False):
+               trim_x=0.0, trim_y=0.0, fg_crop=0.0, captions=False,
+               caption_source="auto", caption_pos="bottom"):
     """Render one 9:16 clip; returns the output path. Raises on failure or
     Cancelled. Percent lands on the given job dict."""
     import tempfile
@@ -457,6 +459,10 @@ def run_export(job, event, src, start, end, style="blur", vivid=False,
         suffix += f"_z{int(fg_crop)}"
     if captions:
         suffix += "_cap"
+        if caption_source == "manual":
+            suffix += "m"
+        if caption_pos != "bottom":
+            suffix += f"-{caption_pos[:3]}"
     out_path = shorts_dir / f"{src.stem}_9x16_{int(start)}s-{int(end)}s_{style}{suffix}.mp4"
     filt = _export_filter(style, vivid, trim_x, trim_y, fg_crop)
 
@@ -469,13 +475,26 @@ def run_export(job, event, src, start, end, style="blur", vivid=False,
                 "This ffmpeg build can't burn captions (no libass). "
                 "On macOS: brew install ffmpeg-full, then restart the server."
             )
-        t_path = transcript_path_for(src)
-        if not t_path.is_file():
-            raise RuntimeError("No transcript yet — run Transcribe first.")
-        transcript = _json.loads(t_path.read_text(encoding="utf-8"))
         fd, ass_file = tempfile.mkstemp(suffix=".ass")
         os.close(fd)
-        n = write_captions_ass(transcript, start, end, ass_file)
+        if caption_source == "manual":
+            c_path = captions_path_for(src)
+            if not c_path.is_file():
+                raise RuntimeError(
+                    "No manual captions yet — add them in the caption editor."
+                )
+            manual = _json.loads(c_path.read_text(encoding="utf-8"))
+            n = write_manual_captions_ass(
+                manual, start, end, ass_file, position=caption_pos
+            )
+        else:
+            t_path = transcript_path_for(src)
+            if not t_path.is_file():
+                raise RuntimeError("No transcript yet — run Transcribe first.")
+            transcript = _json.loads(t_path.read_text(encoding="utf-8"))
+            n = write_captions_ass(
+                transcript, start, end, ass_file, position=caption_pos
+            )
         if n > 0:
             filt += "," + _subtitles_filter_path(ass_file)
 
@@ -507,12 +526,13 @@ def run_export(job, event, src, start, end, style="blur", vivid=False,
 
 
 def _export_worker(job, event, src, start, end, style, vivid,
-                   trim_x, trim_y, fg_crop, captions):
+                   trim_x, trim_y, fg_crop, captions, caption_source,
+                   caption_pos):
     job["status"] = "exporting"
     try:
         out_path = run_export(
             job, event, src, start, end, style, vivid,
-            trim_x, trim_y, fg_crop, captions,
+            trim_x, trim_y, fg_crop, captions, caption_source, caption_pos,
         )
         job["percent"] = 100.0
         job["path"] = str(out_path)
@@ -760,17 +780,19 @@ def _ass_escape(text):
     return text.replace("\\", "").replace("{", "(").replace("}", ")")
 
 
-def write_captions_ass(transcript, clip_start, clip_end, out_path,
-                       max_words=4, max_gap=0.8):
-    """Karaoke-style captions for a 1080x1920 clip: white text, the spoken
-    word fills amber. Word times are shifted so 0 = clip_start."""
-    words = [
-        w for seg in transcript["segments"] for w in seg["words"]
-        if w["s"] < clip_end and w["e"] > clip_start and w["w"]
-    ]
-    header = (
+# ASS alignment: 2 = bottom-center, 5 = middle-center, 8 = top-center.
+CAPTION_POSITIONS = {
+    "bottom": (2, 340),
+    "middle": (5, 0),
+    "top": (8, 220),
+}
+
+
+def _ass_header(position):
+    align, margin_v = CAPTION_POSITIONS.get(position, CAPTION_POSITIONS["bottom"])
+    return (
         "[Script Info]\nScriptType: v4.00+\n"
-        "PlayResX: 1080\nPlayResY: 1920\nWrapStyle: 2\n\n"
+        "PlayResX: 1080\nPlayResY: 1920\nWrapStyle: 0\n\n"
         "[V4+ Styles]\n"
         "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, "
         "OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, "
@@ -778,10 +800,21 @@ def write_captions_ass(transcript, clip_start, clip_end, out_path,
         "Alignment, MarginL, MarginR, MarginV, Encoding\n"
         # Primary = amber fill (karaoke sung), Secondary = white (unsung)
         "Style: Cap,Arial,88,&H003CA3F2,&H00FFFFFF,&H00101317,&H80101317,"
-        "1,0,0,0,100,100,1,0,1,6,2,2,60,60,340,1\n\n"
+        f"1,0,0,0,100,100,1,0,1,6,2,{align},60,60,{margin_v},1\n\n"
         "[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, "
         "MarginV, Effect, Text\n"
     )
+
+
+def write_captions_ass(transcript, clip_start, clip_end, out_path,
+                       max_words=4, max_gap=0.8, position="bottom"):
+    """Karaoke-style captions for a 1080x1920 clip: white text, the spoken
+    word fills amber. Word times are shifted so 0 = clip_start."""
+    words = [
+        w for seg in transcript["segments"] for w in seg["words"]
+        if w["s"] < clip_end and w["e"] > clip_start and w["w"]
+    ]
+    header = _ass_header(position)
     lines = []
     group = []
     for w in words:
@@ -809,6 +842,43 @@ def write_captions_ass(transcript, clip_start, clip_end, out_path,
             + " ".join(parts)
         )
     Path(out_path).write_text(header + "\n".join(events) + "\n", encoding="utf-8")
+    return len(events)
+
+
+def captions_path_for(src):
+    src = Path(src)
+    return src.parent / f"{src.stem}.captions.json"
+
+
+def write_manual_captions_ass(manual, clip_start, clip_end, out_path,
+                              position="bottom"):
+    """Hand-typed captions: each item is {text, start, duration}. The amber
+    fill sweeps the words at `speed` words/sec, then the line holds until
+    its duration ends. Times are shifted so 0 = clip_start."""
+    speed = max(float(manual.get("speed") or 2.5), 0.5)
+    events = []
+    for item in manual.get("items", []):
+        text = str(item.get("text", "")).strip()
+        i_start = float(item["start"])
+        i_end = i_start + max(float(item.get("duration") or 0), 0.5)
+        if not text or i_start >= clip_end or i_end <= clip_start:
+            continue
+        start = max(i_start, clip_start) - clip_start
+        end = min(i_end, clip_end) - clip_start
+        if end - start < 0.2:
+            continue
+        words = text.split()
+        fill_time = min(end - start, len(words) / speed)
+        per_word_cs = max(int(fill_time / len(words) * 100), 1)
+        line = " ".join(
+            f"{{\\k{per_word_cs}}}{_ass_escape(w)}" for w in words
+        )
+        events.append(
+            f"Dialogue: 0,{_ass_time(start)},{_ass_time(end)},Cap,,0,0,0,,{line}"
+        )
+    Path(out_path).write_text(
+        _ass_header(position) + "\n".join(events) + "\n", encoding="utf-8"
+    )
     return len(events)
 
 

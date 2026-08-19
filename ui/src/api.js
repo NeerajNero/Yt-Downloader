@@ -39,14 +39,26 @@ export const startConvert = (path) =>
     body: JSON.stringify({ path }),
   }).then(handle)
 
-export const startExport = (path, start, end, style, vivid, trimX, trimY, fgCrop, captions) =>
+export const startExport = (path, start, end, style, vivid, trimX, trimY,
+  fgCrop, captions, captionSource = 'auto', captionPos = 'bottom') =>
   fetch('/api/export', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       path, start, end, style, vivid,
-      trim_x: trimX, trim_y: trimY, fg_crop: fgCrop, captions,
+      trim_x: trimX, trim_y: trimY, fg_crop: fgCrop,
+      captions, caption_source: captionSource, caption_pos: captionPos,
     }),
+  }).then(handle)
+
+export const getCaptions = (path) =>
+  fetch(`/api/captions?path=${encodeURIComponent(path)}`).then(handle)
+
+export const saveCaptions = (path, speed, items) =>
+  fetch('/api/captions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, speed, items }),
   }).then(handle)
 
 export const startTranscribe = (path) =>

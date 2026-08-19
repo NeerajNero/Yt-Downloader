@@ -517,3 +517,30 @@ input[type="text"]::placeholder { color: var(--muted); }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ---- manual caption editor ---- */
+.caps-editor {
+  margin-top: 8px;
+  padding: 10px 12px;
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.caps-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.cap-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.cap-text { flex: 1; min-width: 0; padding: 8px 10px; }
+.cap-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}

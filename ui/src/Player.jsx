@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react'
 import {
-  detectBorders, getScenes, getSuggestions, reveal,
-  startAutoShorts, startExport, startScenes, startSuggest, startTranscribe,
+  detectBorders, getCaptions, getScenes, getSuggestions, reveal,
+  saveCaptions, startAutoShorts, startExport, startScenes, startSuggest,
+  startTranscribe,
 } from './api.js'
 import { fmtDuration, parseTime } from './util.js'
 
@@ -21,6 +22,12 @@ export default function Player({ item, jobs, config, onClose }) {
   const [style, setStyle] = useState('blur')
   const [vivid, setVivid] = useState(false)
   const [captions, setCaptions] = useState(false)
+  const [captionSource, setCaptionSource] = useState('auto')
+  const [captionPos, setCaptionPos] = useState('bottom')
+  const [capsOpen, setCapsOpen] = useState(false)
+  const [capSpeed, setCapSpeed] = useState('2.5')
+  const [capItems, setCapItems] = useState([])
+  const [hasManualCaps, setHasManualCaps] = useState(false)
   const [trimY, setTrimY] = useState('0')
   const [trimX, setTrimX] = useState('0')
   const [fgCrop, setFgCrop] = useState('0')
@@ -44,6 +51,17 @@ export default function Player({ item, jobs, config, onClose }) {
   useEffect(() => {
     getScenes(item.path).then(setScenes).catch(() => setScenes(null))
     getSuggestions(item.path).then(setSuggestions).catch(() => setSuggestions(null))
+    getCaptions(item.path)
+      .then((c) => {
+        setHasManualCaps(c.items.length > 0)
+        setCapSpeed(String(c.speed))
+        setCapItems(c.items.map((i) => ({
+          text: i.text,
+          start: fmtDuration(i.start),
+          duration: String(i.duration),
+        })))
+      })
+      .catch(() => setHasManualCaps(false))
   }, [item.path])
 
   // When background jobs for this file finish, pull their results in.
@@ -118,9 +136,54 @@ export default function Player({ item, jobs, config, onClose }) {
       return
     }
     run(
-      startExport(item.path, s, e, style, vivid, tx, ty, fc, captions),
+      startExport(item.path, s, e, style, vivid, tx, ty, fc,
+        captions, captionSource, captionPos),
       'Export queued — progress shows in Jobs.'
     )
+  }
+
+  const addCapItem = () => {
+    const t = videoRef.current ? videoRef.current.currentTime : 0
+    setCapItems((prev) => [
+      ...prev,
+      { text: '', start: fmtDuration(t), duration: '3' },
+    ])
+  }
+
+  const editCapItem = (idx, field, value) =>
+    setCapItems((prev) =>
+      prev.map((it, i) => (i === idx ? { ...it, [field]: value } : it))
+    )
+
+  const removeCapItem = (idx) =>
+    setCapItems((prev) => prev.filter((_, i) => i !== idx))
+
+  const doSaveCaptions = () => {
+    setError(null)
+    setNotice(null)
+    const speed = parseFloat(capSpeed)
+    if (!(speed >= 0.5 && speed <= 10)) {
+      setError('Speed must be between 0.5 and 10 words per second.')
+      return
+    }
+    const items = []
+    for (const it of capItems) {
+      if (!it.text.trim()) continue
+      const s = parseTime(it.start)
+      const d = parseFloat(it.duration)
+      if (s == null || !(d > 0)) {
+        setError(`Check the times on "${it.text.slice(0, 30)}" — start like 1:23, duration in seconds.`)
+        return
+      }
+      items.push({ text: it.text.trim(), start: s, duration: d })
+    }
+    saveCaptions(item.path, speed, items)
+      .then((r) => {
+        setHasManualCaps(r.saved > 0)
+        if (r.saved > 0) setCaptionSource('manual')
+        setNotice(`Saved ${r.saved} caption${r.saved === 1 ? '' : 's'}.`)
+      })
+      .catch((e) => setError(e.message))
   }
 
   const doExport = () => {
@@ -297,19 +360,112 @@ export default function Player({ item, jobs, config, onClose }) {
           </label>
           <label
             className="vivid-check"
-            title={item.has_transcript
-              ? 'Burn word-timed captions into the clip'
-              : 'Run Transcribe first'}
+            title={item.has_transcript || hasManualCaps
+              ? 'Burn captions into the clip'
+              : 'Run Transcribe or add manual captions first'}
           >
             <input
               type="checkbox"
               checked={captions}
-              disabled={!item.has_transcript}
+              disabled={!item.has_transcript && !hasManualCaps}
               onChange={(e) => setCaptions(e.target.checked)}
             />
             Captions
           </label>
+          {captions && (
+            <>
+              <select
+                value={captionSource}
+                onChange={(e) => setCaptionSource(e.target.value)}
+                aria-label="Caption source"
+              >
+                <option value="auto" disabled={!item.has_transcript}>
+                  Auto (transcript)
+                </option>
+                <option value="manual" disabled={!hasManualCaps}>
+                  Manual
+                </option>
+              </select>
+              <select
+                value={captionPos}
+                onChange={(e) => setCaptionPos(e.target.value)}
+                aria-label="Caption position"
+              >
+                <option value="bottom">Bottom</option>
+                <option value="middle">Middle</option>
+                <option value="top">Top</option>
+              </select>
+            </>
+          )}
           <button className="btn accent" onClick={doExport}>Export clip</button>
+        </div>
+
+        <div className="caps-editor">
+          <div className="caps-head">
+            <button className="btn ghost" onClick={() => setCapsOpen(!capsOpen)}>
+              {capsOpen ? 'Hide caption editor' : 'Edit captions manually'}
+              {hasManualCaps ? ' ✓' : ''}
+            </button>
+            {capsOpen && (
+              <label className="trim-field mono muted" title="How fast the amber fill sweeps the words">
+                <input
+                  type="text"
+                  value={capSpeed}
+                  onChange={(e) => setCapSpeed(e.target.value)}
+                  aria-label="Caption fill speed in words per second"
+                />
+                words/sec
+              </label>
+            )}
+          </div>
+          {capsOpen && (
+            <>
+              {capItems.map((it, idx) => (
+                <div key={idx} className="cap-row">
+                  <input
+                    type="text"
+                    className="cap-text"
+                    placeholder="Caption text"
+                    value={it.text}
+                    onChange={(e) => editCapItem(idx, 'text', e.target.value)}
+                  />
+                  <label className="trim-field mono muted">
+                    <input
+                      type="text"
+                      value={it.start}
+                      onChange={(e) => editCapItem(idx, 'start', e.target.value)}
+                      aria-label="Caption start time"
+                    />
+                    at
+                  </label>
+                  <label className="trim-field mono muted">
+                    <input
+                      type="text"
+                      value={it.duration}
+                      onChange={(e) => editCapItem(idx, 'duration', e.target.value)}
+                      aria-label="Caption duration in seconds"
+                    />
+                    sec
+                  </label>
+                  <button
+                    className="btn ghost"
+                    onClick={() => removeCapItem(idx)}
+                    aria-label="Remove caption"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+              <div className="cap-actions">
+                <button className="btn ghost" onClick={addCapItem}>
+                  Add caption at playhead
+                </button>
+                <button className="btn ghost ok-text" onClick={doSaveCaptions}>
+                  Save captions
+                </button>
+              </div>
+            </>
+          )}
         </div>
 
         <div className="trim-row">

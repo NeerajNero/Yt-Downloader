@@ -160,11 +160,25 @@ class ExportBody(BaseModel):
     trim_y: float = 0.0
     fg_crop: float = 0.0
     captions: bool = False
+    caption_source: str = "auto"
+    caption_pos: str = "bottom"
 
 
 class SuggestBody(BaseModel):
     path: str
     count: int = 5
+
+
+class CaptionItem(BaseModel):
+    text: str
+    start: float
+    duration: float
+
+
+class CaptionsBody(BaseModel):
+    path: str
+    speed: float = 2.5
+    items: list[CaptionItem]
 
 
 def _files_url(p):
@@ -268,6 +282,7 @@ def api_library():
             "shorts": shorts,
             "has_scenes": downloader.scenes_path_for(main).is_file(),
             "has_transcript": downloader.transcript_path_for(main).is_file(),
+            "has_captions": downloader.captions_path_for(main).is_file(),
             "has_suggestions": ai.suggestions_path_for(main).is_file(),
             "downloaded_at": info_path.stat().st_mtime,
         })
@@ -296,13 +311,50 @@ def api_export(body: ExportBody):
         raise HTTPException(400, "Trim must be between 0 and 40 percent.")
     if not (0 <= body.fg_crop <= 40):
         raise HTTPException(400, "Video crop must be between 0 and 40 percent.")
-    if body.captions and not downloader.transcript_path_for(src).is_file():
+    if body.caption_source not in ("auto", "manual"):
+        raise HTTPException(400, "Caption source must be 'auto' or 'manual'.")
+    if body.caption_pos not in downloader.CAPTION_POSITIONS:
+        raise HTTPException(400, "Caption position must be bottom, middle, or top.")
+    if body.captions and body.caption_source == "auto" \
+            and not downloader.transcript_path_for(src).is_file():
         raise HTTPException(400, "No transcript yet — run Transcribe first.")
+    if body.captions and body.caption_source == "manual" \
+            and not downloader.captions_path_for(src).is_file():
+        raise HTTPException(400, "No manual captions yet — add them first.")
     return downloader.start_export(
         src, body.start, body.end, style=body.style, vivid=body.vivid,
         trim_x=body.trim_x, trim_y=body.trim_y, fg_crop=body.fg_crop,
-        captions=body.captions,
+        captions=body.captions, caption_source=body.caption_source,
+        caption_pos=body.caption_pos,
     )
+
+
+@app.get("/api/captions")
+def api_captions_get(path: str):
+    src = _safe_path(path)
+    c_path = downloader.captions_path_for(src)
+    if not c_path.is_file():
+        raise HTTPException(404, "No manual captions yet.")
+    return json.loads(c_path.read_text(encoding="utf-8"))
+
+
+@app.post("/api/captions")
+def api_captions_save(body: CaptionsBody):
+    src = _safe_path(body.path)
+    if not src.is_file():
+        raise HTTPException(404, "That file no longer exists.")
+    if not (0.5 <= body.speed <= 10):
+        raise HTTPException(400, "Speed must be between 0.5 and 10 words/sec.")
+    items = [
+        {"text": i.text.strip(), "start": i.start, "duration": i.duration}
+        for i in body.items
+        if i.text.strip() and i.start >= 0 and i.duration > 0
+    ]
+    data = {"speed": body.speed, "items": sorted(items, key=lambda i: i["start"])}
+    downloader.captions_path_for(src).write_text(
+        json.dumps(data), encoding="utf-8"
+    )
+    return {"ok": True, "saved": len(items)}
 
 
 def _meta_for(src):

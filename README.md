@@ -135,6 +135,13 @@ convert for editing first).
 - **Captions** (checkbox in the export panel) burns word-timed karaoke-style
   captions into the 9:16 clip — white text, the spoken word fills amber.
   Requires a transcript first.
+- **Manual captions** — "Edit captions manually" in the player opens an
+  editor where each caption has its own text, start time, and on-screen
+  duration; "Add caption at playhead" pre-fills the start time. A global
+  words/sec speed controls how fast the amber fill sweeps the words. Saved
+  as a `<name>.captions.json` sidecar. At export, pick the caption source
+  (Auto transcript / Manual) and position (Bottom / Middle / Top) — the
+  position applies to both sources. Long lines wrap automatically.
 - macOS note: Homebrew's plain `ffmpeg` formula is built without libass and
   can't burn captions — install `brew install ffmpeg-full` (the server prefers
   it automatically). Windows WinGet builds already include libass.
@@ -181,5 +188,6 @@ folder moves:
 | `<name>_edit.mp4` | Convert for editing |
 | `<name>.scenes.json` | scene detection |
 | `<name>.transcript.json` | Transcribe |
+| `<name>.captions.json` | manual caption editor |
 | `<name>.suggestions.json` | AI Suggest clips |
 | `shorts/*.mp4` | clip exports / Auto Shorts |
