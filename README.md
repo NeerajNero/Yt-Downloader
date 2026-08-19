@@ -36,6 +36,12 @@ The browser opens automatically at http://127.0.0.1:8765.
 
 ## Configuration
 
+Shared defaults live in `config.json` (committed). Machine-specific values go
+in `.env` (gitignored) — copy `.env.example` to `.env` and edit. `.env` and OS
+environment variables override `config.json`, so the Mac and Windows setups
+never conflict in git. Supported keys: `DOWNLOAD_DIR`, `PORT`, `COOKIES_FILE`,
+`PIPELINE_CMD`.
+
 `config.json`:
 
 - `download_dir` — where downloads land. A relative value resolves against the
@@ -93,9 +99,30 @@ fix already:
 
 Then restart the server.
 
-## Not built yet (v2)
+## Player, scene detection, and 9:16 clips
 
-The disabled **Pipeline** button on library cards is a reserved hook for
-handing a file to the external VOD-analysis pipeline. Also out of scope for
-v1: the 9:16 Shorts exporter, scene detection, in-app player, playlists,
-websockets.
+Click a library thumbnail to open the player. It prefers the edit copy when
+one exists — mkv/AV1 originals don't play in every browser (if playback fails,
+convert for editing first).
+
+- **Detect scenes** runs ffmpeg scene-cut detection (threshold 0.30) and saves
+  a `<name>.scenes.json` sidecar; cuts appear as amber markers under the video,
+  click one to jump there.
+- **Export clip** renders a vertical 1080×1920 H.264 clip from the chosen time
+  range into a `shorts/` subfolder. Styles: *Blurred pad* (whole frame over a
+  blurred background) or *Center crop*. Times accept `1:23` or plain seconds;
+  "Set start/end" grabs the current playhead.
+- **Vivid color boost** applies a saturation/contrast grade — the punchy look
+  people associate with HDR. Real HDR can't be created from SDR sources; for
+  true grading use the mkv original in Resolve.
+
+## VOD pipeline hand-off
+
+Set `PIPELINE_CMD` in `.env` to enable the Pipeline button on library cards,
+e.g. `PIPELINE_CMD=python D:\vod-pipeline\autopipe.py`. Clicking it runs that
+command with the video file path appended as the last argument and tracks it
+as a job (done/error follows the command's exit code).
+
+## Not built yet
+
+Playlist support and websocket progress remain future work.

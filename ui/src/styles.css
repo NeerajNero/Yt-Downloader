@@ -267,3 +267,208 @@ input[type="text"]::placeholder { color: var(--muted); }
 }
 
 .empty { margin: 4px 0 0; }
+
+/* ---- new job kinds ---- */
+.chip-exporting, .chip-analyzing, .chip-running, .chip-queued {
+  color: var(--accent);
+  border-color: rgba(242, 163, 60, 0.4);
+}
+.scrubber-fill.indeterminate {
+  opacity: 0.35;
+  background: repeating-linear-gradient(
+    -45deg, var(--accent) 0 8px, transparent 8px 16px
+  );
+}
+
+/* ---- player modal ---- */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 10, 13, 0.78);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  z-index: 10;
+}
+.modal {
+  width: min(880px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  margin-bottom: 0;
+}
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.modal-title {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.player-video {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  border-radius: 8px;
+  display: block;
+}
+
+/* Marker strip: a slim timeline under the video with scene-cut ticks. */
+.marker-strip-wrap { margin: 10px 0 16px; }
+.marker-strip {
+  position: relative;
+  height: 18px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background:
+    repeating-linear-gradient(
+      to right,
+      transparent 0 39px,
+      rgba(140, 151, 163, 0.18) 39px 40px
+    ),
+    var(--panel2);
+}
+.marker {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  margin-left: -4px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+}
+.marker::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 3px;
+  width: 2px;
+  background: var(--accent);
+}
+.marker:hover::after { width: 3px; left: 2.5px; }
+.marker-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+  font-size: 12px;
+}
+
+/* ---- 9:16 export controls ---- */
+.export-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.time-field { display: flex; gap: 4px; align-items: center; }
+.time-field input {
+  width: 72px;
+  font-family: var(--mono);
+  text-align: center;
+  padding: 7px 8px;
+}
+.vivid-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13.5px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.vivid-check input { accent-color: var(--accent); }
+.notice-line {
+  color: var(--ok);
+  font-size: 13px;
+  margin: 10px 0 0;
+}
+
+/* ---- exported clips list ---- */
+.shorts-list { margin-top: 16px; }
+.shorts-list h3 {
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  margin: 0 0 6px;
+}
+.shorts-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 0;
+  border-top: 1px solid var(--border);
+}
+.shorts-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+/* ---- clickable card thumbnail ---- */
+.card-thumb {
+  position: relative;
+  padding: 0;
+  border: none;
+  cursor: pointer;
+  width: 100%;
+  display: block;
+}
+.play-glyph {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+  color: var(--text);
+  background: rgba(10, 12, 15, 0.35);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.card-thumb:hover .play-glyph,
+.card-thumb:focus-visible .play-glyph { opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+  .play-glyph { transition: none; }
+}
+
+/* ---- border trim controls ---- */
+.trim-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  margin-top: 8px;
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.trim-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+.trim-field input {
+  width: 56px;
+  font-family: var(--mono);
+  text-align: center;
+  padding: 7px 8px;
+}

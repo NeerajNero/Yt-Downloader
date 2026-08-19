@@ -51,7 +51,7 @@ export default function App() {
       <Library
         items={library}
         jobs={jobs}
-        downloadDir={config?.download_dir}
+        config={config}
         onChanged={refreshLibrary}
       />
     </div>

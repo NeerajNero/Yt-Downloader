@@ -23,3 +23,6 @@ Thumbs.db
 
 # Logged-in YouTube session — never commit
 cookies.txt
+
+# Machine-local overrides (.env.example is the committed template)
+.env

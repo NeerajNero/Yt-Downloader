@@ -28,6 +28,13 @@ export function qualityLabel(h) {
   return `${h}p`
 }
 
+export function parseTime(text) {
+  // "83", "1:23", "1:02:03" → seconds, or null if unreadable.
+  const parts = String(text).trim().split(':')
+  if (parts.some((p) => p === '' || isNaN(p))) return null
+  return parts.reduce((acc, p) => acc * 60 + parseFloat(p), 0)
+}
+
 export function needsConvert(item) {
   const v = (item.vcodec || '').toLowerCase()
   const isVp9Av1 =

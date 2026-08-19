@@ -49,10 +49,63 @@ import downloader
 
 ROOT = Path(__file__).resolve().parent.parent
 
-_config = {"download_dir": "downloads", "port": 8765, "cookies_file": "cookies.txt"}
+_config = {
+    "download_dir": "downloads",
+    "port": 8765,
+    "cookies_file": "cookies.txt",
+    "pipeline_cmd": None,   # e.g. ["python", "D:\\vod-pipeline\\autopipe.py"]
+}
 config_file = ROOT / "config.json"
 if config_file.exists():
     _config.update(json.loads(config_file.read_text()))
+
+
+def _apply_env_overrides():
+    """Overlay machine-local settings from .env (gitignored) and OS env vars.
+
+    config.json holds shared defaults and is committed; per-machine paths go
+    in .env so branches never conflict on them. OS environment wins over .env.
+    Keys: DOWNLOAD_DIR, PORT, COOKIES_FILE, PIPELINE_CMD (a shell-style string,
+    e.g. `python D:\\vod-pipeline\\autopipe.py`).
+    """
+    values = {}
+    env_file = ROOT / ".env"
+    if env_file.is_file():
+        for line in env_file.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, val = line.partition("=")
+            values[key.strip()] = val.strip()
+    for key in ("DOWNLOAD_DIR", "PORT", "COOKIES_FILE", "PIPELINE_CMD"):
+        if key in os.environ:
+            values[key] = os.environ[key]
+
+    def unquote(v):
+        if len(v) >= 2 and v[0] == v[-1] and v[0] in "'\"":
+            return v[1:-1]
+        return v
+
+    if values.get("DOWNLOAD_DIR"):
+        _config["download_dir"] = unquote(values["DOWNLOAD_DIR"])
+    if values.get("PORT"):
+        _config["port"] = int(unquote(values["PORT"]))
+    if values.get("COOKIES_FILE"):
+        _config["cookies_file"] = unquote(values["COOKIES_FILE"])
+    if values.get("PIPELINE_CMD"):
+        # shlex handles quoting, so paths with spaces work:
+        # PIPELINE_CMD="C:\Program Files\Python\python.exe" D:\pipe\autopipe.py
+        # Windows needs posix=False or backslashes in paths get eaten.
+        import shlex
+        if os.name == "nt":
+            _config["pipeline_cmd"] = [
+                t.strip('"') for t in shlex.split(values["PIPELINE_CMD"], posix=False)
+            ]
+        else:
+            _config["pipeline_cmd"] = shlex.split(values["PIPELINE_CMD"])
+
+
+_apply_env_overrides()
 
 DOWNLOAD_DIR = Path(_config["download_dir"])
 if not DOWNLOAD_DIR.is_absolute():
@@ -93,9 +146,29 @@ class PathBody(BaseModel):
     path: str
 
 
+class ExportBody(BaseModel):
+    path: str
+    start: float
+    end: float
+    style: str = "crop"
+    vivid: bool = False
+    trim_x: float = 0.0
+    trim_y: float = 0.0
+    fg_crop: float = 0.0
+
+
+def _files_url(p):
+    return "/files/" + "/".join(
+        urllib.parse.quote(part) for part in p.relative_to(DOWNLOAD_DIR).parts
+    )
+
+
 @app.get("/api/config")
 def get_config():
-    return {"download_dir": str(DOWNLOAD_DIR)}
+    return {
+        "download_dir": str(DOWNLOAD_DIR),
+        "pipeline_enabled": bool(_config.get("pipeline_cmd")),
+    }
 
 
 @app.get("/api/probe")
@@ -156,13 +229,15 @@ def api_library():
         thumb = None
         for f in sorted(folder.iterdir()):
             if f.suffix.lower() in {".webp", ".jpg", ".jpeg", ".png"}:
-                thumb = "/files/" + "/".join(
-                    urllib.parse.quote(part)
-                    for part in f.relative_to(DOWNLOAD_DIR).parts
-                )
+                thumb = _files_url(f)
                 break
         if thumb is None:
             thumb = info.get("thumbnail")
+
+        shorts = [
+            {"path": str(s), "name": s.name, "url": _files_url(s)}
+            for s in sorted((folder / "shorts").glob("*.mp4"))
+        ] if (folder / "shorts").is_dir() else []
 
         items.append({
             "title": info.get("title") or main.stem,
@@ -176,6 +251,10 @@ def api_library():
             "edit_path": edit_path,
             "folder": str(folder),
             "thumb": thumb,
+            "media_url": _files_url(main),
+            "edit_url": _files_url(Path(edit_path)) if edit_path else None,
+            "shorts": shorts,
+            "has_scenes": downloader.scenes_path_for(main).is_file(),
             "downloaded_at": info_path.stat().st_mtime,
         })
     items.sort(key=lambda i: i["downloaded_at"], reverse=True)
@@ -188,6 +267,65 @@ def api_convert(body: PathBody):
     if not src.is_file():
         raise HTTPException(404, "That file no longer exists.")
     return downloader.start_convert(src)
+
+
+@app.post("/api/export")
+def api_export(body: ExportBody):
+    src = _safe_path(body.path)
+    if not src.is_file():
+        raise HTTPException(404, "That file no longer exists.")
+    if body.style not in ("crop", "blur"):
+        raise HTTPException(400, "Style must be 'crop' or 'blur'.")
+    if body.start < 0 or body.end <= body.start:
+        raise HTTPException(400, "End time must be after start time.")
+    if not (0 <= body.trim_x <= 40 and 0 <= body.trim_y <= 40):
+        raise HTTPException(400, "Trim must be between 0 and 40 percent.")
+    if not (0 <= body.fg_crop <= 40):
+        raise HTTPException(400, "Video crop must be between 0 and 40 percent.")
+    return downloader.start_export(
+        src, body.start, body.end, style=body.style, vivid=body.vivid,
+        trim_x=body.trim_x, trim_y=body.trim_y, fg_crop=body.fg_crop,
+    )
+
+
+@app.get("/api/borders")
+def api_borders(path: str):
+    src = _safe_path(path)
+    if not src.is_file():
+        raise HTTPException(404, "That file no longer exists.")
+    return downloader.detect_borders(src)
+
+
+@app.post("/api/scenes")
+def api_scenes_start(body: PathBody):
+    src = _safe_path(body.path)
+    if not src.is_file():
+        raise HTTPException(404, "That file no longer exists.")
+    return downloader.start_scenes(src)
+
+
+@app.get("/api/scenes")
+def api_scenes_get(path: str):
+    src = _safe_path(path)
+    scenes_file = downloader.scenes_path_for(src)
+    if not scenes_file.is_file():
+        raise HTTPException(404, "No scene data yet — run detection first.")
+    return json.loads(scenes_file.read_text())
+
+
+@app.post("/api/pipeline")
+def api_pipeline(body: PathBody):
+    cmd = _config.get("pipeline_cmd")
+    if not cmd:
+        raise HTTPException(
+            400, "No pipeline configured — set pipeline_cmd in config.json."
+        )
+    if isinstance(cmd, str):
+        cmd = [cmd]
+    src = _safe_path(body.path)
+    if not src.is_file():
+        raise HTTPException(404, "That file no longer exists.")
+    return downloader.start_pipeline(src, cmd)
 
 
 @app.post("/api/reveal")
