@@ -235,7 +235,15 @@ def _download_worker(job, event, url, quality, download_dir, cookiefile=None):
     }
     if FFMPEG_DIR:
         opts["ffmpeg_location"] = FFMPEG_DIR
-    if quality != "audio":
+    if quality == "audio":
+        # YouTube serves m4a/opus, not mp3 — convert for compatibility.
+        # preferredquality "0" = best VBR (~V0).
+        opts["postprocessors"] = [{
+            "key": "FFmpegExtractAudio",
+            "preferredcodec": "mp3",
+            "preferredquality": "0",
+        }]
+    else:
         opts["merge_output_format"] = "mkv"
     if cookiefile:
         opts["cookiefile"] = str(cookiefile)

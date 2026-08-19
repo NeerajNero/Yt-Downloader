@@ -74,7 +74,7 @@ export default function DownloadPanel() {
                 {info.heights.map((h) => (
                   <option key={h} value={String(h)}>{qualityLabel(h)}</option>
                 ))}
-                <option value="audio">Audio only</option>
+                <option value="audio">Audio only (mp3)</option>
               </select>
               <button className="btn accent" onClick={download}>Download</button>
             </div>
