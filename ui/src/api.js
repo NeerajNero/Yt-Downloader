@@ -22,6 +22,24 @@ export const startDownload = (url, quality, title) =>
     body: JSON.stringify({ url, quality, title }),
   }).then(handle)
 
+// XHR instead of fetch: it reports upload progress.
+export const uploadFile = (file, onProgress) =>
+  new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', `/api/upload?filename=${encodeURIComponent(file.name)}`)
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && onProgress) onProgress((e.loaded / e.total) * 100)
+    }
+    xhr.onload = () => {
+      let body = null
+      try { body = JSON.parse(xhr.responseText) } catch { /* non-JSON */ }
+      if (xhr.status >= 200 && xhr.status < 300) resolve(body)
+      else reject(new Error(body?.detail || `Upload failed (${xhr.status})`))
+    }
+    xhr.onerror = () => reject(new Error('Upload failed — connection error.'))
+    xhr.send(file)
+  })
+
 export const startImport = (path) =>
   fetch('/api/import', {
     method: 'POST',
@@ -47,7 +65,8 @@ export const startConvert = (path) =>
   }).then(handle)
 
 export const startExport = (path, start, end, style, vivid, trimX, trimY,
-  fgCrop, captions, captionSource = 'auto', captionPos = 'bottom') =>
+  fgCrop, captions, captionSource = 'auto', captionPos = 'bottom',
+  captionStyle = 'karaoke') =>
   fetch('/api/export', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -55,6 +74,7 @@ export const startExport = (path, start, end, style, vivid, trimX, trimY,
       path, start, end, style, vivid,
       trim_x: trimX, trim_y: trimY, fg_crop: fgCrop,
       captions, caption_source: captionSource, caption_pos: captionPos,
+      caption_style: captionStyle,
     }),
   }).then(handle)
 

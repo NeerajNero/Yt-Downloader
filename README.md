@@ -111,9 +111,13 @@ Then restart the server.
 
 ## Importing local videos
 
-The ingest box accepts a **local file path** as well as a link — paste
-something like `/Users/you/Movies/raw.mp4` (or `D:\footage\raw.mp4` on
-Windows; surrounding quotes are fine) and press Check. The card shows the
+Two ways to get local footage in:
+
+- **The + button** next to the ingest box opens a file picker; the file
+  uploads to the server with a progress bar and lands in the library.
+- **Paste a file path** into the ingest box — something like
+  `/Users/you/Movies/raw.mp4` (or `D:\footage\raw.mp4` on Windows;
+  surrounding quotes are fine) and press Check. The card shows the
 file's resolution, size, and duration, and **Import to library** copies it
 into its own library folder with a generated thumbnail and metadata sidecar,
 with copy progress in Jobs. Imported videos get every feature downloads get:
@@ -144,9 +148,13 @@ convert for editing first).
   cloud, no cost. The first run downloads the model (~500 MB for the default
   `small`; change with `WHISPER_MODEL` in `.env`). Output is a
   `<name>.transcript.json` sidecar with word-level timestamps.
-- **Captions** (checkbox in the export panel) burns word-timed karaoke-style
-  captions into the 9:16 clip — white text, the spoken word fills amber.
-  Requires a transcript first.
+- **Captions** (checkbox in the export panel) burns word-timed captions into
+  the 9:16 clip. Four styles, selectable next to the checkbox:
+  *Karaoke* (default — white text, the spoken word fills amber),
+  *Typewriter* (words appear one by one as spoken and accumulate),
+  *Pop* (bold uppercase chunks that bounce in with an amber glow and drop
+  shadow), and *Minimal* (small clean static lines). All styles work with
+  both auto (transcript) and manual captions, at any position.
 - **Manual captions** — "Edit captions manually" in the player opens an
   editor where each caption has its own text, start time, and on-screen
   duration; "Add caption at playhead" pre-fills the start time. A global

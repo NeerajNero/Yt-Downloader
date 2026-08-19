@@ -435,7 +435,8 @@ def detect_borders(src):
 
 def start_export(src, start, end, style="crop", vivid=False,
                  trim_x=0.0, trim_y=0.0, fg_crop=0.0, captions=False,
-                 caption_source="auto", caption_pos="bottom"):
+                 caption_source="auto", caption_pos="bottom",
+                 caption_style="karaoke"):
     src = Path(src)
     job = _new_job("export", src.stem)
     job["src"] = str(src)
@@ -443,7 +444,7 @@ def start_export(src, start, end, style="crop", vivid=False,
         target=_export_worker,
         args=(job, _EVENTS[job["id"]], src, float(start), float(end),
               style, vivid, float(trim_x), float(trim_y), float(fg_crop),
-              captions, caption_source, caption_pos),
+              captions, caption_source, caption_pos, caption_style),
         daemon=True,
     )
     thread.start()
@@ -452,7 +453,8 @@ def start_export(src, start, end, style="crop", vivid=False,
 
 def run_export(job, event, src, start, end, style="blur", vivid=False,
                trim_x=0.0, trim_y=0.0, fg_crop=0.0, captions=False,
-               caption_source="auto", caption_pos="bottom"):
+               caption_source="auto", caption_pos="bottom",
+               caption_style="karaoke"):
     """Render one 9:16 clip; returns the output path. Raises on failure or
     Cancelled. Percent lands on the given job dict."""
     import tempfile
@@ -469,6 +471,8 @@ def run_export(job, event, src, start, end, style="blur", vivid=False,
         suffix += "_cap"
         if caption_source == "manual":
             suffix += "m"
+        if caption_style != "karaoke":
+            suffix += f"-{caption_style[:4]}"
         if caption_pos != "bottom":
             suffix += f"-{caption_pos[:3]}"
     out_path = shorts_dir / f"{src.stem}_9x16_{int(start)}s-{int(end)}s_{style}{suffix}.mp4"
@@ -493,7 +497,8 @@ def run_export(job, event, src, start, end, style="blur", vivid=False,
                 )
             manual = _json.loads(c_path.read_text(encoding="utf-8"))
             n = write_manual_captions_ass(
-                manual, start, end, ass_file, position=caption_pos
+                manual, start, end, ass_file,
+                position=caption_pos, style=caption_style,
             )
         else:
             t_path = transcript_path_for(src)
@@ -501,7 +506,8 @@ def run_export(job, event, src, start, end, style="blur", vivid=False,
                 raise RuntimeError("No transcript yet — run Transcribe first.")
             transcript = _json.loads(t_path.read_text(encoding="utf-8"))
             n = write_captions_ass(
-                transcript, start, end, ass_file, position=caption_pos
+                transcript, start, end, ass_file,
+                position=caption_pos, style=caption_style,
             )
         if n > 0:
             filt += "," + _subtitles_filter_path(ass_file)
@@ -535,12 +541,13 @@ def run_export(job, event, src, start, end, style="blur", vivid=False,
 
 def _export_worker(job, event, src, start, end, style, vivid,
                    trim_x, trim_y, fg_crop, captions, caption_source,
-                   caption_pos):
+                   caption_pos, caption_style):
     job["status"] = "exporting"
     try:
         out_path = run_export(
             job, event, src, start, end, style, vivid,
             trim_x, trim_y, fg_crop, captions, caption_source, caption_pos,
+            caption_style,
         )
         job["percent"] = 100.0
         job["path"] = str(out_path)
@@ -795,9 +802,48 @@ CAPTION_POSITIONS = {
     "top": (8, 220),
 }
 
+# Caption style presets. Colors are ASS &HAABBGGRR (amber F2A33C -> 3CA3F2).
+# karaoke:    white text, the spoken word fills amber (the default)
+# typewriter: words appear one by one as spoken and accumulate
+# pop:        bold uppercase chunks that bounce in with amber glow + shadow
+# minimal:    small clean static lines, no animation
+CAPTION_STYLES = {
+    "karaoke": {"size": 88, "primary": "&H003CA3F2", "secondary": "&H00FFFFFF",
+                "bold": 1, "outline": 6, "upper": False,
+                "shadow": 2, "back": "&H80101317"},
+    "typewriter": {"size": 88, "primary": "&H00FFFFFF", "secondary": "&HFFFFFFFF",
+                   "bold": 1, "outline": 6, "upper": False,
+                   "shadow": 2, "back": "&H80101317"},
+    "pop": {"size": 96, "primary": "&H00FFFFFF", "secondary": "&H00FFFFFF",
+            "bold": 1, "outline": 8, "upper": True,
+            "shadow": 9, "back": "&H60000000"},
+    "minimal": {"size": 64, "primary": "&H00FFFFFF", "secondary": "&H00FFFFFF",
+                "bold": 0, "outline": 3, "upper": False,
+                "shadow": 2, "back": "&H80101317"},
+}
 
-def _ass_header(position):
+# Bounce-in used by "pop".
+_POP_TAG = "{\\fscx70\\fscy70\\t(0,120,\\fscx106\\fscy106)\\t(120,220,\\fscx100\\fscy100)}"
+# Layer under the pop text: invisible fill, fat blurred amber border -> a
+# glow rim that reaches past the white text's black outline.
+_POP_GLOW_TAG = "{\\1a&HFF&\\shad0\\bord22\\3c&H003CA3F2&\\3a&H30&\\blur16}"
+
+
+def _pop_events(start, end, text):
+    """Two stacked events: amber glow underneath, white bounce on top."""
+    t = f"{_ass_time(start)},{_ass_time(end)}"
+    return [
+        f"Dialogue: 0,{t},Cap,,0,0,0,,{_POP_GLOW_TAG}{_POP_TAG}{text}",
+        f"Dialogue: 1,{t},Cap,,0,0,0,,{_POP_TAG}{text}",
+    ]
+
+# Styles whose word timing is expressed with \k karaoke tags.
+_K_STYLES = {"karaoke", "typewriter"}
+
+
+def _ass_header(position, style="karaoke"):
     align, margin_v = CAPTION_POSITIONS.get(position, CAPTION_POSITIONS["bottom"])
+    s = CAPTION_STYLES.get(style, CAPTION_STYLES["karaoke"])
     return (
         "[Script Info]\nScriptType: v4.00+\n"
         "PlayResX: 1080\nPlayResY: 1920\nWrapStyle: 0\n\n"
@@ -806,23 +852,30 @@ def _ass_header(position):
         "OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, "
         "ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
         "Alignment, MarginL, MarginR, MarginV, Encoding\n"
-        # Primary = amber fill (karaoke sung), Secondary = white (unsung)
-        "Style: Cap,Arial,88,&H003CA3F2,&H00FFFFFF,&H00101317,&H80101317,"
-        f"1,0,0,0,100,100,1,0,1,6,2,{align},60,60,{margin_v},1\n\n"
+        f"Style: Cap,Arial,{s['size']},{s['primary']},{s['secondary']},"
+        f"&H00101317,{s['back']},{s['bold']},0,0,0,100,100,1,0,1,"
+        f"{s['outline']},{s['shadow']},{align},60,60,{margin_v},1\n\n"
         "[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, "
         "MarginV, Effect, Text\n"
     )
 
 
+def _style_word(style, word):
+    return word.upper() if CAPTION_STYLES[style]["upper"] else word
+
+
 def write_captions_ass(transcript, clip_start, clip_end, out_path,
-                       max_words=4, max_gap=0.8, position="bottom"):
-    """Karaoke-style captions for a 1080x1920 clip: white text, the spoken
-    word fills amber. Word times are shifted so 0 = clip_start."""
+                       max_words=4, max_gap=0.8, position="bottom",
+                       style="karaoke"):
+    """Transcript captions for a 1080x1920 clip in the chosen style.
+    Word times are shifted so 0 = clip_start."""
+    if style not in CAPTION_STYLES:
+        style = "karaoke"
     words = [
         w for seg in transcript["segments"] for w in seg["words"]
         if w["s"] < clip_end and w["e"] > clip_start and w["w"]
     ]
-    header = _ass_header(position)
+    events = []
     lines = []
     group = []
     for w in words:
@@ -835,21 +888,33 @@ def write_captions_ass(transcript, clip_start, clip_end, out_path,
     if group:
         lines.append(group)
 
-    events = []
     for group in lines:
         start = max(group[0]["s"] - clip_start, 0)
         end = min(group[-1]["e"], clip_end) - clip_start
         if end <= start:
             continue
-        parts = []
-        for w in group:
-            cs = max(int((min(w["e"], clip_end) - max(w["s"], clip_start)) * 100), 1)
-            parts.append(f"{{\\k{cs}}}{_ass_escape(w['w'])}")
+        if style in _K_STYLES:
+            parts = []
+            for w in group:
+                cs = max(int(
+                    (min(w["e"], clip_end) - max(w["s"], clip_start)) * 100
+                ), 1)
+                parts.append(f"{{\\k{cs}}}{_ass_escape(w['w'])}")
+            text = " ".join(parts)
+        else:
+            text = _ass_escape(" ".join(
+                _style_word(style, w["w"]) for w in group
+            ))
+            if style == "pop":
+                events.extend(_pop_events(start, end, text))
+                continue
         events.append(
-            f"Dialogue: 0,{_ass_time(start)},{_ass_time(end)},Cap,,0,0,0,,"
-            + " ".join(parts)
+            f"Dialogue: 0,{_ass_time(start)},{_ass_time(end)},Cap,,0,0,0,,{text}"
         )
-    Path(out_path).write_text(header + "\n".join(events) + "\n", encoding="utf-8")
+
+    Path(out_path).write_text(
+        _ass_header(position, style) + "\n".join(events) + "\n", encoding="utf-8"
+    )
     return len(events)
 
 
@@ -859,10 +924,12 @@ def captions_path_for(src):
 
 
 def write_manual_captions_ass(manual, clip_start, clip_end, out_path,
-                              position="bottom"):
-    """Hand-typed captions: each item is {text, start, duration}. The amber
-    fill sweeps the words at `speed` words/sec, then the line holds until
+                              position="bottom", style="karaoke"):
+    """Hand-typed captions: each item is {text, start, duration}. Karaoke and
+    typewriter pace the words at `speed` words/sec, then the line holds until
     its duration ends. Times are shifted so 0 = clip_start."""
+    if style not in CAPTION_STYLES:
+        style = "karaoke"
     speed = max(float(manual.get("speed") or 2.5), 0.5)
     events = []
     for item in manual.get("items", []):
@@ -875,17 +942,24 @@ def write_manual_captions_ass(manual, clip_start, clip_end, out_path,
         end = min(i_end, clip_end) - clip_start
         if end - start < 0.2:
             continue
-        words = text.split()
-        fill_time = min(end - start, len(words) / speed)
-        per_word_cs = max(int(fill_time / len(words) * 100), 1)
-        line = " ".join(
-            f"{{\\k{per_word_cs}}}{_ass_escape(w)}" for w in words
-        )
+        words = [_style_word(style, w) for w in text.split()]
+
+        if style in _K_STYLES:
+            fill_time = min(end - start, len(words) / speed)
+            per_word_cs = max(int(fill_time / len(words) * 100), 1)
+            line = " ".join(
+                f"{{\\k{per_word_cs}}}{_ass_escape(w)}" for w in words
+            )
+        else:
+            line = _ass_escape(" ".join(words))
+            if style == "pop":
+                events.extend(_pop_events(start, end, line))
+                continue
         events.append(
             f"Dialogue: 0,{_ass_time(start)},{_ass_time(end)},Cap,,0,0,0,,{line}"
         )
     Path(out_path).write_text(
-        _ass_header(position) + "\n".join(events) + "\n", encoding="utf-8"
+        _ass_header(position, style) + "\n".join(events) + "\n", encoding="utf-8"
     )
     return len(events)
 
@@ -932,6 +1006,46 @@ def probe_local(src):
     }
 
 
+def allocate_import_folder(download_dir, stem):
+    """One folder per video, like downloads; suffix on name collisions."""
+    folder = Path(download_dir) / stem
+    n = 2
+    while folder.exists():
+        folder = Path(download_dir) / f"{stem} ({n})"
+        n += 1
+    folder.mkdir(parents=True)
+    return folder
+
+
+def finalize_import(dest, source=None):
+    """Write the info.json sidecar and thumbnail for an imported media file."""
+    import json as _json
+
+    dest = Path(dest)
+    folder, stem = dest.parent, dest.stem
+    meta = probe_local(dest)
+    info = {
+        "title": stem,
+        "uploader": "Local import",
+        "duration": meta["duration"],
+        "width": meta["width"],
+        "height": meta["height"],
+        "vcodec": meta["vcodec"],
+    }
+    if source:
+        info["imported_from"] = str(source)
+    (folder / f"{stem}.info.json").write_text(
+        _json.dumps(info), encoding="utf-8"
+    )
+    ss = (meta["duration"] or 4) * 0.25
+    subprocess.run(
+        [FFMPEG_BIN, "-ss", str(ss), "-i", str(dest),
+         "-frames:v", "1", "-vf", "scale=640:-2", "-q:v", "4",
+         "-y", "-loglevel", "error", str(folder / f"{stem}.jpg")],
+        capture_output=True,
+    )
+
+
 def start_import(src, download_dir):
     src = Path(src)
     job = _new_job("import", src.stem)
@@ -951,15 +1065,8 @@ def _import_worker(job, event, src, download_dir):
     job["status"] = "importing"
     folder = None
     try:
-        meta = probe_local(src)
-
-        # One folder per video, like downloads; suffix on name collisions.
-        folder = download_dir / src.stem
-        n = 2
-        while folder.exists():
-            folder = download_dir / f"{src.stem} ({n})"
-            n += 1
-        folder.mkdir(parents=True)
+        probe_local(src)  # fail fast on unreadable files
+        folder = allocate_import_folder(download_dir, src.stem)
         stem = folder.name
         dest = folder / f"{stem}{src.suffix.lower()}"
 
@@ -983,24 +1090,7 @@ def _import_worker(job, event, src, download_dir):
                     remaining = total - copied
                     job["eta"] = remaining / (copied / elapsed)
 
-        (folder / f"{stem}.info.json").write_text(_json.dumps({
-            "title": stem,
-            "uploader": "Local import",
-            "duration": meta["duration"],
-            "width": meta["width"],
-            "height": meta["height"],
-            "vcodec": meta["vcodec"],
-            "imported_from": str(src),
-        }), encoding="utf-8")
-
-        # Thumbnail from a quarter of the way in.
-        ss = (meta["duration"] or 4) * 0.25
-        subprocess.run(
-            [FFMPEG_BIN, "-ss", str(ss), "-i", str(dest),
-             "-frames:v", "1", "-vf", "scale=640:-2", "-q:v", "4",
-             "-y", "-loglevel", "error", str(folder / f"{stem}.jpg")],
-            capture_output=True,
-        )
+        finalize_import(dest, source=src)
 
         job["percent"] = 100.0
         job["speed"] = None

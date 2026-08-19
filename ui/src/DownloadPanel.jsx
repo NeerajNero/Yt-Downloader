@@ -1,13 +1,18 @@
-import React, { useState } from 'react'
-import { probe, startDownload, startImport } from './api.js'
+import React, { useRef, useState } from 'react'
+import { probe, startDownload, startImport, uploadFile } from './api.js'
 import { fmtBytes, fmtDuration, qualityLabel } from './util.js'
 
-export default function DownloadPanel() {
+const ACCEPT = '.mkv,.mp4,.webm,.m4a,.mov,.mp3,.opus,video/*,audio/*'
+
+export default function DownloadPanel({ onImported }) {
   const [url, setUrl] = useState('')
   const [checking, setChecking] = useState(false)
   const [error, setError] = useState(null)
   const [info, setInfo] = useState(null)
   const [quality, setQuality] = useState('best')
+  const [upload, setUpload] = useState(null) // {name, pct}
+  const [notice, setNotice] = useState(null)
+  const fileRef = useRef(null)
 
   const check = async () => {
     const trimmed = url.trim()
@@ -48,6 +53,26 @@ export default function DownloadPanel() {
     }
   }
 
+  const onPickFile = async (e) => {
+    const file = e.target.files?.[0]
+    e.target.value = '' // allow re-picking the same file
+    if (!file || upload) return
+    setError(null)
+    setNotice(null)
+    setUpload({ name: file.name, pct: 0 })
+    try {
+      const result = await uploadFile(file, (pct) =>
+        setUpload({ name: file.name, pct })
+      )
+      setNotice(`Added "${result.title}" to the library.`)
+      if (onImported) onImported()
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setUpload(null)
+    }
+  }
+
   return (
     <section className="panel ingest">
       <div className="ingest-row">
@@ -62,8 +87,36 @@ export default function DownloadPanel() {
         <button className="btn" onClick={check} disabled={checking || !url.trim()}>
           {checking ? 'Checking…' : 'Check'}
         </button>
+        <button
+          className="btn add-file"
+          onClick={() => fileRef.current?.click()}
+          disabled={Boolean(upload)}
+          title="Add a local video file to the library"
+          aria-label="Add a local video file"
+        >
+          +
+        </button>
+        <input
+          ref={fileRef}
+          type="file"
+          accept={ACCEPT}
+          onChange={onPickFile}
+          hidden
+        />
       </div>
+      {upload && (
+        <div className="upload-progress">
+          <div className="scrubber" role="progressbar"
+            aria-valuenow={Math.floor(upload.pct)} aria-valuemin="0" aria-valuemax="100">
+            <div className="scrubber-fill" style={{ width: `${upload.pct}%` }} />
+          </div>
+          <p className="mono muted readout">
+            Uploading {upload.name} — {Math.floor(upload.pct)}%
+          </p>
+        </div>
+      )}
       {error && <p className="error-line">{error}</p>}
+      {notice && <p className="notice-line mono">{notice}</p>}
 
       {info && (
         <div className="probe-card">

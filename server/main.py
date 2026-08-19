@@ -40,7 +40,7 @@ for _tool in ("ffmpeg", "node", "deno"):
 
 
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -162,6 +162,7 @@ class ExportBody(BaseModel):
     captions: bool = False
     caption_source: str = "auto"
     caption_pos: str = "bottom"
+    caption_style: str = "karaoke"
 
 
 class SuggestBody(BaseModel):
@@ -224,6 +225,37 @@ def api_probe(url: str):
         return downloader.probe(url, cookiefile=_cookiefile())
     except Exception as exc:
         raise HTTPException(400, f"Could not read that link: {exc}")
+
+
+@app.post("/api/upload")
+async def api_upload(request: Request, filename: str):
+    """Raw-body upload from the + button; the browser can't expose a picked
+    file's path, so it streams the bytes instead."""
+    import re
+    import shutil as _shutil
+
+    name = Path(filename).name
+    ext = Path(name).suffix.lower()
+    if ext not in downloader.MEDIA_EXTS:
+        raise HTTPException(
+            400,
+            f"Can't import {ext or 'that'} files — supported: "
+            + ", ".join(sorted(downloader.MEDIA_EXTS)),
+        )
+    stem = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", Path(name).stem).strip() or "import"
+    folder = downloader.allocate_import_folder(DOWNLOAD_DIR, stem)
+    dest = folder / f"{folder.name}{ext}"
+    try:
+        with open(dest, "wb") as f:
+            async for chunk in request.stream():
+                f.write(chunk)
+        if dest.stat().st_size == 0:
+            raise HTTPException(400, "The upload was empty.")
+        downloader.finalize_import(dest)
+    except Exception:
+        _shutil.rmtree(folder, ignore_errors=True)
+        raise
+    return {"ok": True, "path": str(dest), "title": folder.name}
 
 
 @app.post("/api/import")
@@ -349,6 +381,11 @@ def api_export(body: ExportBody):
         raise HTTPException(400, "Caption source must be 'auto' or 'manual'.")
     if body.caption_pos not in downloader.CAPTION_POSITIONS:
         raise HTTPException(400, "Caption position must be bottom, middle, or top.")
+    if body.caption_style not in downloader.CAPTION_STYLES:
+        raise HTTPException(
+            400, "Caption style must be one of: "
+            + ", ".join(downloader.CAPTION_STYLES),
+        )
     if body.captions and body.caption_source == "auto" \
             and not downloader.transcript_path_for(src).is_file():
         raise HTTPException(400, "No transcript yet — run Transcribe first.")
@@ -359,7 +396,7 @@ def api_export(body: ExportBody):
         src, body.start, body.end, style=body.style, vivid=body.vivid,
         trim_x=body.trim_x, trim_y=body.trim_y, fg_crop=body.fg_crop,
         captions=body.captions, caption_source=body.caption_source,
-        caption_pos=body.caption_pos,
+        caption_pos=body.caption_pos, caption_style=body.caption_style,
     )
 
 

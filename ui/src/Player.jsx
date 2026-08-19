@@ -24,6 +24,7 @@ export default function Player({ item, jobs, config, onClose }) {
   const [captions, setCaptions] = useState(false)
   const [captionSource, setCaptionSource] = useState('auto')
   const [captionPos, setCaptionPos] = useState('bottom')
+  const [captionStyle, setCaptionStyle] = useState('karaoke')
   const [capsOpen, setCapsOpen] = useState(false)
   const [capSpeed, setCapSpeed] = useState('2.5')
   const [capItems, setCapItems] = useState([])
@@ -137,7 +138,7 @@ export default function Player({ item, jobs, config, onClose }) {
     }
     run(
       startExport(item.path, s, e, style, vivid, tx, ty, fc,
-        captions, captionSource, captionPos),
+        captions, captionSource, captionPos, captionStyle),
       'Export queued — progress shows in Jobs.'
     )
   }
@@ -385,6 +386,17 @@ export default function Player({ item, jobs, config, onClose }) {
                 <option value="manual" disabled={!hasManualCaps}>
                   Manual
                 </option>
+              </select>
+              <select
+                value={captionStyle}
+                onChange={(e) => setCaptionStyle(e.target.value)}
+                aria-label="Caption style"
+                title="Karaoke: amber word fill · Typewriter: words appear as spoken · Pop: bold chunks bounce in with amber glow · Minimal: small static lines"
+              >
+                <option value="karaoke">Karaoke</option>
+                <option value="typewriter">Typewriter</option>
+                <option value="pop">Pop</option>
+                <option value="minimal">Minimal</option>
               </select>
               <select
                 value={captionPos}
