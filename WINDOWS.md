@@ -91,6 +91,11 @@ The browser opens automatically at http://127.0.0.1:8765. The server binds to
 (resolves against the project root) or an absolute Windows path such as
 `"D:\\capture"` — note the doubled backslashes, JSON requires them.
 
+For age-restricted videos, drop a `cookies.txt` in the project root exactly as
+described in the README's "Age-restricted videos" section — the steps are
+identical on Windows. Do not copy `cookies.txt` between machines you don't
+control, and never commit it.
+
 ## Troubleshooting
 
 - **Downloads fail with `HTTP Error 403: Forbidden`** — YouTube changed

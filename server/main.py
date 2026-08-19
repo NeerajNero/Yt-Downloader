@@ -18,7 +18,7 @@ import downloader
 
 ROOT = Path(__file__).resolve().parent.parent
 
-_config = {"download_dir": "downloads", "port": 8765}
+_config = {"download_dir": "downloads", "port": 8765, "cookies_file": "cookies.txt"}
 config_file = ROOT / "config.json"
 if config_file.exists():
     _config.update(json.loads(config_file.read_text()))
@@ -29,6 +29,17 @@ if not DOWNLOAD_DIR.is_absolute():
 DOWNLOAD_DIR = DOWNLOAD_DIR.resolve()
 DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
 PORT = int(_config["port"])
+
+
+def _cookiefile():
+    """The configured cookies file, or None when it doesn't exist.
+
+    Checked per request so dropping in / refreshing cookies.txt needs no restart.
+    """
+    p = Path(_config["cookies_file"])
+    if not p.is_absolute():
+        p = ROOT / p
+    return p if p.is_file() else None
 
 app = FastAPI(title="YT Studio")
 
@@ -59,7 +70,7 @@ def get_config():
 @app.get("/api/probe")
 def api_probe(url: str):
     try:
-        return downloader.probe(url)
+        return downloader.probe(url, cookiefile=_cookiefile())
     except Exception as exc:
         raise HTTPException(400, f"Could not read that link: {exc}")
 
@@ -67,7 +78,8 @@ def api_probe(url: str):
 @app.post("/api/download")
 def api_download(body: DownloadBody):
     return downloader.start_download(
-        body.url, body.quality, DOWNLOAD_DIR, title=body.title
+        body.url, body.quality, DOWNLOAD_DIR,
+        title=body.title, cookiefile=_cookiefile(),
     )
 
 

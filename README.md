@@ -41,6 +41,29 @@ The browser opens automatically at http://127.0.0.1:8765.
 - `download_dir` — where downloads land. A relative value resolves against the
   project root. Default `downloads`.
 - `port` — default `8765`.
+- `cookies_file` — path to a Netscape-format cookies file, relative paths
+  resolve against the project root. Default `cookies.txt`. Used only if the
+  file exists; checked per request, so adding or refreshing it needs no
+  restart.
+
+## Age-restricted videos
+
+Videos behind age verification need a logged-in YouTube session. Email/password
+login is not supported (Google blocks automated sign-ins); instead, hand the
+app your browser session's cookies:
+
+1. Log in to YouTube in your browser — use a throwaway/secondary Google
+   account, since accounts whose cookies drive automated downloads can get
+   flagged.
+2. Export cookies for `youtube.com` with a browser extension such as
+   "Get cookies.txt LOCALLY".
+3. Save the export as `cookies.txt` in the project root. Done — the next
+   probe/download picks it up automatically.
+
+Cookies expire: when age-gated videos start failing again, re-export the file.
+Keep the browser profile you exported from logged in — logging out invalidates
+the cookies immediately. `cookies.txt` is gitignored; treat it like a password
+and never commit or share it.
 
 ## How it works
 

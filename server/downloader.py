@@ -89,9 +89,11 @@ def clear_finished():
 
 # ---------------------------------------------------------------- probe
 
-def probe(url):
+def probe(url, cookiefile=None):
     """Metadata only — nothing downloaded. Raises on unreadable URLs."""
     opts = {"quiet": True, "no_warnings": True, "noplaylist": True}
+    if cookiefile:
+        opts["cookiefile"] = str(cookiefile)
     with yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(url, download=False)
     heights = sorted(
@@ -120,19 +122,19 @@ def _format_for(quality):
     return f"bv*[height<={h}]+ba/b[height<={h}]"
 
 
-def start_download(url, quality, download_dir, title=None):
+def start_download(url, quality, download_dir, title=None, cookiefile=None):
     job = _new_job("download", title or url)
     event = _EVENTS[job["id"]]
     thread = threading.Thread(
         target=_download_worker,
-        args=(job, event, url, quality, Path(download_dir)),
+        args=(job, event, url, quality, Path(download_dir), cookiefile),
         daemon=True,
     )
     thread.start()
     return job
 
 
-def _download_worker(job, event, url, quality, download_dir):
+def _download_worker(job, event, url, quality, download_dir, cookiefile=None):
     def hook(d):
         if event.is_set():
             raise Cancelled()
@@ -169,6 +171,8 @@ def _download_worker(job, event, url, quality, download_dir):
     }
     if quality != "audio":
         opts["merge_output_format"] = "mkv"
+    if cookiefile:
+        opts["cookiefile"] = str(cookiefile)
 
     job["status"] = "starting"
     try:
