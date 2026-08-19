@@ -10,6 +10,9 @@ const GLYPHS = {
   export: '✂',
   scenes: '◈',
   pipeline: '→',
+  transcribe: '¶',
+  suggest: '✦',
+  autoshorts: '✦',
 }
 
 function readout(job) {

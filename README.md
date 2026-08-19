@@ -116,6 +116,39 @@ convert for editing first).
   people associate with HDR. Real HDR can't be created from SDR sources; for
   true grading use the mkv original in Resolve.
 
+## Transcripts and captions
+
+- **Transcribe** (in the player) runs Whisper locally via faster-whisper — no
+  cloud, no cost. The first run downloads the model (~500 MB for the default
+  `small`; change with `WHISPER_MODEL` in `.env`). Output is a
+  `<name>.transcript.json` sidecar with word-level timestamps.
+- **Captions** (checkbox in the export panel) burns word-timed karaoke-style
+  captions into the 9:16 clip — white text, the spoken word fills amber.
+  Requires a transcript first.
+- macOS note: Homebrew's plain `ffmpeg` formula is built without libass and
+  can't burn captions — install `brew install ffmpeg-full` (the server prefers
+  it automatically). Windows WinGet builds already include libass.
+
+## AI clip suggestions and Auto Shorts (Google Gemini)
+
+Set `GEMINI_API_KEY` in `.env` (get a key at https://aistudio.google.com/apikey)
+and restart the server. The model defaults to `gemini-2.5-flash`; override with
+`GEMINI_MODEL`. Calls go directly to Google's REST API — no extra dependency.
+
+- **Suggest clips** — Gemini reads the transcript, scene cuts, and sampled
+  keyframes, and returns ranked clip suggestions (time range, title, hook).
+  Works on dialogue-free videos too, judging from the frames. Suggestions are
+  cached as `<name>.suggestions.json`; delete that file to re-analyze.
+- **Auto Shorts** — the full pipeline in one click: transcribe → detect scenes
+  → ask Gemini for the top clips → export each as a blurred-pad 9:16 with
+  auto-trimmed black bars and burned captions (when the video has speech).
+  Prerequisite steps are skipped automatically when their sidecar files
+  already exist.
+
+Typical Gemini cost is a fraction of a cent per video with `gemini-2.5-flash`.
+The transcript and scene detection stay fully local — only the compact
+transcript text and ~16 small keyframes are sent to Google.
+
 ## VOD pipeline hand-off
 
 Set `PIPELINE_CMD` in `.env` to enable the Pipeline button on library cards,
@@ -126,3 +159,17 @@ as a job (done/error follows the command's exit code).
 ## Not built yet
 
 Playlist support and websocket progress remain future work.
+
+## Data files per video
+
+Everything lives next to the media file, so the library survives restarts and
+folder moves:
+
+| File | Written by |
+| --- | --- |
+| `<name>.info.json`, thumbnail | download |
+| `<name>_edit.mp4` | Convert for editing |
+| `<name>.scenes.json` | scene detection |
+| `<name>.transcript.json` | Transcribe |
+| `<name>.suggestions.json` | AI Suggest clips |
+| `shorts/*.mp4` | clip exports / Auto Shorts |

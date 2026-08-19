@@ -39,14 +39,38 @@ export const startConvert = (path) =>
     body: JSON.stringify({ path }),
   }).then(handle)
 
-export const startExport = (path, start, end, style, vivid, trimX, trimY, fgCrop) =>
+export const startExport = (path, start, end, style, vivid, trimX, trimY, fgCrop, captions) =>
   fetch('/api/export', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       path, start, end, style, vivid,
-      trim_x: trimX, trim_y: trimY, fg_crop: fgCrop,
+      trim_x: trimX, trim_y: trimY, fg_crop: fgCrop, captions,
     }),
+  }).then(handle)
+
+export const startTranscribe = (path) =>
+  fetch('/api/transcribe', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path }),
+  }).then(handle)
+
+export const startSuggest = (path, count = 5) =>
+  fetch('/api/suggest', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, count }),
+  }).then(handle)
+
+export const getSuggestions = (path) =>
+  fetch(`/api/suggestions?path=${encodeURIComponent(path)}`).then(handle)
+
+export const startAutoShorts = (path, count = 3) =>
+  fetch('/api/autoshorts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, count }),
   }).then(handle)
 
 export const detectBorders = (path) =>

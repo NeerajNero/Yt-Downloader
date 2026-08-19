@@ -16,27 +16,47 @@ from pathlib import Path
 import yt_dlp
 
 
-def _find_ffmpeg_dir():
-    """Return the directory that contains ffmpeg(.exe), or None.
+def _ffmpeg_has_subtitles(binary):
+    """True if this ffmpeg build can burn captions (libass subtitles filter)."""
+    try:
+        out = subprocess.run(
+            [str(binary), "-hide_banner", "-filters"],
+            capture_output=True, text=True, timeout=15,
+        ).stdout
+        return " subtitles " in out
+    except (OSError, subprocess.TimeoutExpired):
+        return False
 
-    Checks PATH first, then the well-known WinGet install location so the
-    server works even when launched from an environment that doesn't inherit
-    the full user PATH (e.g. launched by an IDE or a service).
+
+def _find_ffmpeg_dir():
+    """Return the directory containing ffmpeg(.exe), or None.
+
+    Prefers a build with the subtitles filter (needed for caption burn-in):
+    Homebrew's plain `ffmpeg` formula is slim (no libass) — `ffmpeg-full`
+    has it. Windows WinGet Gyan.FFmpeg builds are full. Falls back to any
+    ffmpeg found so the rest of the app keeps working.
     """
-    # 1. Already on PATH?
+    exe = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
+    candidates = []
+    for p in ("/opt/homebrew/opt/ffmpeg-full/bin",
+              "/usr/local/opt/ffmpeg-full/bin"):
+        if (Path(p) / exe).is_file():
+            candidates.append(Path(p))
     hit = shutil.which("ffmpeg")
     if hit:
-        return str(Path(hit).parent)
-
-    # 2. WinGet default install location (Gyan.FFmpeg)
+        candidates.append(Path(hit).parent)
     winget_pkgs = Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft" / "WinGet" / "Packages"
     if winget_pkgs.is_dir():
         for pkg_dir in winget_pkgs.iterdir():
             if pkg_dir.name.startswith("Gyan.FFmpeg"):
                 for candidate in sorted(pkg_dir.rglob("ffmpeg.exe"), reverse=True):
-                    return str(candidate.parent)
+                    candidates.append(candidate.parent)
+                    break
 
-    return None
+    for c in candidates:
+        if _ffmpeg_has_subtitles(c / exe):
+            return str(c)
+    return str(candidates[0]) if candidates else None
 
 
 FFMPEG_DIR = _find_ffmpeg_dir()          # e.g. "C:\...\bin" or None
@@ -406,22 +426,28 @@ def detect_borders(src):
 
 
 def start_export(src, start, end, style="crop", vivid=False,
-                 trim_x=0.0, trim_y=0.0, fg_crop=0.0):
+                 trim_x=0.0, trim_y=0.0, fg_crop=0.0, captions=False):
     src = Path(src)
     job = _new_job("export", src.stem)
     job["src"] = str(src)
     thread = threading.Thread(
         target=_export_worker,
         args=(job, _EVENTS[job["id"]], src, float(start), float(end),
-              style, vivid, float(trim_x), float(trim_y), float(fg_crop)),
+              style, vivid, float(trim_x), float(trim_y), float(fg_crop),
+              captions),
         daemon=True,
     )
     thread.start()
     return job
 
 
-def _export_worker(job, event, src, start, end, style, vivid,
-                   trim_x, trim_y, fg_crop):
+def run_export(job, event, src, start, end, style="blur", vivid=False,
+               trim_x=0.0, trim_y=0.0, fg_crop=0.0, captions=False):
+    """Render one 9:16 clip; returns the output path. Raises on failure or
+    Cancelled. Percent lands on the given job dict."""
+    import tempfile
+
+    src = Path(src)
     shorts_dir = src.parent / "shorts"
     shorts_dir.mkdir(exist_ok=True)
     suffix = "_vivid" if vivid else ""
@@ -429,8 +455,30 @@ def _export_worker(job, event, src, start, end, style, vivid,
         suffix += "_trim"
     if fg_crop:
         suffix += f"_z{int(fg_crop)}"
+    if captions:
+        suffix += "_cap"
     out_path = shorts_dir / f"{src.stem}_9x16_{int(start)}s-{int(end)}s_{style}{suffix}.mp4"
     filt = _export_filter(style, vivid, trim_x, trim_y, fg_crop)
+
+    ass_file = None
+    if captions:
+        import json as _json
+
+        if not _ffmpeg_has_subtitles(FFMPEG_BIN):
+            raise RuntimeError(
+                "This ffmpeg build can't burn captions (no libass). "
+                "On macOS: brew install ffmpeg-full, then restart the server."
+            )
+        t_path = transcript_path_for(src)
+        if not t_path.is_file():
+            raise RuntimeError("No transcript yet — run Transcribe first.")
+        transcript = _json.loads(t_path.read_text(encoding="utf-8"))
+        fd, ass_file = tempfile.mkstemp(suffix=".ass")
+        os.close(fd)
+        n = write_captions_ass(transcript, start, end, ass_file)
+        if n > 0:
+            filt += "," + _subtitles_filter_path(ass_file)
+
     filter_args = (
         ["-filter_complex", filt] if style == "blur" else ["-vf", filt]
     )
@@ -444,27 +492,37 @@ def _export_worker(job, event, src, start, end, style, vivid,
         "-progress", "pipe:1", "-nostats", "-loglevel", "error",
         str(out_path),
     ]
-    job["status"] = "exporting"
     try:
         code, stderr = _run_ffmpeg_progress(job, event, cmd, out_path, end - start)
         if event.is_set():
-            job["status"] = "cancelled"
             out_path.unlink(missing_ok=True)
-        elif code == 0:
-            job["percent"] = 100.0
-            job["path"] = str(out_path)
-            job["status"] = "done"
-        else:
-            job["status"] = "error"
-            job["error"] = stderr.strip() or f"ffmpeg exited with code {code}"
+            raise Cancelled()
+        if code != 0:
             out_path.unlink(missing_ok=True)
+            raise RuntimeError(stderr.strip() or f"ffmpeg exited with code {code}")
+        return out_path
+    finally:
+        if ass_file:
+            Path(ass_file).unlink(missing_ok=True)
+
+
+def _export_worker(job, event, src, start, end, style, vivid,
+                   trim_x, trim_y, fg_crop, captions):
+    job["status"] = "exporting"
+    try:
+        out_path = run_export(
+            job, event, src, start, end, style, vivid,
+            trim_x, trim_y, fg_crop, captions,
+        )
+        job["percent"] = 100.0
+        job["path"] = str(out_path)
+        job["status"] = "done"
     except Exception as exc:
-        if event.is_set():
+        if event.is_set() or isinstance(exc, Cancelled):
             job["status"] = "cancelled"
         else:
             job["status"] = "error"
             job["error"] = str(exc)
-        out_path.unlink(missing_ok=True)
 
 
 # ---------------------------------------------------------- scene detection
@@ -488,68 +546,80 @@ def start_scenes(src):
     return job
 
 
-def _scenes_worker(job, event, src):
+def run_scenes(src, job=None, event=None):
+    """Detect scene cuts; writes <stem>.scenes.json and returns the dict."""
     import json as _json
     import re as _re
 
-    job["status"] = "analyzing"
-    try:
-        duration = _probe_duration(src)
-        # Decode at reduced size for speed; scene scores print to stderr via
-        # the metadata filter while -progress feeds percent on stdout.
-        cmd = [
-            FFMPEG_BIN, "-i", str(src),
-            "-vf", f"scale=480:-2,select='gt(scene,{SCENE_THRESHOLD})',metadata=print",
-            "-an", "-f", "null", "-",
-            "-progress", "pipe:1", "-nostats", "-loglevel", "info",
-        ]
-        proc = subprocess.Popen(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
-        )
+    src = Path(src)
+    out = scenes_path_for(src)
+    if out.is_file():
+        return _json.loads(out.read_text(encoding="utf-8"))
+
+    duration = _probe_duration(src)
+    # Decode at reduced size for speed; scene scores print to stderr via
+    # the metadata filter while -progress feeds percent on stdout.
+    cmd = [
+        FFMPEG_BIN, "-i", str(src),
+        "-vf", f"scale=480:-2,select='gt(scene,{SCENE_THRESHOLD})',metadata=print",
+        "-an", "-f", "null", "-",
+        "-progress", "pipe:1", "-nostats", "-loglevel", "info",
+    ]
+    proc = subprocess.Popen(
+        cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+    )
+    if job is not None:
         with _LOCK:
             _PROCS[job["id"]] = proc
-        times = []
-        pattern = _re.compile(r"pts_time:([0-9.]+)")
-        reader = threading.Thread(
-            target=lambda: [
-                times.append(float(m.group(1)))
-                for line in proc.stderr
-                for m in [pattern.search(line)] if m
-            ],
-            daemon=True,
-        )
-        reader.start()
-        for line in proc.stdout:
-            line = line.strip()
-            if line.startswith("out_time_us=") and duration:
-                value = line.split("=", 1)[1]
-                try:
-                    job["percent"] = min(
-                        int(value) / 1_000_000 / duration * 100, 100.0
-                    )
-                except ValueError:
-                    pass
-        code = proc.wait()
-        reader.join(timeout=10)
-        if event.is_set():
+    times = []
+    pattern = _re.compile(r"pts_time:([0-9.]+)")
+    reader = threading.Thread(
+        target=lambda: [
+            times.append(float(m.group(1)))
+            for line in proc.stderr
+            for m in [pattern.search(line)] if m
+        ],
+        daemon=True,
+    )
+    reader.start()
+    for line in proc.stdout:
+        line = line.strip()
+        if line.startswith("out_time_us=") and duration and job is not None:
+            value = line.split("=", 1)[1]
+            try:
+                job["percent"] = min(
+                    int(value) / 1_000_000 / duration * 100, 100.0
+                )
+            except ValueError:
+                pass
+    code = proc.wait()
+    reader.join(timeout=10)
+    if event is not None and event.is_set():
+        raise Cancelled()
+    if code != 0:
+        raise RuntimeError(f"ffmpeg exited with code {code}")
+    data = {
+        "src": str(src),
+        "threshold": SCENE_THRESHOLD,
+        "duration": duration,
+        "scenes": sorted(set(round(t, 2) for t in times)),
+    }
+    out.write_text(_json.dumps(data))
+    return data
+
+
+def _scenes_worker(job, event, src):
+    job["status"] = "analyzing"
+    try:
+        run_scenes(src, job=job, event=event)
+        job["percent"] = 100.0
+        job["path"] = str(scenes_path_for(src))
+        job["status"] = "done"
+    except Exception as exc:
+        if event.is_set() or isinstance(exc, Cancelled):
             job["status"] = "cancelled"
-        elif code == 0:
-            out = scenes_path_for(src)
-            out.write_text(_json.dumps({
-                "src": str(src),
-                "threshold": SCENE_THRESHOLD,
-                "duration": duration,
-                "scenes": sorted(set(round(t, 2) for t in times)),
-            }))
-            job["percent"] = 100.0
-            job["path"] = str(out)
-            job["status"] = "done"
         else:
             job["status"] = "error"
-            job["error"] = f"ffmpeg exited with code {code}"
-    except Exception as exc:
-        job["status"] = "cancelled" if event.is_set() else "error"
-        if job["status"] == "error":
             job["error"] = str(exc)
 
 
@@ -598,3 +668,151 @@ def _pipeline_worker(job, event, src, command):
         job["status"] = "cancelled" if event.is_set() else "error"
         if job["status"] == "error":
             job["error"] = str(exc)
+
+
+# ------------------------------------------------------------- transcribe
+
+def transcript_path_for(src):
+    src = Path(src)
+    return src.parent / f"{src.stem}.transcript.json"
+
+
+def run_transcribe(src, job=None, event=None):
+    """Whisper transcription via faster-whisper; writes <stem>.transcript.json.
+
+    Returns the transcript dict. Raises Cancelled if event is set mid-run.
+    Model downloads once to the HF cache on first use (~500MB for 'small').
+    """
+    import json as _json
+
+    from faster_whisper import WhisperModel
+
+    src = Path(src)
+    out_path = transcript_path_for(src)
+    if out_path.is_file():
+        return _json.loads(out_path.read_text(encoding="utf-8"))
+
+    model_name = os.environ.get("WHISPER_MODEL", "small")
+    duration = _probe_duration(src)
+    model = WhisperModel(model_name, device="cpu", compute_type="int8")
+    segments, info = model.transcribe(str(src), word_timestamps=True)
+
+    seg_list = []
+    for seg in segments:
+        if event is not None and event.is_set():
+            raise Cancelled()
+        seg_list.append({
+            "start": round(seg.start, 2),
+            "end": round(seg.end, 2),
+            "text": seg.text.strip(),
+            "words": [
+                {"w": w.word.strip(), "s": round(w.start, 2), "e": round(w.end, 2)}
+                for w in (seg.words or [])
+            ],
+        })
+        if job is not None and duration:
+            job["percent"] = min(seg.end / duration * 100, 100.0)
+
+    transcript = {
+        "src": str(src),
+        "language": info.language,
+        "duration": duration,
+        "model": model_name,
+        "segments": seg_list,
+    }
+    out_path.write_text(_json.dumps(transcript), encoding="utf-8")
+    return transcript
+
+
+def start_transcribe(src):
+    src = Path(src)
+    job = _new_job("transcribe", src.stem)
+    job["src"] = str(src)
+
+    def worker(job=job, event=_EVENTS[job["id"]], src=src):
+        job["status"] = "transcribing"
+        try:
+            run_transcribe(src, job=job, event=event)
+            job["percent"] = 100.0
+            job["path"] = str(transcript_path_for(src))
+            job["status"] = "done"
+        except Exception as exc:
+            if event.is_set() or isinstance(exc, Cancelled):
+                job["status"] = "cancelled"
+            else:
+                job["status"] = "error"
+                job["error"] = str(exc)
+
+    threading.Thread(target=worker, daemon=True).start()
+    return job
+
+
+# --------------------------------------------------------- burned captions
+
+def _ass_time(t):
+    h = int(t // 3600)
+    m = int(t % 3600 // 60)
+    s = t % 60
+    return f"{h}:{m:02d}:{s:05.2f}"
+
+
+def _ass_escape(text):
+    return text.replace("\\", "").replace("{", "(").replace("}", ")")
+
+
+def write_captions_ass(transcript, clip_start, clip_end, out_path,
+                       max_words=4, max_gap=0.8):
+    """Karaoke-style captions for a 1080x1920 clip: white text, the spoken
+    word fills amber. Word times are shifted so 0 = clip_start."""
+    words = [
+        w for seg in transcript["segments"] for w in seg["words"]
+        if w["s"] < clip_end and w["e"] > clip_start and w["w"]
+    ]
+    header = (
+        "[Script Info]\nScriptType: v4.00+\n"
+        "PlayResX: 1080\nPlayResY: 1920\nWrapStyle: 2\n\n"
+        "[V4+ Styles]\n"
+        "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, "
+        "OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, "
+        "ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
+        "Alignment, MarginL, MarginR, MarginV, Encoding\n"
+        # Primary = amber fill (karaoke sung), Secondary = white (unsung)
+        "Style: Cap,Arial,88,&H003CA3F2,&H00FFFFFF,&H00101317,&H80101317,"
+        "1,0,0,0,100,100,1,0,1,6,2,2,60,60,340,1\n\n"
+        "[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, "
+        "MarginV, Effect, Text\n"
+    )
+    lines = []
+    group = []
+    for w in words:
+        if group and (
+            len(group) >= max_words or w["s"] - group[-1]["e"] > max_gap
+        ):
+            lines.append(group)
+            group = []
+        group.append(w)
+    if group:
+        lines.append(group)
+
+    events = []
+    for group in lines:
+        start = max(group[0]["s"] - clip_start, 0)
+        end = min(group[-1]["e"], clip_end) - clip_start
+        if end <= start:
+            continue
+        parts = []
+        for w in group:
+            cs = max(int((min(w["e"], clip_end) - max(w["s"], clip_start)) * 100), 1)
+            parts.append(f"{{\\k{cs}}}{_ass_escape(w['w'])}")
+        events.append(
+            f"Dialogue: 0,{_ass_time(start)},{_ass_time(end)},Cap,,0,0,0,,"
+            + " ".join(parts)
+        )
+    Path(out_path).write_text(header + "\n".join(events) + "\n", encoding="utf-8")
+    return len(events)
+
+
+def _subtitles_filter_path(p):
+    """Escape a path for ffmpeg's subtitles= filter (Windows-safe)."""
+    p = str(p).replace("\\", "/").replace(":", "\\:").replace("'", "\\'")
+    return f"subtitles=filename='{p}'"

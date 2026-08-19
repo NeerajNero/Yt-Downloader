@@ -6,6 +6,7 @@ import { fmtBytes, fmtDuration, needsConvert } from './util.js'
 const ACTIVE = new Set([
   'queued', 'starting', 'downloading', 'merging', 'converting',
   'exporting', 'analyzing', 'running', 'cancelling',
+  'transcribing', 'suggesting',
 ])
 
 export default function Library({ items, jobs, config, onChanged }) {
@@ -111,7 +112,12 @@ export default function Library({ items, jobs, config, onChanged }) {
       </div>
 
       {openItem && (
-        <Player item={openItem} jobs={jobs} onClose={() => setOpenPath(null)} />
+        <Player
+          item={openItem}
+          jobs={jobs}
+          config={config}
+          onClose={() => setOpenPath(null)}
+        />
       )}
     </section>
   )

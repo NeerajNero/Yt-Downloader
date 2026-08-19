@@ -46,6 +46,7 @@ from pydantic import BaseModel
 
 sys.path.insert(0, str(Path(__file__).parent))
 import downloader
+import ai
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -77,6 +78,9 @@ def _apply_env_overrides():
                 continue
             key, _, val = line.partition("=")
             values[key.strip()] = val.strip()
+            # Expose to modules that read os.environ (GEMINI_*, WHISPER_MODEL…);
+            # a real environment variable still wins.
+            os.environ.setdefault(key.strip(), val.strip().strip("'\""))
     for key in ("DOWNLOAD_DIR", "PORT", "COOKIES_FILE", "PIPELINE_CMD"):
         if key in os.environ:
             values[key] = os.environ[key]
@@ -155,6 +159,12 @@ class ExportBody(BaseModel):
     trim_x: float = 0.0
     trim_y: float = 0.0
     fg_crop: float = 0.0
+    captions: bool = False
+
+
+class SuggestBody(BaseModel):
+    path: str
+    count: int = 5
 
 
 def _files_url(p):
@@ -168,6 +178,8 @@ def get_config():
     return {
         "download_dir": str(DOWNLOAD_DIR),
         "pipeline_enabled": bool(_config.get("pipeline_cmd")),
+        "ai_enabled": bool(ai.api_key()),
+        "ai_model": ai.model_name() if ai.api_key() else None,
     }
 
 
@@ -255,6 +267,8 @@ def api_library():
             "edit_url": _files_url(Path(edit_path)) if edit_path else None,
             "shorts": shorts,
             "has_scenes": downloader.scenes_path_for(main).is_file(),
+            "has_transcript": downloader.transcript_path_for(main).is_file(),
+            "has_suggestions": ai.suggestions_path_for(main).is_file(),
             "downloaded_at": info_path.stat().st_mtime,
         })
     items.sort(key=lambda i: i["downloaded_at"], reverse=True)
@@ -282,10 +296,72 @@ def api_export(body: ExportBody):
         raise HTTPException(400, "Trim must be between 0 and 40 percent.")
     if not (0 <= body.fg_crop <= 40):
         raise HTTPException(400, "Video crop must be between 0 and 40 percent.")
+    if body.captions and not downloader.transcript_path_for(src).is_file():
+        raise HTTPException(400, "No transcript yet — run Transcribe first.")
     return downloader.start_export(
         src, body.start, body.end, style=body.style, vivid=body.vivid,
         trim_x=body.trim_x, trim_y=body.trim_y, fg_crop=body.fg_crop,
+        captions=body.captions,
     )
+
+
+def _meta_for(src):
+    """Title + duration for a media file, from its folder's info.json."""
+    for info_path in src.parent.glob("*.info.json"):
+        try:
+            info = json.loads(info_path.read_text(encoding="utf-8"))
+            return info.get("title") or src.stem, info.get("duration")
+        except (OSError, json.JSONDecodeError):
+            pass
+    return src.stem, None
+
+
+@app.post("/api/transcribe")
+def api_transcribe(body: PathBody):
+    src = _safe_path(body.path)
+    if not src.is_file():
+        raise HTTPException(404, "That file no longer exists.")
+    return downloader.start_transcribe(src)
+
+
+@app.get("/api/transcript")
+def api_transcript(path: str):
+    src = _safe_path(path)
+    t_path = downloader.transcript_path_for(src)
+    if not t_path.is_file():
+        raise HTTPException(404, "No transcript yet — run Transcribe first.")
+    return json.loads(t_path.read_text(encoding="utf-8"))
+
+
+@app.post("/api/suggest")
+def api_suggest(body: SuggestBody):
+    if not ai.api_key():
+        raise HTTPException(400, "No Gemini API key — set GEMINI_API_KEY in .env.")
+    src = _safe_path(body.path)
+    if not src.is_file():
+        raise HTTPException(404, "That file no longer exists.")
+    title, duration = _meta_for(src)
+    return ai.start_suggest(src, title, duration, count=body.count)
+
+
+@app.get("/api/suggestions")
+def api_suggestions(path: str):
+    src = _safe_path(path)
+    s_path = ai.suggestions_path_for(src)
+    if not s_path.is_file():
+        raise HTTPException(404, "No suggestions yet — run Suggest clips first.")
+    return json.loads(s_path.read_text(encoding="utf-8"))
+
+
+@app.post("/api/autoshorts")
+def api_autoshorts(body: SuggestBody):
+    if not ai.api_key():
+        raise HTTPException(400, "No Gemini API key — set GEMINI_API_KEY in .env.")
+    src = _safe_path(body.path)
+    if not src.is_file():
+        raise HTTPException(404, "That file no longer exists.")
+    title, duration = _meta_for(src)
+    return ai.start_autoshorts(src, title, duration, count=body.count)
 
 
 @app.get("/api/borders")
