@@ -5,6 +5,8 @@ mutates its own job dict. A server restart clears jobs — the files on
 disk plus the library scan are the source of truth.
 """
 
+import os
+import shutil
 import subprocess
 import threading
 import time
@@ -12,6 +14,34 @@ import uuid
 from pathlib import Path
 
 import yt_dlp
+
+
+def _find_ffmpeg_dir():
+    """Return the directory that contains ffmpeg(.exe), or None.
+
+    Checks PATH first, then the well-known WinGet install location so the
+    server works even when launched from an environment that doesn't inherit
+    the full user PATH (e.g. launched by an IDE or a service).
+    """
+    # 1. Already on PATH?
+    hit = shutil.which("ffmpeg")
+    if hit:
+        return str(Path(hit).parent)
+
+    # 2. WinGet default install location (Gyan.FFmpeg)
+    winget_pkgs = Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft" / "WinGet" / "Packages"
+    if winget_pkgs.is_dir():
+        for pkg_dir in winget_pkgs.iterdir():
+            if pkg_dir.name.startswith("Gyan.FFmpeg"):
+                for candidate in sorted(pkg_dir.rglob("ffmpeg.exe"), reverse=True):
+                    return str(candidate.parent)
+
+    return None
+
+
+FFMPEG_DIR = _find_ffmpeg_dir()          # e.g. "C:\...\bin" or None
+FFMPEG_BIN = str(Path(FFMPEG_DIR) / "ffmpeg.exe") if FFMPEG_DIR else "ffmpeg"
+FFPROBE_BIN = str(Path(FFMPEG_DIR) / "ffprobe.exe") if FFMPEG_DIR else "ffprobe"
 
 
 class Cancelled(Exception):
@@ -169,6 +199,8 @@ def _download_worker(job, event, url, quality, download_dir, cookiefile=None):
         "progress_hooks": [hook],
         "postprocessor_hooks": [pp_hook],
     }
+    if FFMPEG_DIR:
+        opts["ffmpeg_location"] = FFMPEG_DIR
     if quality != "audio":
         opts["merge_output_format"] = "mkv"
     if cookiefile:
@@ -198,7 +230,7 @@ def _download_worker(job, event, url, quality, download_dir, cookiefile=None):
 
 def _probe_duration(src):
     out = subprocess.run(
-        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+        [FFPROBE_BIN, "-v", "error", "-show_entries", "format=duration",
          "-of", "default=nw=1:nk=1", str(src)],
         capture_output=True, text=True,
     ).stdout.strip()
@@ -223,7 +255,7 @@ def _convert_worker(job, event, src):
     out_path = src.with_name(src.stem + "_edit.mp4")
     duration = _probe_duration(src)
     cmd = [
-        "ffmpeg", "-y", "-i", str(src),
+        FFMPEG_BIN, "-y", "-i", str(src),
         "-c:v", "libx264", "-crf", "16", "-preset", "slow",
         "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-b:a", "192k",
