@@ -77,6 +77,15 @@ Rebuild only when the files under `ui\src` change.
 
 ## 5. Run
 
+The simplest way — the launcher performs steps 3 and 4 automatically if
+they haven't been done yet, then starts the server:
+
+```powershell
+.\run.bat
+```
+
+Or manually:
+
 ```powershell
 venv\Scripts\python server\main.py
 ```

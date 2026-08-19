@@ -28,6 +28,16 @@ cd ui && npm install && npm run build && cd ..
 
 ## Run
 
+The easy way — the launcher script handles first-time setup (venv, Python
+deps, UI build) automatically and just starts the server on later runs:
+
+```sh
+./run.sh          # macOS / Linux
+run.bat           # Windows
+```
+
+Or manually:
+
 ```sh
 ./venv/bin/python server/main.py        # Windows: venv\Scripts\python server\main.py
 ```
