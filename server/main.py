@@ -1,6 +1,7 @@
 """FastAPI app: routes, library scan, static mounts, browser auto-open."""
 
 import json
+import os
 import subprocess
 import sys
 import threading
@@ -8,6 +9,36 @@ import time
 import urllib.parse
 import webbrowser
 from pathlib import Path
+
+# ── Patch PATH so child tools (ffmpeg, node, deno) are always found ───────────
+import shutil as _shutil
+
+def _add_to_path(directory):
+    """Prepend a directory to os.environ['PATH'] if it exists."""
+    if directory and Path(directory).is_dir():
+        os.environ["PATH"] = str(directory) + os.pathsep + os.environ.get("PATH", "")
+
+def _find_exe_dir(name):
+    """Find the directory containing `name` (.exe), checking PATH then WinGet."""
+    hit = _shutil.which(name)
+    if hit:
+        return str(Path(hit).parent)
+    winget_pkgs = Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft" / "WinGet" / "Packages"
+    if winget_pkgs.is_dir():
+        for pkg_dir in winget_pkgs.iterdir():
+            for exe in pkg_dir.rglob(f"{name}.exe"):
+                return str(exe.parent)
+            for exe in pkg_dir.rglob(f"{name}.EXE"):
+                return str(exe.parent)
+    return None
+
+for _tool in ("ffmpeg", "node", "deno"):
+    _dir = _find_exe_dir(_tool)
+    if _dir:
+        _add_to_path(_dir)
+# ──────────────────────────────────────────────────────────────────────────────
+
+
 
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles

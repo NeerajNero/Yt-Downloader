@@ -121,11 +121,22 @@ def clear_finished():
 
 def probe(url, cookiefile=None):
     """Metadata only — nothing downloaded. Raises on unreadable URLs."""
-    opts = {"quiet": True, "no_warnings": True, "noplaylist": True}
+    base_opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "noplaylist": True,
+        "skip_download": True,
+        "remote_components": ["ejs:github"],
+        "js_runtimes": {"deno": {"path": None}, "node": {"path": None}},
+    }
+    if FFMPEG_DIR:
+        base_opts["ffmpeg_location"] = FFMPEG_DIR
     if cookiefile:
-        opts["cookiefile"] = str(cookiefile)
-    with yt_dlp.YoutubeDL(opts) as ydl:
+        base_opts["cookiefile"] = str(cookiefile)
+
+    with yt_dlp.YoutubeDL(base_opts) as ydl:
         info = ydl.extract_info(url, download=False)
+
     heights = sorted(
         {f["height"] for f in info.get("formats", [])
          if f.get("height") and f.get("vcodec") not in (None, "none")},
@@ -198,6 +209,8 @@ def _download_worker(job, event, url, quality, download_dir, cookiefile=None):
         "noprogress": True,
         "progress_hooks": [hook],
         "postprocessor_hooks": [pp_hook],
+        "remote_components": ["ejs:github"],
+        "js_runtimes": {"deno": {"path": None}, "node": {"path": None}},
     }
     if FFMPEG_DIR:
         opts["ffmpeg_location"] = FFMPEG_DIR
