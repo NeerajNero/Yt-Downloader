@@ -1,0 +1,22 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+
+# Node / UI build
+ui/node_modules/
+ui/dist/
+
+# Downloaded media (the library) — user content, often gigabytes
+downloads/
+
+# yt-dlp / ffmpeg temp files anywhere
+*.part
+*.ytdl
+
+# OS cruft
+.DS_Store
+Thumbs.db
+
+# Local logs
+*.log
