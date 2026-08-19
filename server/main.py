@@ -533,10 +533,14 @@ def api_reveal(body: PathBody):
     if not target.exists():
         raise HTTPException(404, "That path no longer exists.")
     if sys.platform == "win32":
-        if target.is_file():
-            subprocess.Popen(["explorer", f"/select,{target}"])
-        else:
-            subprocess.Popen(["explorer", str(target)])
+        try:
+            if target.is_file():
+                subprocess.Popen(f'explorer /select,"{target}"')
+            else:
+                subprocess.Popen(f'explorer "{target}"')
+        except Exception:
+            folder = target.parent if target.is_file() else target
+            os.startfile(str(folder))
     elif sys.platform == "darwin":
         if target.is_file():
             subprocess.Popen(["open", "-R", str(target)])
