@@ -894,3 +894,124 @@ def _subtitles_filter_path(p):
     """Escape a path for ffmpeg's subtitles= filter (Windows-safe)."""
     p = str(p).replace("\\", "/").replace(":", "\\:").replace("'", "\\'")
     return f"subtitles=filename='{p}'"
+
+
+# ---------------------------------------------------------------- import
+
+def probe_local(src):
+    """ffprobe metadata for a local media file (import preview)."""
+    import json as _json
+
+    src = Path(src)
+    out = subprocess.run(
+        [FFPROBE_BIN, "-v", "error", "-print_format", "json",
+         "-show_format", "-show_streams", str(src)],
+        capture_output=True, text=True,
+    )
+    if out.returncode != 0:
+        raise RuntimeError("ffprobe can't read that file — is it a video?")
+    info = _json.loads(out.stdout)
+    video = next(
+        (s for s in info.get("streams", []) if s.get("codec_type") == "video"),
+        {},
+    )
+    duration = info.get("format", {}).get("duration")
+    return {
+        "local": True,
+        "title": src.stem,
+        "path": str(src),
+        "duration": float(duration) if duration else None,
+        "width": video.get("width"),
+        "height": video.get("height"),
+        "vcodec": video.get("codec_name"),
+        "size": src.stat().st_size,
+        "uploader": "Local file",
+        "thumbnail": None,
+        "webpage_url": None,
+        "heights": [],
+    }
+
+
+def start_import(src, download_dir):
+    src = Path(src)
+    job = _new_job("import", src.stem)
+    job["src"] = str(src)
+    thread = threading.Thread(
+        target=_import_worker,
+        args=(job, _EVENTS[job["id"]], src, Path(download_dir)),
+        daemon=True,
+    )
+    thread.start()
+    return job
+
+
+def _import_worker(job, event, src, download_dir):
+    import json as _json
+
+    job["status"] = "importing"
+    folder = None
+    try:
+        meta = probe_local(src)
+
+        # One folder per video, like downloads; suffix on name collisions.
+        folder = download_dir / src.stem
+        n = 2
+        while folder.exists():
+            folder = download_dir / f"{src.stem} ({n})"
+            n += 1
+        folder.mkdir(parents=True)
+        stem = folder.name
+        dest = folder / f"{stem}{src.suffix.lower()}"
+
+        # Chunked copy so percent and cancel work on multi-GB files.
+        total = src.stat().st_size
+        copied = 0
+        started = time.time()
+        with open(src, "rb") as fin, open(dest, "wb") as fout:
+            while True:
+                if event.is_set():
+                    raise Cancelled()
+                chunk = fin.read(8 * 1024 * 1024)
+                if not chunk:
+                    break
+                fout.write(chunk)
+                copied += len(chunk)
+                job["percent"] = copied / total * 100
+                elapsed = time.time() - started
+                if elapsed > 0.5:
+                    job["speed"] = copied / elapsed
+                    remaining = total - copied
+                    job["eta"] = remaining / (copied / elapsed)
+
+        (folder / f"{stem}.info.json").write_text(_json.dumps({
+            "title": stem,
+            "uploader": "Local import",
+            "duration": meta["duration"],
+            "width": meta["width"],
+            "height": meta["height"],
+            "vcodec": meta["vcodec"],
+            "imported_from": str(src),
+        }), encoding="utf-8")
+
+        # Thumbnail from a quarter of the way in.
+        ss = (meta["duration"] or 4) * 0.25
+        subprocess.run(
+            [FFMPEG_BIN, "-ss", str(ss), "-i", str(dest),
+             "-frames:v", "1", "-vf", "scale=640:-2", "-q:v", "4",
+             "-y", "-loglevel", "error", str(folder / f"{stem}.jpg")],
+            capture_output=True,
+        )
+
+        job["percent"] = 100.0
+        job["speed"] = None
+        job["eta"] = None
+        job["path"] = str(dest)
+        job["status"] = "done"
+    except Exception as exc:
+        if folder is not None:
+            shutil.rmtree(folder, ignore_errors=True)
+        if event.is_set() or isinstance(exc, Cancelled):
+            job["status"] = "cancelled"
+        else:
+            job["status"] = "error"
+            job["error"] = str(exc)

@@ -197,12 +197,46 @@ def get_config():
     }
 
 
+def _as_local_path(text):
+    """A pasted local file path (quotes tolerated), or None if it's a URL."""
+    cleaned = text.strip().strip("'\"")
+    if not cleaned or cleaned.lower().startswith(("http://", "https://")):
+        return None
+    p = Path(cleaned).expanduser()
+    return p if p.is_absolute() and p.is_file() else None
+
+
 @app.get("/api/probe")
 def api_probe(url: str):
+    local = _as_local_path(url)
+    if local:
+        if local.suffix.lower() not in downloader.MEDIA_EXTS:
+            raise HTTPException(
+                400,
+                f"Can't import {local.suffix} files — supported: "
+                + ", ".join(sorted(downloader.MEDIA_EXTS)),
+            )
+        try:
+            return downloader.probe_local(local)
+        except Exception as exc:
+            raise HTTPException(400, str(exc))
     try:
         return downloader.probe(url, cookiefile=_cookiefile())
     except Exception as exc:
         raise HTTPException(400, f"Could not read that link: {exc}")
+
+
+@app.post("/api/import")
+def api_import(body: PathBody):
+    local = _as_local_path(body.path)
+    if not local:
+        raise HTTPException(400, "That doesn't look like an existing local file.")
+    if local.suffix.lower() not in downloader.MEDIA_EXTS:
+        raise HTTPException(400, f"Can't import {local.suffix} files.")
+    resolved = local.resolve()
+    if resolved == DOWNLOAD_DIR or DOWNLOAD_DIR in resolved.parents:
+        raise HTTPException(400, "That file is already inside the library folder.")
+    return downloader.start_import(resolved, DOWNLOAD_DIR)
 
 
 @app.post("/api/download")

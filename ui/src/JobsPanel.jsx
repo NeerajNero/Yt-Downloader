@@ -13,6 +13,7 @@ const GLYPHS = {
   transcribe: '¶',
   suggest: '✦',
   autoshorts: '✦',
+  import: '⊕',
 }
 
 function readout(job) {

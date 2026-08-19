@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
-import { probe, startDownload } from './api.js'
-import { fmtDuration, qualityLabel } from './util.js'
+import { probe, startDownload, startImport } from './api.js'
+import { fmtBytes, fmtDuration, qualityLabel } from './util.js'
 
 export default function DownloadPanel() {
   const [url, setUrl] = useState('')
@@ -37,13 +37,24 @@ export default function DownloadPanel() {
     }
   }
 
+  const doImport = async () => {
+    setError(null)
+    try {
+      await startImport(info.path)
+      setInfo(null)
+      setUrl('')
+    } catch (e) {
+      setError(e.message)
+    }
+  }
+
   return (
     <section className="panel ingest">
       <div className="ingest-row">
         <input
           type="text"
           value={url}
-          placeholder="Paste a video link"
+          placeholder="Paste a video link — or a local file path to import"
           onChange={(e) => setUrl(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && check()}
           aria-label="Video link"
@@ -62,21 +73,31 @@ export default function DownloadPanel() {
           <div className="probe-body">
             <h2 className="probe-title">{info.title}</h2>
             <p className="mono muted">
-              {info.uploader || 'unknown channel'} · {fmtDuration(info.duration)}
+              {info.local
+                ? `Local file · ${info.height ? `${info.height}p · ` : ''}${fmtBytes(info.size)} · ${fmtDuration(info.duration)}`
+                : `${info.uploader || 'unknown channel'} · ${fmtDuration(info.duration)}`}
             </p>
             <div className="probe-actions">
-              <select
-                value={quality}
-                onChange={(e) => setQuality(e.target.value)}
-                aria-label="Quality"
-              >
-                <option value="best">Best available</option>
-                {info.heights.map((h) => (
-                  <option key={h} value={String(h)}>{qualityLabel(h)}</option>
-                ))}
-                <option value="audio">Audio only (mp3)</option>
-              </select>
-              <button className="btn accent" onClick={download}>Download</button>
+              {info.local ? (
+                <button className="btn accent" onClick={doImport}>
+                  Import to library
+                </button>
+              ) : (
+                <>
+                  <select
+                    value={quality}
+                    onChange={(e) => setQuality(e.target.value)}
+                    aria-label="Quality"
+                  >
+                    <option value="best">Best available</option>
+                    {info.heights.map((h) => (
+                      <option key={h} value={String(h)}>{qualityLabel(h)}</option>
+                    ))}
+                    <option value="audio">Audio only (mp3)</option>
+                  </select>
+                  <button className="btn accent" onClick={download}>Download</button>
+                </>
+              )}
             </div>
           </div>
         </div>

@@ -109,6 +109,18 @@ fix already:
 
 Then restart the server.
 
+## Importing local videos
+
+The ingest box accepts a **local file path** as well as a link — paste
+something like `/Users/you/Movies/raw.mp4` (or `D:\footage\raw.mp4` on
+Windows; surrounding quotes are fine) and press Check. The card shows the
+file's resolution, size, and duration, and **Import to library** copies it
+into its own library folder with a generated thumbnail and metadata sidecar,
+with copy progress in Jobs. Imported videos get every feature downloads get:
+player, scene detection, transcription, captions, 9:16 exports, AI Auto
+Shorts, and the pipeline hand-off. Supported types: mkv, mp4, webm, mov,
+m4a, mp3, opus.
+
 ## Player, scene detection, and 9:16 clips
 
 Click a library thumbnail to open the player. It prefers the edit copy when

@@ -22,6 +22,13 @@ export const startDownload = (url, quality, title) =>
     body: JSON.stringify({ url, quality, title }),
   }).then(handle)
 
+export const startImport = (path) =>
+  fetch('/api/import', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path }),
+  }).then(handle)
+
 export const getJobs = () => fetch('/api/jobs').then(handle)
 
 export const cancelJob = (id) =>
