@@ -64,14 +64,14 @@ export const startConvert = (path) =>
     body: JSON.stringify({ path }),
   }).then(handle)
 
-export const startExport = (path, start, end, style, vivid, trimX, trimY,
+export const startExport = (path, start, end, style, vividAmount, trimX, trimY,
   fgCrop, captions, captionSource = 'auto', captionPos = 'bottom',
   captionStyle = 'karaoke', resolution = '1080') =>
   fetch('/api/export', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      path, start, end, style, vivid,
+      path, start, end, style, vivid_amount: vividAmount,
       trim_x: trimX, trim_y: trimY, fg_crop: fgCrop,
       captions, caption_source: captionSource, caption_pos: captionPos,
       caption_style: captionStyle, resolution,

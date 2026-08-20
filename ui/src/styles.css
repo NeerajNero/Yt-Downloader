@@ -561,3 +561,20 @@ input[type="text"]::placeholder { color: var(--muted); }
 }
 .add-file:hover:not(:disabled) { border-color: var(--accent); }
 .upload-progress { margin-top: 12px; }
+
+/* ---- vivid slider ---- */
+.vivid-slider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+}
+.vivid-slider input[type="range"] {
+  width: 96px;
+  accent-color: var(--accent);
+}
+.vivid-val {
+  min-width: 24px;
+  text-align: right;
+  color: var(--accent);
+}

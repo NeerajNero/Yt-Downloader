@@ -141,9 +141,12 @@ convert for editing first).
   background) or *Center crop*. Times accept `1:23` or plain seconds;
   "Set start/end" grabs the current playhead. Captions scale automatically to
   the chosen resolution.
-- **Vivid color boost** applies a saturation/contrast grade — the punchy look
-  people associate with HDR. Real HDR can't be created from SDR sources; for
-  true grading use the mkv original in Resolve.
+- **Vivid** is a 0–100 slider (in the export row) that grades the clip with
+  progressively stronger saturation, vibrance, and contrast — the punchy look
+  people associate with HDR. 0 keeps the original colors; 100 is deliberately
+  strong (near-oversaturated). Real HDR can't be created from SDR sources; for
+  true grading use the mkv original in Resolve. Each value produces its own
+  filename (`_vivid75` etc.) so you can compare intensities side by side.
 
 ## Transcripts and captions
 

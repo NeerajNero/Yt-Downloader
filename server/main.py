@@ -156,6 +156,7 @@ class ExportBody(BaseModel):
     end: float
     style: str = "crop"
     vivid: bool = False
+    vivid_amount: int = 0
     trim_x: float = 0.0
     trim_y: float = 0.0
     fg_crop: float = 0.0
@@ -392,6 +393,8 @@ def api_export(body: ExportBody):
             400, "Resolution must be one of: "
             + ", ".join(downloader.RESOLUTIONS),
         )
+    if not (0 <= body.vivid_amount <= 100):
+        raise HTTPException(400, "Vivid amount must be between 0 and 100.")
     if body.captions and body.caption_source == "auto" \
             and not downloader.transcript_path_for(src).is_file():
         raise HTTPException(400, "No transcript yet — run Transcribe first.")
@@ -403,7 +406,7 @@ def api_export(body: ExportBody):
         trim_x=body.trim_x, trim_y=body.trim_y, fg_crop=body.fg_crop,
         captions=body.captions, caption_source=body.caption_source,
         caption_pos=body.caption_pos, caption_style=body.caption_style,
-        resolution=body.resolution,
+        resolution=body.resolution, vivid_amount=body.vivid_amount,
     )
 
 

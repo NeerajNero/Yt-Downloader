@@ -20,7 +20,7 @@ export default function Player({ item, jobs, config, onClose }) {
   const [start, setStart] = useState('0:00')
   const [end, setEnd] = useState('0:15')
   const [style, setStyle] = useState('blur')
-  const [vivid, setVivid] = useState(false)
+  const [vividAmount, setVividAmount] = useState(0)
   const [captions, setCaptions] = useState(false)
   const [captionSource, setCaptionSource] = useState('auto')
   const [captionPos, setCaptionPos] = useState('bottom')
@@ -138,7 +138,7 @@ export default function Player({ item, jobs, config, onClose }) {
       return
     }
     run(
-      startExport(item.path, s, e, style, vivid, tx, ty, fc,
+      startExport(item.path, s, e, style, vividAmount, tx, ty, fc,
         captions, captionSource, captionPos, captionStyle, resolution),
       'Export queued — progress shows in Jobs.'
     )
@@ -361,13 +361,18 @@ export default function Player({ item, jobs, config, onClose }) {
             <option value="1080">1080p</option>
             <option value="4k">4K</option>
           </select>
-          <label className="vivid-check">
+          <label className="vivid-slider" title="0 = original colors · 100 = maximum punch">
+            <span className="mono muted">Vivid</span>
             <input
-              type="checkbox"
-              checked={vivid}
-              onChange={(e) => setVivid(e.target.checked)}
+              type="range"
+              min="0"
+              max="100"
+              step="5"
+              value={vividAmount}
+              onChange={(e) => setVividAmount(Number(e.target.value))}
+              aria-label="Vivid color boost amount"
             />
-            Vivid color boost
+            <span className="mono vivid-val">{vividAmount}</span>
           </label>
           <label
             className="vivid-check"

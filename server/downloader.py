@@ -361,8 +361,16 @@ def _convert_worker(job, event, src):
 # ------------------------------------------------------- 9:16 shorts export
 
 # "Vivid" grade: the punchy high-saturation look people associate with HDR.
-# Real HDR can't be created from SDR sources — this is a tasteful SDR boost.
-VIVID_FILTER = "vibrance=intensity=0.35,eq=contrast=1.05:saturation=1.08"
+# Real HDR can't be created from SDR sources — this is an SDR boost, scaled
+# 0..100 by the amount slider. 100 is deliberately strong (near-oversaturated).
+def _vivid_filter(amount):
+    a = max(0.0, min(float(amount), 100.0)) / 100.0
+    vibrance = round(a * 1.0, 3)          # 0 .. 1.0
+    saturation = round(1 + a * 0.7, 3)    # 1.0 .. 1.7
+    contrast = round(1 + a * 0.2, 3)      # 1.0 .. 1.2
+    gamma = round(1 - a * 0.06, 3)        # 1.0 .. 0.94 (a touch richer)
+    return (f"vibrance=intensity={vibrance},"
+            f"eq=contrast={contrast}:saturation={saturation}:gamma={gamma}")
 
 
 def _pre_crop(trim_x, trim_y):
@@ -382,9 +390,10 @@ RESOLUTIONS = {
 }
 
 
-def _export_filter(style, vivid, trim_x=0.0, trim_y=0.0, fg_crop=0.0,
+def _export_filter(style, vivid_amount, trim_x=0.0, trim_y=0.0, fg_crop=0.0,
                    width=1080, height=1920):
     pre = _pre_crop(trim_x, trim_y)
+    grade = ("," + _vivid_filter(vivid_amount)) if vivid_amount else ""
     # Blur radius scales with resolution so 4K isn't under-blurred.
     sigma = round(24 * width / 1080, 1)
     if style == "blur":
@@ -396,8 +405,7 @@ def _export_filter(style, vivid, trim_x=0.0, trim_y=0.0, fg_crop=0.0,
             fg = f"crop=trunc(iw*{(100 - 2 * fg_crop) / 100:.4f}/2)*2:ih,"
         fg += (f"scale={width}:{height}:force_original_aspect_ratio=decrease"
                ":force_divisible_by=2")
-        if vivid:
-            fg += "," + VIVID_FILTER
+        fg += grade
         head = f"[0:v]{pre},split=2" if pre else "[0:v]split=2"
         return (
             f"{head}[bgin][fgin];"
@@ -409,8 +417,7 @@ def _export_filter(style, vivid, trim_x=0.0, trim_y=0.0, fg_crop=0.0,
     vf = f"crop=min(iw\\,ih*9/16):ih,scale={width}:{height}"
     if pre:
         vf = pre + "," + vf
-    if vivid:
-        vf += "," + VIVID_FILTER
+    vf += grade
     return vf
 
 
@@ -447,7 +454,7 @@ def detect_borders(src):
 def start_export(src, start, end, style="crop", vivid=False,
                  trim_x=0.0, trim_y=0.0, fg_crop=0.0, captions=False,
                  caption_source="auto", caption_pos="bottom",
-                 caption_style="karaoke", resolution="1080"):
+                 caption_style="karaoke", resolution="1080", vivid_amount=0):
     src = Path(src)
     job = _new_job("export", src.stem)
     job["src"] = str(src)
@@ -455,7 +462,8 @@ def start_export(src, start, end, style="crop", vivid=False,
         target=_export_worker,
         args=(job, _EVENTS[job["id"]], src, float(start), float(end),
               style, vivid, float(trim_x), float(trim_y), float(fg_crop),
-              captions, caption_source, caption_pos, caption_style, resolution),
+              captions, caption_source, caption_pos, caption_style, resolution,
+              vivid_amount),
         daemon=True,
     )
     thread.start()
@@ -465,7 +473,7 @@ def start_export(src, start, end, style="crop", vivid=False,
 def run_export(job, event, src, start, end, style="blur", vivid=False,
                trim_x=0.0, trim_y=0.0, fg_crop=0.0, captions=False,
                caption_source="auto", caption_pos="bottom",
-               caption_style="karaoke", resolution="1080"):
+               caption_style="karaoke", resolution="1080", vivid_amount=0):
     """Render one 9:16 clip; returns the output path. Raises on failure or
     Cancelled. Percent lands on the given job dict."""
     import tempfile
@@ -473,7 +481,10 @@ def run_export(job, event, src, start, end, style="blur", vivid=False,
     src = Path(src)
     shorts_dir = src.parent / "shorts"
     shorts_dir.mkdir(exist_ok=True)
-    suffix = "_vivid" if vivid else ""
+    # vivid bool (from Auto Shorts) means "default amount"; an explicit
+    # slider value overrides it.
+    amount = int(vivid_amount) if vivid_amount else (60 if vivid else 0)
+    suffix = f"_vivid{amount}" if amount else ""
     if trim_x or trim_y:
         suffix += "_trim"
     if fg_crop:
@@ -490,7 +501,7 @@ def run_export(job, event, src, start, end, style="blur", vivid=False,
     if resolution != "1080":
         suffix += f"_{resolution}"
     out_path = shorts_dir / f"{src.stem}_9x16_{int(start)}s-{int(end)}s_{style}{suffix}.mp4"
-    filt = _export_filter(style, vivid, trim_x, trim_y, fg_crop, width, height)
+    filt = _export_filter(style, amount, trim_x, trim_y, fg_crop, width, height)
 
     ass_file = None
     if captions:
@@ -555,13 +566,13 @@ def run_export(job, event, src, start, end, style="blur", vivid=False,
 
 def _export_worker(job, event, src, start, end, style, vivid,
                    trim_x, trim_y, fg_crop, captions, caption_source,
-                   caption_pos, caption_style, resolution):
+                   caption_pos, caption_style, resolution, vivid_amount):
     job["status"] = "exporting"
     try:
         out_path = run_export(
             job, event, src, start, end, style, vivid,
             trim_x, trim_y, fg_crop, captions, caption_source, caption_pos,
-            caption_style, resolution,
+            caption_style, resolution, vivid_amount,
         )
         job["percent"] = 100.0
         job["path"] = str(out_path)
