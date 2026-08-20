@@ -373,6 +373,32 @@ def _vivid_filter(amount):
             f"eq=contrast={contrast}:saturation={saturation}:gamma={gamma}")
 
 
+def _probe_fps(src):
+    out = subprocess.run(
+        [FFPROBE_BIN, "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "stream=r_frame_rate", "-of", "csv=p=0", str(src)],
+        capture_output=True, text=True,
+    ).stdout.strip()
+    try:
+        num, den = out.split("/")
+        fps = float(num) / float(den)
+        return fps if fps > 0 else 30.0
+    except (ValueError, ZeroDivisionError):
+        return 30.0
+
+
+def _zoom_filter(width, height, fps, duration, target=1.12):
+    """Smooth Ken-Burns punch-in that reaches `target` zoom over the clip,
+    independent of length. Applied after framing, before captions."""
+    frames = max(int((duration or 1) * fps), 1)
+    inc = round((target - 1.0) / frames, 6)
+    return (
+        f"zoompan=z='min(zoom+{inc},{target})':d=1:"
+        f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
+        f"fps={fps:.4f}:s={width}x{height}"
+    )
+
+
 def _pre_crop(trim_x, trim_y):
     """Symmetric border trim before styling; even dimensions for yuv420."""
     if not trim_x and not trim_y:
@@ -473,7 +499,8 @@ def start_export(src, start, end, style="crop", vivid=False,
                  trim_x=0.0, trim_y=0.0, fg_crop=0.0, captions=False,
                  caption_source="auto", caption_pos="bottom",
                  caption_style="karaoke", resolution="1080", vivid_amount=0,
-                 orientation="portrait", rotate="none", rotate_captions=False):
+                 orientation="portrait", rotate="none", rotate_captions=False,
+                 loudness=False, zoom="none"):
     src = Path(src)
     job = _new_job("export", src.stem)
     job["src"] = str(src)
@@ -482,7 +509,7 @@ def start_export(src, start, end, style="crop", vivid=False,
         args=(job, _EVENTS[job["id"]], src, float(start), float(end),
               style, vivid, float(trim_x), float(trim_y), float(fg_crop),
               captions, caption_source, caption_pos, caption_style, resolution,
-              vivid_amount, orientation, rotate, rotate_captions),
+              vivid_amount, orientation, rotate, rotate_captions, loudness, zoom),
         daemon=True,
     )
     thread.start()
@@ -493,7 +520,8 @@ def run_export(job, event, src, start, end, style="blur", vivid=False,
                trim_x=0.0, trim_y=0.0, fg_crop=0.0, captions=False,
                caption_source="auto", caption_pos="bottom",
                caption_style="karaoke", resolution="1080", vivid_amount=0,
-               orientation="portrait", rotate="none", rotate_captions=False):
+               orientation="portrait", rotate="none", rotate_captions=False,
+               loudness=False, zoom="none"):
     """Render one clip (portrait 9:16 or landscape 16:9); returns the output
     path. Raises on failure or Cancelled. Percent lands on the given job."""
     import tempfile
@@ -543,10 +571,19 @@ def run_export(job, event, src, start, end, style="blur", vivid=False,
         suffix += f"_rot{rotate}"
         if match_rotate:
             suffix += "cap"
+    if zoom != "none":
+        suffix += "_zoom"
+    if loudness:
+        suffix += "_norm"
     aspect = "16x9" if orientation == "landscape" else "9x16"
     out_path = shorts_dir / f"{src.stem}_{aspect}_{int(start)}s-{int(end)}s_{style}{suffix}.mp4"
     filt = _export_filter(style, amount, trim_x, trim_y, fg_crop,
                           build_w, build_h, source_rotate)
+    # Zoom the framed video before captions/rotation so captions don't zoom.
+    if zoom == "in":
+        filt += "," + _zoom_filter(
+            build_w, build_h, _probe_fps(src), end - start
+        )
 
     ass_file = None
     if captions:
@@ -591,9 +628,13 @@ def run_export(job, event, src, start, end, style="blur", vivid=False,
     filter_args = (
         ["-filter_complex", filt] if style == "blur" else ["-vf", filt]
     )
+    # loudnorm to -14 LUFS — the common target for social platforms.
+    audio_args = (
+        ["-af", "loudnorm=I=-14:TP=-1.5:LRA=11"] if loudness else []
+    )
     cmd = [
         FFMPEG_BIN, "-y", "-ss", str(start), "-to", str(end), "-i", str(src),
-        *filter_args,
+        *filter_args, *audio_args,
         "-c:v", "libx264", "-crf", "18", "-preset", "medium",
         "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-b:a", "192k",
@@ -618,14 +659,14 @@ def run_export(job, event, src, start, end, style="blur", vivid=False,
 def _export_worker(job, event, src, start, end, style, vivid,
                    trim_x, trim_y, fg_crop, captions, caption_source,
                    caption_pos, caption_style, resolution, vivid_amount,
-                   orientation, rotate, rotate_captions):
+                   orientation, rotate, rotate_captions, loudness, zoom):
     job["status"] = "exporting"
     try:
         out_path = run_export(
             job, event, src, start, end, style, vivid,
             trim_x, trim_y, fg_crop, captions, caption_source, caption_pos,
             caption_style, resolution, vivid_amount, orientation, rotate,
-            rotate_captions,
+            rotate_captions, loudness, zoom,
         )
         job["percent"] = 100.0
         job["path"] = str(out_path)

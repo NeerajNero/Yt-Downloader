@@ -168,6 +168,8 @@ class ExportBody(BaseModel):
     orientation: str = "portrait"
     rotate: str = "none"
     rotate_captions: bool = False
+    loudness: bool = False
+    zoom: str = "none"
 
 
 class SuggestBody(BaseModel):
@@ -390,6 +392,8 @@ def api_export(body: ExportBody):
         raise HTTPException(400, "Orientation must be portrait or landscape.")
     if body.rotate not in downloader.ROTATIONS:
         raise HTTPException(400, "Rotate must be none, right, left, or 180.")
+    if body.zoom not in ("none", "in"):
+        raise HTTPException(400, "Zoom must be none or in.")
     if body.caption_style not in downloader.CAPTION_STYLES:
         raise HTTPException(
             400, "Caption style must be one of: "
@@ -416,7 +420,52 @@ def api_export(body: ExportBody):
         resolution=body.resolution, vivid_amount=body.vivid_amount,
         orientation=body.orientation, rotate=body.rotate,
         rotate_captions=body.rotate_captions,
+        loudness=body.loudness, zoom=body.zoom,
     )
+
+
+PRESETS_FILE = ROOT / "presets.json"
+
+
+class PresetBody(BaseModel):
+    name: str
+    settings: dict
+
+
+def _load_presets():
+    if PRESETS_FILE.is_file():
+        try:
+            return json.loads(PRESETS_FILE.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            pass
+    return {}
+
+
+@app.get("/api/presets")
+def api_presets_list():
+    return _load_presets()
+
+
+@app.post("/api/presets")
+def api_presets_save(body: PresetBody):
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(400, "Preset name can't be empty.")
+    if len(name) > 60:
+        raise HTTPException(400, "Preset name is too long.")
+    presets = _load_presets()
+    presets[name] = body.settings
+    PRESETS_FILE.write_text(json.dumps(presets, indent=2), encoding="utf-8")
+    return {"ok": True, "presets": presets}
+
+
+@app.post("/api/presets/delete")
+def api_presets_delete(body: PathBody):
+    presets = _load_presets()
+    if presets.pop(body.path, None) is None:
+        raise HTTPException(404, "No preset with that name.")
+    PRESETS_FILE.write_text(json.dumps(presets, indent=2), encoding="utf-8")
+    return {"ok": True, "presets": presets}
 
 
 @app.get("/api/captions")

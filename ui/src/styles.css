@@ -578,3 +578,42 @@ input[type="text"]::placeholder { color: var(--muted); }
   text-align: right;
   color: var(--accent);
 }
+
+/* ---- preset bar ---- */
+.preset-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+/* ---- live caption preview overlay ---- */
+.player-wrap { position: relative; }
+.cap-preview {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0 2px;
+  padding: 0 8%;
+  pointer-events: none;
+  text-align: center;
+  font-family: var(--sans);
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.9), 0 0 3px rgba(0, 0, 0, 0.9);
+  font-size: clamp(16px, 3.4vw, 30px);
+  line-height: 1.15;
+}
+.cap-preview-bottom { bottom: 12%; }
+.cap-preview-middle { top: 50%; transform: translateY(-50%); }
+.cap-preview-top { top: 10%; }
+.cap-preview .cap-w { transition: color 0.08s linear; }
+.cap-preview .cap-w.amber { color: var(--accent); }
+.capstyle-pop, .capstyle-single { text-transform: uppercase; }
+.capstyle-minimal { font-weight: 500; font-size: clamp(13px, 2.4vw, 22px); }
+@media (prefers-reduced-motion: reduce) {
+  .cap-preview .cap-w { transition: none; }
+}

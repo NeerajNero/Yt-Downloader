@@ -153,6 +153,19 @@ convert for editing first).
   strong (near-oversaturated). Real HDR can't be created from SDR sources; for
   true grading use the mkv original in Resolve. Each value produces its own
   filename (`_vivid75` etc.) so you can compare intensities side by side.
+- **Auto zoom** adds a slow Ken-Burns punch-in over the clip (a gentle
+  continuous zoom toward the end) for energy. Captions don't zoom — the zoom
+  is applied to the video before captions burn on.
+- **Normalize audio** applies loudness normalization to −14 LUFS (the common
+  social-platform target) so clip volume is consistent.
+- **Presets** — the whole export setup (orientation, resolution, style, vivid,
+  trim, rotation, zoom, normalize, and all caption settings) can be saved as a
+  named preset and re-applied in one click from the preset bar. Presets live in
+  a gitignored `presets.json` in the project root, so each machine keeps its own.
+- **Preview on video** — tick it (with captions on) to see the captions
+  overlaid on the player as it plays, so you can check wording, timing, and
+  position before committing to a render. It's an approximation; the burned-in
+  result is exact.
 
 ## Transcripts and captions
 

@@ -67,7 +67,7 @@ export const startConvert = (path) =>
 export const startExport = (path, start, end, style, vividAmount, trimX, trimY,
   fgCrop, captions, captionSource = 'auto', captionPos = 'bottom',
   captionStyle = 'karaoke', resolution = '1080', orientation = 'portrait',
-  rotate = 'none', rotateCaptions = false) =>
+  rotate = 'none', rotateCaptions = false, loudness = false, zoom = 'none') =>
   fetch('/api/export', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -76,8 +76,27 @@ export const startExport = (path, start, end, style, vividAmount, trimX, trimY,
       trim_x: trimX, trim_y: trimY, fg_crop: fgCrop,
       captions, caption_source: captionSource, caption_pos: captionPos,
       caption_style: captionStyle, resolution, orientation, rotate,
-      rotate_captions: rotateCaptions,
+      rotate_captions: rotateCaptions, loudness, zoom,
     }),
+  }).then(handle)
+
+export const getTranscript = (path) =>
+  fetch(`/api/transcript?path=${encodeURIComponent(path)}`).then(handle)
+
+export const getPresets = () => fetch('/api/presets').then(handle)
+
+export const savePreset = (name, settings) =>
+  fetch('/api/presets', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, settings }),
+  }).then(handle)
+
+export const deletePreset = (name) =>
+  fetch('/api/presets/delete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path: name }),
   }).then(handle)
 
 export const getCaptions = (path) =>

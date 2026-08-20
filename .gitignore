@@ -26,3 +26,6 @@ cookies.txt
 
 # Machine-local overrides (.env.example is the committed template)
 .env
+
+# Saved export presets (per-machine user data)
+presets.json

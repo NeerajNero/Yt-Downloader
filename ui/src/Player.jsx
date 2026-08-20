@@ -1,10 +1,17 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  detectBorders, getCaptions, getScenes, getSuggestions, reveal,
-  saveCaptions, startAutoShorts, startExport, startScenes, startSuggest,
-  startTranscribe,
+  deletePreset, detectBorders, getCaptions, getPresets, getScenes,
+  getSuggestions, getTranscript, reveal, savePreset, saveCaptions,
+  startAutoShorts, startExport, startScenes, startSuggest, startTranscribe,
 } from './api.js'
 import { fmtDuration, parseTime } from './util.js'
+
+// Everything a preset captures (not the per-clip start/end).
+const PRESET_KEYS = [
+  'style', 'orientation', 'resolution', 'rotate', 'rotateCaptions',
+  'vividAmount', 'trimY', 'trimX', 'fgCrop', 'loudness', 'zoom',
+  'captions', 'captionSource', 'captionStyle', 'captionPos',
+]
 
 const ACTIVE = new Set([
   'queued', 'starting', 'downloading', 'merging', 'converting',
@@ -29,6 +36,13 @@ export default function Player({ item, jobs, config, onClose }) {
   const [orientation, setOrientation] = useState('portrait')
   const [rotate, setRotate] = useState('none')
   const [rotateCaptions, setRotateCaptions] = useState(false)
+  const [loudness, setLoudness] = useState(false)
+  const [zoom, setZoom] = useState('none')
+  const [presets, setPresets] = useState({})
+  const [presetName, setPresetName] = useState('')
+  const [previewCaps, setPreviewCaps] = useState(false)
+  const [transcript, setTranscript] = useState(null)
+  const [nowTime, setNowTime] = useState(0)
   const [capsOpen, setCapsOpen] = useState(false)
   const [capSpeed, setCapSpeed] = useState('2.5')
   const [capItems, setCapItems] = useState([])
@@ -67,6 +81,8 @@ export default function Player({ item, jobs, config, onClose }) {
         })))
       })
       .catch(() => setHasManualCaps(false))
+    getTranscript(item.path).then(setTranscript).catch(() => setTranscript(null))
+    getPresets().then(setPresets).catch(() => setPresets({}))
   }, [item.path])
 
   // When background jobs for this file finish, pull their results in.
@@ -101,6 +117,53 @@ export default function Player({ item, jobs, config, onClose }) {
     setNotice(null)
     promise
       .then(() => okNotice && setNotice(okNotice))
+      .catch((e) => setError(e.message))
+  }
+
+  // --- presets -------------------------------------------------------------
+  const SETTERS = {
+    style: setStyle, orientation: setOrientation, resolution: setResolution,
+    rotate: setRotate, rotateCaptions: setRotateCaptions,
+    vividAmount: setVividAmount, trimY: setTrimY, trimX: setTrimX,
+    fgCrop: setFgCrop, loudness: setLoudness, zoom: setZoom,
+    captions: setCaptions, captionSource: setCaptionSource,
+    captionStyle: setCaptionStyle, captionPos: setCaptionPos,
+  }
+
+  const applyPreset = (name) => {
+    setPresetName(name)
+    const p = presets[name]
+    if (!p) return
+    for (const k of PRESET_KEYS) {
+      if (k in p && SETTERS[k]) SETTERS[k](p[k])
+    }
+  }
+
+  const currentSettings = () => ({
+    style, orientation, resolution, rotate, rotateCaptions,
+    vividAmount, trimY, trimX, fgCrop, loudness, zoom,
+    captions, captionSource, captionStyle, captionPos,
+  })
+
+  const doSavePreset = () => {
+    const name = window.prompt('Preset name:', presetName || 'My preset')
+    if (!name || !name.trim()) return
+    savePreset(name.trim(), currentSettings())
+      .then((r) => {
+        setPresets(r.presets)
+        setPresetName(name.trim())
+        setNotice(`Saved preset "${name.trim()}".`)
+      })
+      .catch((e) => setError(e.message))
+  }
+
+  const doDeletePreset = () => {
+    if (!presetName || !presets[presetName]) return
+    deletePreset(presetName)
+      .then((r) => {
+        setPresets(r.presets)
+        setPresetName('')
+      })
       .catch((e) => setError(e.message))
   }
 
@@ -192,6 +255,43 @@ export default function Player({ item, jobs, config, onClose }) {
       .catch((e) => setError(e.message))
   }
 
+  // --- live caption preview ------------------------------------------------
+  // Group transcript words into ~4-word lines, matching the server.
+  const capLines = useMemo(() => {
+    if (captionSource === 'manual') {
+      return capItems
+        .map((it) => {
+          const s = parseTime(it.start)
+          const d = parseFloat(it.duration)
+          return s == null || !(d > 0)
+            ? null
+            : { start: s, end: s + d, text: it.text, words: null }
+        })
+        .filter(Boolean)
+    }
+    if (!transcript) return []
+    const words = transcript.segments.flatMap((seg) => seg.words)
+    const lines = []
+    let g = []
+    for (const w of words) {
+      if (g.length && (g.length >= 4 || w.s - g[g.length - 1].e > 0.8)) {
+        lines.push(g)
+        g = []
+      }
+      g.push(w)
+    }
+    if (g.length) lines.push(g)
+    return lines.map((grp) => ({
+      start: grp[0].s,
+      end: grp[grp.length - 1].e,
+      words: grp,
+      text: grp.map((x) => x.w).join(' '),
+    }))
+  }, [transcript, captionSource, capItems])
+
+  const activeLine = capLines.find((l) => nowTime >= l.start && nowTime < l.end)
+  const showPreview = previewCaps && captions && activeLine
+
   const doExport = () => {
     const s = parseTime(start)
     const e = parseTime(end)
@@ -225,13 +325,34 @@ export default function Player({ item, jobs, config, onClose }) {
           <button className="btn ghost" onClick={onClose}>Close</button>
         </div>
 
-        <video
-          ref={videoRef}
-          className="player-video"
-          src={src}
-          controls
-          onError={() => setPlayError(true)}
-        />
+        <div className="player-wrap">
+          <video
+            ref={videoRef}
+            className="player-video"
+            src={src}
+            controls
+            onTimeUpdate={(e) => setNowTime(e.target.currentTime)}
+            onError={() => setPlayError(true)}
+          />
+          {showPreview && (
+            <div className={`cap-preview cap-preview-${captionPos} capstyle-${captionStyle}`}>
+              {activeLine.words
+                ? activeLine.words.map((w, i) => {
+                    const spoken = nowTime >= w.s
+                    const cur = nowTime >= w.s && nowTime < w.e
+                    const amber = captionStyle === 'karaoke'
+                      ? spoken
+                      : cur
+                    return (
+                      <span key={i} className={amber ? 'cap-w amber' : 'cap-w'}>
+                        {w.w}{' '}
+                      </span>
+                    )
+                  })
+                : activeLine.text}
+            </div>
+          )}
+        </div>
         {playError && (
           <p className="error-line">
             This file may not play in the browser
@@ -328,6 +449,24 @@ export default function Player({ item, jobs, config, onClose }) {
           </div>
         )}
 
+        <div className="preset-bar">
+          <span className="mono muted">Preset</span>
+          <select
+            value={presetName}
+            onChange={(e) => applyPreset(e.target.value)}
+            aria-label="Export preset"
+          >
+            <option value="">— none —</option>
+            {Object.keys(presets).map((n) => (
+              <option key={n} value={n}>{n}</option>
+            ))}
+          </select>
+          <button className="btn ghost" onClick={doSavePreset}>Save preset</button>
+          {presetName && presets[presetName] && (
+            <button className="btn ghost" onClick={doDeletePreset}>Delete</button>
+          )}
+        </div>
+
         <div className="export-row">
           <span className="mono muted">
             {orientation === 'landscape' ? '16:9 clip' : '9:16 clip'}
@@ -387,6 +526,23 @@ export default function Player({ item, jobs, config, onClose }) {
             <option value="1080">1080p</option>
             <option value="4k">4K</option>
           </select>
+          <select
+            value={zoom}
+            onChange={(e) => setZoom(e.target.value)}
+            aria-label="Auto zoom"
+            title="Slow Ken-Burns punch-in over the clip"
+          >
+            <option value="none">No zoom</option>
+            <option value="in">Punch-in ⤢</option>
+          </select>
+          <label className="vivid-check" title="Normalize loudness to -14 LUFS (social-platform target)">
+            <input
+              type="checkbox"
+              checked={loudness}
+              onChange={(e) => setLoudness(e.target.checked)}
+            />
+            Normalize audio
+          </label>
           <label className="vivid-slider" title="0 = original colors · 100 = maximum punch">
             <span className="mono muted">Vivid</span>
             <input
@@ -461,6 +617,14 @@ export default function Player({ item, jobs, config, onClose }) {
                   Rotate captions too
                 </label>
               )}
+              <label className="vivid-check" title="Show captions over the video while it plays (approximate; final burn is exact)">
+                <input
+                  type="checkbox"
+                  checked={previewCaps}
+                  onChange={(e) => setPreviewCaps(e.target.checked)}
+                />
+                Preview on video
+              </label>
             </>
           )}
           <button className="btn accent" onClick={doExport}>Export clip</button>
