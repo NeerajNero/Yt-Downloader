@@ -27,6 +27,7 @@ export default function Player({ item, jobs, config, onClose }) {
   const [captionStyle, setCaptionStyle] = useState('karaoke')
   const [resolution, setResolution] = useState('1080')
   const [orientation, setOrientation] = useState('portrait')
+  const [rotate, setRotate] = useState('none')
   const [capsOpen, setCapsOpen] = useState(false)
   const [capSpeed, setCapSpeed] = useState('2.5')
   const [capItems, setCapItems] = useState([])
@@ -141,7 +142,7 @@ export default function Player({ item, jobs, config, onClose }) {
     run(
       startExport(item.path, s, e, style, vividAmount, tx, ty, fc,
         captions, captionSource, captionPos, captionStyle, resolution,
-        orientation),
+        orientation, rotate),
       'Export queued — progress shows in Jobs.'
     )
   }
@@ -360,6 +361,17 @@ export default function Player({ item, jobs, config, onClose }) {
           >
             <option value="portrait">Portrait 9:16</option>
             <option value="landscape">Landscape 16:9</option>
+          </select>
+          <select
+            value={rotate}
+            onChange={(e) => setRotate(e.target.value)}
+            aria-label="Rotate video"
+            title="Rotate the footage inside the frame — turn landscape sideways to fill a vertical clip"
+          >
+            <option value="none">No rotation</option>
+            <option value="right">Rotate 90° ↻</option>
+            <option value="left">Rotate 90° ↺</option>
+            <option value="180">Rotate 180°</option>
           </select>
           <select value={style} onChange={(e) => setStyle(e.target.value)} aria-label="Style">
             <option value="blur">Blurred pad</option>

@@ -139,10 +139,12 @@ convert for editing first).
   Reels / TikTok) or *Landscape 16:9* (YouTube) — and the **resolution**:
   1080p (1080×1920 or 1920×1080) or 4K (2160×3840 or 3840×2160; slower, larger
   files). Styles: *Blurred pad* (whole frame over a blurred background) or
-  *Center crop*. Times accept `1:23` or plain seconds; "Set start/end" grabs
-  the current playhead. Captions render on a canvas matching the orientation,
-  so they stay correctly proportioned in both portrait and landscape, at any
-  resolution.
+  *Center crop*. **Rotate** turns the footage 90° left/right (or 180°) inside
+  the frame — e.g. rotate landscape footage 90° to fill a vertical 9:16 clip
+  edge-to-edge; captions burn on afterwards, so they stay upright and readable.
+  Times accept `1:23` or plain seconds; "Set start/end" grabs the current
+  playhead. Captions render on a canvas matching the orientation, so they stay
+  correctly proportioned in both portrait and landscape, at any resolution.
 - **Vivid** is a 0–100 slider (in the export row) that grades the clip with
   progressively stronger saturation, vibrance, and contrast — the punchy look
   people associate with HDR. 0 keeps the original colors; 100 is deliberately

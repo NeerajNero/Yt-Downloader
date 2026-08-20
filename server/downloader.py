@@ -394,9 +394,21 @@ def _dims(resolution, orientation):
     return (1080, 1920) if resolution == "1080" else (2160, 3840)
 
 
+# Rotate the source before framing (captions burn on afterwards, staying upright).
+ROTATIONS = {"none", "right", "left", "180"}
+_ROTATE_FILTER = {
+    "right": "transpose=1",              # 90° clockwise
+    "left": "transpose=2",               # 90° counter-clockwise
+    "180": "transpose=1,transpose=1",
+}
+
+
 def _export_filter(style, vivid_amount, trim_x=0.0, trim_y=0.0, fg_crop=0.0,
-                   width=1080, height=1920):
+                   width=1080, height=1920, rotate="none"):
+    rot = _ROTATE_FILTER.get(rotate)
     pre = _pre_crop(trim_x, trim_y)
+    # Source-prep chain applied first: rotate, then border trim.
+    prep = ",".join(p for p in (rot, pre) if p)
     grade = ("," + _vivid_filter(vivid_amount)) if vivid_amount else ""
     # Blur radius scales with the frame's short side so it's never under-blurred.
     sigma = round(24 * min(width, height) / 1080, 1)
@@ -411,7 +423,7 @@ def _export_filter(style, vivid_amount, trim_x=0.0, trim_y=0.0, fg_crop=0.0,
         fg += (f"scale={width}:{height}:force_original_aspect_ratio=decrease"
                ":force_divisible_by=2")
         fg += grade
-        head = f"[0:v]{pre},split=2" if pre else "[0:v]split=2"
+        head = f"[0:v]{prep},split=2" if prep else "[0:v]split=2"
         return (
             f"{head}[bgin][fgin];"
             f"[bgin]scale={width}:{height}:force_original_aspect_ratio=increase,"
@@ -421,8 +433,8 @@ def _export_filter(style, vivid_amount, trim_x=0.0, trim_y=0.0, fg_crop=0.0,
     # Center crop to the target aspect, then scale.
     vf = (f"crop=min(iw\\,ih*{ar:.5f}):min(ih\\,iw/{ar:.5f}),"
           f"scale={width}:{height}")
-    if pre:
-        vf = pre + "," + vf
+    if prep:
+        vf = prep + "," + vf
     vf += grade
     return vf
 
@@ -461,7 +473,7 @@ def start_export(src, start, end, style="crop", vivid=False,
                  trim_x=0.0, trim_y=0.0, fg_crop=0.0, captions=False,
                  caption_source="auto", caption_pos="bottom",
                  caption_style="karaoke", resolution="1080", vivid_amount=0,
-                 orientation="portrait"):
+                 orientation="portrait", rotate="none"):
     src = Path(src)
     job = _new_job("export", src.stem)
     job["src"] = str(src)
@@ -470,7 +482,7 @@ def start_export(src, start, end, style="crop", vivid=False,
         args=(job, _EVENTS[job["id"]], src, float(start), float(end),
               style, vivid, float(trim_x), float(trim_y), float(fg_crop),
               captions, caption_source, caption_pos, caption_style, resolution,
-              vivid_amount, orientation),
+              vivid_amount, orientation, rotate),
         daemon=True,
     )
     thread.start()
@@ -481,7 +493,7 @@ def run_export(job, event, src, start, end, style="blur", vivid=False,
                trim_x=0.0, trim_y=0.0, fg_crop=0.0, captions=False,
                caption_source="auto", caption_pos="bottom",
                caption_style="karaoke", resolution="1080", vivid_amount=0,
-               orientation="portrait"):
+               orientation="portrait", rotate="none"):
     """Render one clip (portrait 9:16 or landscape 16:9); returns the output
     path. Raises on failure or Cancelled. Percent lands on the given job."""
     import tempfile
@@ -508,9 +520,12 @@ def run_export(job, event, src, start, end, style="blur", vivid=False,
     width, height = _dims(resolution, orientation)
     if resolution != "1080":
         suffix += f"_{resolution}"
+    if rotate != "none":
+        suffix += f"_rot{rotate}"
     aspect = "16x9" if orientation == "landscape" else "9x16"
     out_path = shorts_dir / f"{src.stem}_{aspect}_{int(start)}s-{int(end)}s_{style}{suffix}.mp4"
-    filt = _export_filter(style, amount, trim_x, trim_y, fg_crop, width, height)
+    filt = _export_filter(style, amount, trim_x, trim_y, fg_crop, width, height,
+                          rotate)
 
     ass_file = None
     if captions:
@@ -578,13 +593,13 @@ def run_export(job, event, src, start, end, style="blur", vivid=False,
 def _export_worker(job, event, src, start, end, style, vivid,
                    trim_x, trim_y, fg_crop, captions, caption_source,
                    caption_pos, caption_style, resolution, vivid_amount,
-                   orientation):
+                   orientation, rotate):
     job["status"] = "exporting"
     try:
         out_path = run_export(
             job, event, src, start, end, style, vivid,
             trim_x, trim_y, fg_crop, captions, caption_source, caption_pos,
-            caption_style, resolution, vivid_amount, orientation,
+            caption_style, resolution, vivid_amount, orientation, rotate,
         )
         job["percent"] = 100.0
         job["path"] = str(out_path)

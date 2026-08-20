@@ -166,6 +166,7 @@ class ExportBody(BaseModel):
     caption_style: str = "karaoke"
     resolution: str = "1080"
     orientation: str = "portrait"
+    rotate: str = "none"
 
 
 class SuggestBody(BaseModel):
@@ -386,6 +387,8 @@ def api_export(body: ExportBody):
         raise HTTPException(400, "Caption position must be bottom, middle, or top.")
     if body.orientation not in downloader.ORIENTATIONS:
         raise HTTPException(400, "Orientation must be portrait or landscape.")
+    if body.rotate not in downloader.ROTATIONS:
+        raise HTTPException(400, "Rotate must be none, right, left, or 180.")
     if body.caption_style not in downloader.CAPTION_STYLES:
         raise HTTPException(
             400, "Caption style must be one of: "
@@ -410,7 +413,7 @@ def api_export(body: ExportBody):
         captions=body.captions, caption_source=body.caption_source,
         caption_pos=body.caption_pos, caption_style=body.caption_style,
         resolution=body.resolution, vivid_amount=body.vivid_amount,
-        orientation=body.orientation,
+        orientation=body.orientation, rotate=body.rotate,
     )
 
 
