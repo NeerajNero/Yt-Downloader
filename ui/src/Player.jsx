@@ -26,6 +26,7 @@ export default function Player({ item, jobs, config, onClose }) {
   const [captionPos, setCaptionPos] = useState('bottom')
   const [captionStyle, setCaptionStyle] = useState('karaoke')
   const [resolution, setResolution] = useState('1080')
+  const [orientation, setOrientation] = useState('portrait')
   const [capsOpen, setCapsOpen] = useState(false)
   const [capSpeed, setCapSpeed] = useState('2.5')
   const [capItems, setCapItems] = useState([])
@@ -139,7 +140,8 @@ export default function Player({ item, jobs, config, onClose }) {
     }
     run(
       startExport(item.path, s, e, style, vividAmount, tx, ty, fc,
-        captions, captionSource, captionPos, captionStyle, resolution),
+        captions, captionSource, captionPos, captionStyle, resolution,
+        orientation),
       'Export queued — progress shows in Jobs.'
     )
   }
@@ -325,7 +327,9 @@ export default function Player({ item, jobs, config, onClose }) {
         )}
 
         <div className="export-row">
-          <span className="mono muted">9:16 clip</span>
+          <span className="mono muted">
+            {orientation === 'landscape' ? '16:9 clip' : '9:16 clip'}
+          </span>
           <div className="time-field">
             <input
               type="text"
@@ -348,6 +352,15 @@ export default function Player({ item, jobs, config, onClose }) {
               Set end
             </button>
           </div>
+          <select
+            value={orientation}
+            onChange={(e) => setOrientation(e.target.value)}
+            aria-label="Orientation"
+            title="Portrait 9:16 for Shorts/Reels/TikTok · Landscape 16:9 for YouTube"
+          >
+            <option value="portrait">Portrait 9:16</option>
+            <option value="landscape">Landscape 16:9</option>
+          </select>
           <select value={style} onChange={(e) => setStyle(e.target.value)} aria-label="Style">
             <option value="blur">Blurred pad</option>
             <option value="crop">Center crop</option>

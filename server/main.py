@@ -165,6 +165,7 @@ class ExportBody(BaseModel):
     caption_pos: str = "bottom"
     caption_style: str = "karaoke"
     resolution: str = "1080"
+    orientation: str = "portrait"
 
 
 class SuggestBody(BaseModel):
@@ -381,8 +382,10 @@ def api_export(body: ExportBody):
         raise HTTPException(400, "Video crop must be between 0 and 40 percent.")
     if body.caption_source not in ("auto", "manual"):
         raise HTTPException(400, "Caption source must be 'auto' or 'manual'.")
-    if body.caption_pos not in downloader.CAPTION_POSITIONS:
+    if body.caption_pos not in downloader.CAPTION_POS_NAMES:
         raise HTTPException(400, "Caption position must be bottom, middle, or top.")
+    if body.orientation not in downloader.ORIENTATIONS:
+        raise HTTPException(400, "Orientation must be portrait or landscape.")
     if body.caption_style not in downloader.CAPTION_STYLES:
         raise HTTPException(
             400, "Caption style must be one of: "
@@ -407,6 +410,7 @@ def api_export(body: ExportBody):
         captions=body.captions, caption_source=body.caption_source,
         caption_pos=body.caption_pos, caption_style=body.caption_style,
         resolution=body.resolution, vivid_amount=body.vivid_amount,
+        orientation=body.orientation,
     )
 
 

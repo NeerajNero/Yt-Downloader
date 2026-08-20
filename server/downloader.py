@@ -382,20 +382,25 @@ def _pre_crop(trim_x, trim_y):
     return f"crop={w}:{h}"
 
 
-# 9:16 output sizes. Captions keep a 1080x1920 ASS PlayRes and libass scales
-# them to the frame, so they stay sharp and correctly sized at any resolution.
-RESOLUTIONS = {
-    "1080": (1080, 1920),
-    "4k": (2160, 3840),
-}
+# Output sizes by resolution and orientation. Captions use a matching ASS
+# PlayRes so libass scales them to the frame without distortion.
+RESOLUTIONS = {"1080", "4k"}
+ORIENTATIONS = {"portrait", "landscape"}
+
+
+def _dims(resolution, orientation):
+    if orientation == "landscape":
+        return (1920, 1080) if resolution == "1080" else (3840, 2160)
+    return (1080, 1920) if resolution == "1080" else (2160, 3840)
 
 
 def _export_filter(style, vivid_amount, trim_x=0.0, trim_y=0.0, fg_crop=0.0,
                    width=1080, height=1920):
     pre = _pre_crop(trim_x, trim_y)
     grade = ("," + _vivid_filter(vivid_amount)) if vivid_amount else ""
-    # Blur radius scales with resolution so 4K isn't under-blurred.
-    sigma = round(24 * width / 1080, 1)
+    # Blur radius scales with the frame's short side so it's never under-blurred.
+    sigma = round(24 * min(width, height) / 1080, 1)
+    ar = width / height  # target aspect
     if style == "blur":
         # Blurred-pad: the frame fills a blurred WxH canvas, the video is
         # scaled to fit and overlaid centered. fg_crop trims the video's
@@ -413,8 +418,9 @@ def _export_filter(style, vivid_amount, trim_x=0.0, trim_y=0.0, fg_crop=0.0,
             f"crop={width}:{height},gblur=sigma={sigma},eq=brightness=-0.08[bg];"
             f"[fgin]{fg}[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2"
         )
-    # Center crop to 9:16.
-    vf = f"crop=min(iw\\,ih*9/16):ih,scale={width}:{height}"
+    # Center crop to the target aspect, then scale.
+    vf = (f"crop=min(iw\\,ih*{ar:.5f}):min(ih\\,iw/{ar:.5f}),"
+          f"scale={width}:{height}")
     if pre:
         vf = pre + "," + vf
     vf += grade
@@ -454,7 +460,8 @@ def detect_borders(src):
 def start_export(src, start, end, style="crop", vivid=False,
                  trim_x=0.0, trim_y=0.0, fg_crop=0.0, captions=False,
                  caption_source="auto", caption_pos="bottom",
-                 caption_style="karaoke", resolution="1080", vivid_amount=0):
+                 caption_style="karaoke", resolution="1080", vivid_amount=0,
+                 orientation="portrait"):
     src = Path(src)
     job = _new_job("export", src.stem)
     job["src"] = str(src)
@@ -463,7 +470,7 @@ def start_export(src, start, end, style="crop", vivid=False,
         args=(job, _EVENTS[job["id"]], src, float(start), float(end),
               style, vivid, float(trim_x), float(trim_y), float(fg_crop),
               captions, caption_source, caption_pos, caption_style, resolution,
-              vivid_amount),
+              vivid_amount, orientation),
         daemon=True,
     )
     thread.start()
@@ -473,9 +480,10 @@ def start_export(src, start, end, style="crop", vivid=False,
 def run_export(job, event, src, start, end, style="blur", vivid=False,
                trim_x=0.0, trim_y=0.0, fg_crop=0.0, captions=False,
                caption_source="auto", caption_pos="bottom",
-               caption_style="karaoke", resolution="1080", vivid_amount=0):
-    """Render one 9:16 clip; returns the output path. Raises on failure or
-    Cancelled. Percent lands on the given job dict."""
+               caption_style="karaoke", resolution="1080", vivid_amount=0,
+               orientation="portrait"):
+    """Render one clip (portrait 9:16 or landscape 16:9); returns the output
+    path. Raises on failure or Cancelled. Percent lands on the given job."""
     import tempfile
 
     src = Path(src)
@@ -497,10 +505,11 @@ def run_export(job, event, src, start, end, style="blur", vivid=False,
             suffix += f"-{caption_style[:4]}"
         if caption_pos != "bottom":
             suffix += f"-{caption_pos[:3]}"
-    width, height = RESOLUTIONS.get(resolution, RESOLUTIONS["1080"])
+    width, height = _dims(resolution, orientation)
     if resolution != "1080":
         suffix += f"_{resolution}"
-    out_path = shorts_dir / f"{src.stem}_9x16_{int(start)}s-{int(end)}s_{style}{suffix}.mp4"
+    aspect = "16x9" if orientation == "landscape" else "9x16"
+    out_path = shorts_dir / f"{src.stem}_{aspect}_{int(start)}s-{int(end)}s_{style}{suffix}.mp4"
     filt = _export_filter(style, amount, trim_x, trim_y, fg_crop, width, height)
 
     ass_file = None
@@ -524,6 +533,7 @@ def run_export(job, event, src, start, end, style="blur", vivid=False,
             n = write_manual_captions_ass(
                 manual, start, end, ass_file,
                 position=caption_pos, style=caption_style,
+                orientation=orientation,
             )
         else:
             t_path = transcript_path_for(src)
@@ -533,6 +543,7 @@ def run_export(job, event, src, start, end, style="blur", vivid=False,
             n = write_captions_ass(
                 transcript, start, end, ass_file,
                 position=caption_pos, style=caption_style,
+                orientation=orientation,
             )
         if n > 0:
             filt += "," + _subtitles_filter_path(ass_file)
@@ -566,13 +577,14 @@ def run_export(job, event, src, start, end, style="blur", vivid=False,
 
 def _export_worker(job, event, src, start, end, style, vivid,
                    trim_x, trim_y, fg_crop, captions, caption_source,
-                   caption_pos, caption_style, resolution, vivid_amount):
+                   caption_pos, caption_style, resolution, vivid_amount,
+                   orientation):
     job["status"] = "exporting"
     try:
         out_path = run_export(
             job, event, src, start, end, style, vivid,
             trim_x, trim_y, fg_crop, captions, caption_source, caption_pos,
-            caption_style, resolution, vivid_amount,
+            caption_style, resolution, vivid_amount, orientation,
         )
         job["percent"] = 100.0
         job["path"] = str(out_path)
@@ -821,11 +833,14 @@ def _ass_escape(text):
 
 
 # ASS alignment: 2 = bottom-center, 5 = middle-center, 8 = top-center.
+# Values are (alignment, vertical-margin) tuned per orientation canvas.
 CAPTION_POSITIONS = {
-    "bottom": (2, 340),
-    "middle": (5, 0),
-    "top": (8, 220),
+    "portrait": {"bottom": (2, 340), "middle": (5, 0), "top": (8, 220)},
+    "landscape": {"bottom": (2, 90), "middle": (5, 0), "top": (8, 70)},
 }
+CAPTION_POS_NAMES = ("bottom", "middle", "top")
+# ASS PlayRes per orientation — matches the output aspect so text isn't stretched.
+CAPTION_CANVAS = {"portrait": (1080, 1920), "landscape": (1920, 1080)}
 
 # Caption style presets. Colors are ASS &HAABBGGRR (amber F2A33C -> 3CA3F2).
 # karaoke:    white text, the spoken word fills amber (the default)
@@ -866,12 +881,14 @@ def _pop_events(start, end, text):
 _K_STYLES = {"karaoke", "typewriter"}
 
 
-def _ass_header(position, style="karaoke"):
-    align, margin_v = CAPTION_POSITIONS.get(position, CAPTION_POSITIONS["bottom"])
+def _ass_header(position, style="karaoke", orientation="portrait"):
+    positions = CAPTION_POSITIONS.get(orientation, CAPTION_POSITIONS["portrait"])
+    align, margin_v = positions.get(position, positions["bottom"])
+    play_w, play_h = CAPTION_CANVAS.get(orientation, CAPTION_CANVAS["portrait"])
     s = CAPTION_STYLES.get(style, CAPTION_STYLES["karaoke"])
     return (
         "[Script Info]\nScriptType: v4.00+\n"
-        "PlayResX: 1080\nPlayResY: 1920\nWrapStyle: 0\n\n"
+        f"PlayResX: {play_w}\nPlayResY: {play_h}\nWrapStyle: 0\n\n"
         "[V4+ Styles]\n"
         "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, "
         "OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, "
@@ -891,8 +908,8 @@ def _style_word(style, word):
 
 def write_captions_ass(transcript, clip_start, clip_end, out_path,
                        max_words=4, max_gap=0.8, position="bottom",
-                       style="karaoke"):
-    """Transcript captions for a 1080x1920 clip in the chosen style.
+                       style="karaoke", orientation="portrait"):
+    """Transcript captions for the chosen style and orientation.
     Word times are shifted so 0 = clip_start."""
     if style not in CAPTION_STYLES:
         style = "karaoke"
@@ -949,7 +966,8 @@ def captions_path_for(src):
 
 
 def write_manual_captions_ass(manual, clip_start, clip_end, out_path,
-                              position="bottom", style="karaoke"):
+                              position="bottom", style="karaoke",
+                              orientation="portrait"):
     """Hand-typed captions: each item is {text, start, duration}. Karaoke and
     typewriter pace the words at `speed` words/sec, then the line holds until
     its duration ends. Times are shifted so 0 = clip_start."""
@@ -984,7 +1002,8 @@ def write_manual_captions_ass(manual, clip_start, clip_end, out_path,
             f"Dialogue: 0,{_ass_time(start)},{_ass_time(end)},Cap,,0,0,0,,{line}"
         )
     Path(out_path).write_text(
-        _ass_header(position, style) + "\n".join(events) + "\n", encoding="utf-8"
+        _ass_header(position, style, orientation) + "\n".join(events) + "\n",
+        encoding="utf-8",
     )
     return len(events)
 
