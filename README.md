@@ -211,6 +211,28 @@ Typical Gemini cost is a fraction of a cent per video with `gemini-2.5-flash`.
 The transcript and scene detection stay fully local — only the compact
 transcript text and ~16 small keyframes are sent to Google.
 
+## Clip pack (shred for editing)
+
+For hand-assembled montages/edits (character-vs-character, velocity edits),
+**Clip pack** shreds a video into a pile of short, montage-ready shots you
+drop into DaVinci and arrange yourself. In the player:
+
+- Choose **Whole video** or **Selected range** (uses the start/end fields).
+- Set the **Max** length (1–5s). Each detected shot is cut into consecutive
+  pieces up to that length, never crossing a scene cut — so you get a natural
+  mix of 1s/2s/3s clips. Footage with no clear cuts (continuous gameplay)
+  falls back to even chunks automatically.
+- **Shred to clips** runs one job (auto-detecting scenes first if needed) and
+  writes numbered, timestamped clips into a `clips/` subfolder next to the
+  video, at the **source resolution and aspect** (raw material — you frame in
+  DaVinci), edit-friendly H.264 with audio. A `clippack.json` manifest lists
+  each clip's source time.
+
+Clips are intentionally *not* reframed or captioned — they're raw shots. It
+does not try to auto-isolate a specific character (that needs unreliable
+person tracking); you cherry-pick the shots you want. Note 4K sources take a
+while (each clip is re-encoded); 1080p and smaller are fast.
+
 ## VOD pipeline hand-off
 
 Set `PIPELINE_CMD` in `.env` to enable the Pipeline button on library cards,

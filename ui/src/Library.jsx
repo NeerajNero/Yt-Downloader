@@ -6,7 +6,7 @@ import { fmtBytes, fmtDuration, needsConvert } from './util.js'
 const ACTIVE = new Set([
   'queued', 'starting', 'downloading', 'merging', 'converting',
   'exporting', 'analyzing', 'running', 'cancelling',
-  'transcribing', 'suggesting',
+  'transcribing', 'suggesting', 'shredding',
 ])
 
 export default function Library({ items, jobs, config, onChanged }) {

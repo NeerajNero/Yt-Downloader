@@ -177,6 +177,13 @@ class SuggestBody(BaseModel):
     count: int = 5
 
 
+class ClipPackBody(BaseModel):
+    path: str
+    start: float = 0.0
+    end: float = 0.0
+    max_len: float = 3.0
+
+
 class CaptionItem(BaseModel):
     text: str
     start: float
@@ -569,6 +576,16 @@ def api_scenes_start(body: PathBody):
     if not src.is_file():
         raise HTTPException(404, "That file no longer exists.")
     return downloader.start_scenes(src)
+
+
+@app.post("/api/clippack")
+def api_clippack(body: ClipPackBody):
+    src = _safe_path(body.path)
+    if not src.is_file():
+        raise HTTPException(404, "That file no longer exists.")
+    if not (1.0 <= body.max_len <= 5.0):
+        raise HTTPException(400, "Max clip length must be between 1 and 5 seconds.")
+    return downloader.start_clippack(src, body.start, body.end, body.max_len)
 
 
 @app.get("/api/scenes")

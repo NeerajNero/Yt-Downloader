@@ -133,6 +133,13 @@ export const startAutoShorts = (path, count = 3) =>
     body: JSON.stringify({ path, count }),
   }).then(handle)
 
+export const startClipPack = (path, start, end, maxLen) =>
+  fetch('/api/clippack', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, start, end, max_len: maxLen }),
+  }).then(handle)
+
 export const detectBorders = (path) =>
   fetch(`/api/borders?path=${encodeURIComponent(path)}`).then(handle)
 

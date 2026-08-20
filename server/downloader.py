@@ -1231,3 +1231,102 @@ def _import_worker(job, event, src, download_dir):
         else:
             job["status"] = "error"
             job["error"] = str(exc)
+
+
+# ----------------------------------------------------- clip pack (shredder)
+
+def clips_dir_for(src):
+    return Path(src).parent / "clips"
+
+
+def start_clippack(src, start=0.0, end=0.0, max_len=3.0, min_len=0.6):
+    src = Path(src)
+    job = _new_job("clippack", src.stem)
+    job["src"] = str(src)
+    thread = threading.Thread(
+        target=_clippack_worker,
+        args=(job, _EVENTS[job["id"]], src, float(start), float(end),
+              float(max_len), float(min_len)),
+        daemon=True,
+    )
+    thread.start()
+    return job
+
+
+def _clippack_worker(job, event, src, start, end, max_len, min_len):
+    import json as _json
+
+    job["status"] = "shredding"
+    try:
+        # Scene cuts define shot boundaries (auto-runs detection if needed).
+        scenes = run_scenes(src, event=event)
+        duration = scenes.get("duration") or _probe_duration(src) or 0
+        if not end or end > duration:
+            end = duration
+        start = max(0.0, start)
+        if end <= start:
+            raise RuntimeError("Nothing to shred — check the time range.")
+
+        cuts = [c for c in scenes["scenes"] if start < c < end]
+        bounds = [start] + cuts + [end]
+
+        # Within each shot, take consecutive chunks up to max_len. Long shots
+        # (or cut-less footage) yield several clips; trailing scraps < min_len
+        # are dropped. Never crosses a scene cut.
+        chunks = []
+        for a, b in zip(bounds, bounds[1:]):
+            t = a
+            while b - t >= min_len:
+                clen = min(max_len, b - t)
+                chunks.append((round(t, 3), round(t + clen, 3)))
+                t += clen
+
+        MAX_CLIPS = 500
+        capped = len(chunks) > MAX_CLIPS
+        chunks = chunks[:MAX_CLIPS]
+        if not chunks:
+            raise RuntimeError("No usable clips found in that range.")
+
+        outdir = clips_dir_for(src)
+        outdir.mkdir(exist_ok=True)
+        manifest = []
+        total = len(chunks)
+        for i, (cs, ce) in enumerate(chunks, 1):
+            if event.is_set():
+                job["status"] = "cancelled"
+                return
+            mmss = f"{int(cs // 60):02d}m{int(cs % 60):02d}s"
+            out = outdir / f"{src.stem}_clip{i:03d}_{mmss}.mp4"
+            # Fast preset: these are editing intermediates (re-encoded again
+            # in DaVinci), so speed matters more than compression efficiency.
+            cmd = [
+                FFMPEG_BIN, "-y", "-ss", str(cs), "-i", str(src),
+                "-t", str(round(ce - cs, 3)),
+                "-c:v", "libx264", "-crf", "18", "-preset", "veryfast",
+                "-pix_fmt", "yuv420p",
+                "-c:a", "aac", "-b:a", "192k",
+                "-movflags", "+faststart", "-loglevel", "error",
+                str(out),
+            ]
+            r = subprocess.run(cmd, capture_output=True, text=True)
+            if r.returncode == 0:
+                manifest.append({
+                    "file": out.name, "start": round(cs, 2),
+                    "end": round(ce, 2), "len": round(ce - cs, 2),
+                })
+            job["percent"] = i / total * 100
+
+        (outdir / "clippack.json").write_text(_json.dumps({
+            "src": str(src), "count": len(manifest),
+            "max_len": max_len, "capped": capped, "clips": manifest,
+        }, indent=2), encoding="utf-8")
+
+        job["percent"] = 100.0
+        job["path"] = str(outdir)
+        job["status"] = "done"
+    except Exception as exc:
+        if event.is_set() or isinstance(exc, Cancelled):
+            job["status"] = "cancelled"
+        else:
+            job["status"] = "error"
+            job["error"] = str(exc)

@@ -2,7 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
   deletePreset, detectBorders, getCaptions, getPresets, getScenes,
   getSuggestions, getTranscript, reveal, savePreset, saveCaptions,
-  startAutoShorts, startExport, startScenes, startSuggest, startTranscribe,
+  startAutoShorts, startClipPack, startExport, startScenes, startSuggest,
+  startTranscribe,
 } from './api.js'
 import { fmtDuration, parseTime } from './util.js'
 
@@ -16,7 +17,7 @@ const PRESET_KEYS = [
 const ACTIVE = new Set([
   'queued', 'starting', 'downloading', 'merging', 'converting',
   'exporting', 'analyzing', 'running', 'cancelling',
-  'transcribing', 'suggesting',
+  'transcribing', 'suggesting', 'shredding',
 ])
 
 export default function Player({ item, jobs, config, onClose }) {
@@ -43,6 +44,8 @@ export default function Player({ item, jobs, config, onClose }) {
   const [previewCaps, setPreviewCaps] = useState(false)
   const [transcript, setTranscript] = useState(null)
   const [nowTime, setNowTime] = useState(0)
+  const [clipMax, setClipMax] = useState('3')
+  const [clipScope, setClipScope] = useState('whole')
   const [capsOpen, setCapsOpen] = useState(false)
   const [capSpeed, setCapSpeed] = useState('2.5')
   const [capItems, setCapItems] = useState([])
@@ -177,6 +180,23 @@ export default function Player({ item, jobs, config, onClose }) {
       startAutoShorts(item.path),
       'Auto Shorts started — clips land below when done.'
     )
+
+  const clipPacking = activeJob('clippack')
+  const doClipPack = () => {
+    let s = 0, e = 0
+    if (clipScope === 'range') {
+      s = parseTime(start)
+      e = parseTime(end)
+      if (s == null || e == null || e <= s) {
+        setError('Set a valid start/end range first, or shred the whole video.')
+        return
+      }
+    }
+    run(
+      startClipPack(item.path, s, e, parseFloat(clipMax) || 3),
+      'Clip pack started — shots land in the "clips" folder (open the card\'s folder).'
+    )
+  }
 
   const doDetectBars = () => {
     setError(null)
@@ -421,6 +441,39 @@ export default function Player({ item, jobs, config, onClose }) {
           {config?.ai_model && (
             <span className="mono muted ai-model">{config.ai_model}</span>
           )}
+        </div>
+
+        <div className="ai-row">
+          <span className="mono muted">Clip pack</span>
+          <select
+            value={clipScope}
+            onChange={(e) => setClipScope(e.target.value)}
+            aria-label="Clip pack scope"
+          >
+            <option value="whole">Whole video</option>
+            <option value="range">Selected range</option>
+          </select>
+          <label className="vivid-slider" title="Each shot is cut into pieces up to this length">
+            <span className="mono muted">Max</span>
+            <input
+              type="range"
+              min="1"
+              max="5"
+              step="1"
+              value={clipMax}
+              onChange={(e) => setClipMax(e.target.value)}
+              aria-label="Max clip length in seconds"
+            />
+            <span className="mono vivid-val">{clipMax}s</span>
+          </label>
+          <button
+            className="btn"
+            onClick={doClipPack}
+            disabled={clipPacking}
+            title="Shred every shot into short clips for hand-editing in DaVinci"
+          >
+            {clipPacking ? 'Shredding…' : 'Shred to clips'}
+          </button>
         </div>
 
         {suggestions?.clips?.length > 0 && (
