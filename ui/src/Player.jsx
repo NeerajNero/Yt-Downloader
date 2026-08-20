@@ -25,6 +25,7 @@ export default function Player({ item, jobs, config, onClose }) {
   const [captionSource, setCaptionSource] = useState('auto')
   const [captionPos, setCaptionPos] = useState('bottom')
   const [captionStyle, setCaptionStyle] = useState('karaoke')
+  const [resolution, setResolution] = useState('1080')
   const [capsOpen, setCapsOpen] = useState(false)
   const [capSpeed, setCapSpeed] = useState('2.5')
   const [capItems, setCapItems] = useState([])
@@ -138,7 +139,7 @@ export default function Player({ item, jobs, config, onClose }) {
     }
     run(
       startExport(item.path, s, e, style, vivid, tx, ty, fc,
-        captions, captionSource, captionPos, captionStyle),
+        captions, captionSource, captionPos, captionStyle, resolution),
       'Export queued — progress shows in Jobs.'
     )
   }
@@ -350,6 +351,15 @@ export default function Player({ item, jobs, config, onClose }) {
           <select value={style} onChange={(e) => setStyle(e.target.value)} aria-label="Style">
             <option value="blur">Blurred pad</option>
             <option value="crop">Center crop</option>
+          </select>
+          <select
+            value={resolution}
+            onChange={(e) => setResolution(e.target.value)}
+            aria-label="Resolution"
+            title="4K takes noticeably longer to render"
+          >
+            <option value="1080">1080p</option>
+            <option value="4k">4K</option>
           </select>
           <label className="vivid-check">
             <input

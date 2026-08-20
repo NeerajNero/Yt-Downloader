@@ -374,28 +374,39 @@ def _pre_crop(trim_x, trim_y):
     return f"crop={w}:{h}"
 
 
-def _export_filter(style, vivid, trim_x=0.0, trim_y=0.0, fg_crop=0.0):
+# 9:16 output sizes. Captions keep a 1080x1920 ASS PlayRes and libass scales
+# them to the frame, so they stay sharp and correctly sized at any resolution.
+RESOLUTIONS = {
+    "1080": (1080, 1920),
+    "4k": (2160, 3840),
+}
+
+
+def _export_filter(style, vivid, trim_x=0.0, trim_y=0.0, fg_crop=0.0,
+                   width=1080, height=1920):
     pre = _pre_crop(trim_x, trim_y)
+    # Blur radius scales with resolution so 4K isn't under-blurred.
+    sigma = round(24 * width / 1080, 1)
     if style == "blur":
-        # Blurred-pad: the frame fills a blurred 1080x1920 canvas, the video
-        # is scaled to fit and overlaid centered. fg_crop trims the video's
+        # Blurred-pad: the frame fills a blurred WxH canvas, the video is
+        # scaled to fit and overlaid centered. fg_crop trims the video's
         # sides so it sits taller in the frame; the blur stays full-frame.
         fg = ""
         if fg_crop:
             fg = f"crop=trunc(iw*{(100 - 2 * fg_crop) / 100:.4f}/2)*2:ih,"
-        fg += ("scale=1080:1920:force_original_aspect_ratio=decrease"
+        fg += (f"scale={width}:{height}:force_original_aspect_ratio=decrease"
                ":force_divisible_by=2")
         if vivid:
             fg += "," + VIVID_FILTER
         head = f"[0:v]{pre},split=2" if pre else "[0:v]split=2"
         return (
             f"{head}[bgin][fgin];"
-            "[bgin]scale=1080:1920:force_original_aspect_ratio=increase,"
-            "crop=1080:1920,gblur=sigma=24,eq=brightness=-0.08[bg];"
+            f"[bgin]scale={width}:{height}:force_original_aspect_ratio=increase,"
+            f"crop={width}:{height},gblur=sigma={sigma},eq=brightness=-0.08[bg];"
             f"[fgin]{fg}[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2"
         )
     # Center crop to 9:16.
-    vf = "crop=min(iw\\,ih*9/16):ih,scale=1080:1920"
+    vf = f"crop=min(iw\\,ih*9/16):ih,scale={width}:{height}"
     if pre:
         vf = pre + "," + vf
     if vivid:
@@ -436,7 +447,7 @@ def detect_borders(src):
 def start_export(src, start, end, style="crop", vivid=False,
                  trim_x=0.0, trim_y=0.0, fg_crop=0.0, captions=False,
                  caption_source="auto", caption_pos="bottom",
-                 caption_style="karaoke"):
+                 caption_style="karaoke", resolution="1080"):
     src = Path(src)
     job = _new_job("export", src.stem)
     job["src"] = str(src)
@@ -444,7 +455,7 @@ def start_export(src, start, end, style="crop", vivid=False,
         target=_export_worker,
         args=(job, _EVENTS[job["id"]], src, float(start), float(end),
               style, vivid, float(trim_x), float(trim_y), float(fg_crop),
-              captions, caption_source, caption_pos, caption_style),
+              captions, caption_source, caption_pos, caption_style, resolution),
         daemon=True,
     )
     thread.start()
@@ -454,7 +465,7 @@ def start_export(src, start, end, style="crop", vivid=False,
 def run_export(job, event, src, start, end, style="blur", vivid=False,
                trim_x=0.0, trim_y=0.0, fg_crop=0.0, captions=False,
                caption_source="auto", caption_pos="bottom",
-               caption_style="karaoke"):
+               caption_style="karaoke", resolution="1080"):
     """Render one 9:16 clip; returns the output path. Raises on failure or
     Cancelled. Percent lands on the given job dict."""
     import tempfile
@@ -475,8 +486,11 @@ def run_export(job, event, src, start, end, style="blur", vivid=False,
             suffix += f"-{caption_style[:4]}"
         if caption_pos != "bottom":
             suffix += f"-{caption_pos[:3]}"
+    width, height = RESOLUTIONS.get(resolution, RESOLUTIONS["1080"])
+    if resolution != "1080":
+        suffix += f"_{resolution}"
     out_path = shorts_dir / f"{src.stem}_9x16_{int(start)}s-{int(end)}s_{style}{suffix}.mp4"
-    filt = _export_filter(style, vivid, trim_x, trim_y, fg_crop)
+    filt = _export_filter(style, vivid, trim_x, trim_y, fg_crop, width, height)
 
     ass_file = None
     if captions:
@@ -541,13 +555,13 @@ def run_export(job, event, src, start, end, style="blur", vivid=False,
 
 def _export_worker(job, event, src, start, end, style, vivid,
                    trim_x, trim_y, fg_crop, captions, caption_source,
-                   caption_pos, caption_style):
+                   caption_pos, caption_style, resolution):
     job["status"] = "exporting"
     try:
         out_path = run_export(
             job, event, src, start, end, style, vivid,
             trim_x, trim_y, fg_crop, captions, caption_source, caption_pos,
-            caption_style,
+            caption_style, resolution,
         )
         job["percent"] = 100.0
         job["path"] = str(out_path)

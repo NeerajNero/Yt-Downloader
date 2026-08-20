@@ -163,6 +163,7 @@ class ExportBody(BaseModel):
     caption_source: str = "auto"
     caption_pos: str = "bottom"
     caption_style: str = "karaoke"
+    resolution: str = "1080"
 
 
 class SuggestBody(BaseModel):
@@ -386,6 +387,11 @@ def api_export(body: ExportBody):
             400, "Caption style must be one of: "
             + ", ".join(downloader.CAPTION_STYLES),
         )
+    if body.resolution not in downloader.RESOLUTIONS:
+        raise HTTPException(
+            400, "Resolution must be one of: "
+            + ", ".join(downloader.RESOLUTIONS),
+        )
     if body.captions and body.caption_source == "auto" \
             and not downloader.transcript_path_for(src).is_file():
         raise HTTPException(400, "No transcript yet — run Transcribe first.")
@@ -397,6 +403,7 @@ def api_export(body: ExportBody):
         trim_x=body.trim_x, trim_y=body.trim_y, fg_crop=body.fg_crop,
         captions=body.captions, caption_source=body.caption_source,
         caption_pos=body.caption_pos, caption_style=body.caption_style,
+        resolution=body.resolution,
     )
 
 

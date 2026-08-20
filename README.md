@@ -134,10 +134,13 @@ convert for editing first).
 - **Detect scenes** runs ffmpeg scene-cut detection (threshold 0.30) and saves
   a `<name>.scenes.json` sidecar; cuts appear as amber markers under the video,
   click one to jump there.
-- **Export clip** renders a vertical 1080×1920 H.264 clip from the chosen time
-  range into a `shorts/` subfolder. Styles: *Blurred pad* (whole frame over a
-  blurred background) or *Center crop*. Times accept `1:23` or plain seconds;
-  "Set start/end" grabs the current playhead.
+- **Export clip** renders a vertical H.264 clip from the chosen time range
+  into a `shorts/` subfolder, at **1080p** (1080×1920) or **4K** (2160×3840) —
+  pick from the resolution dropdown (4K takes noticeably longer to render and
+  produces larger files). Styles: *Blurred pad* (whole frame over a blurred
+  background) or *Center crop*. Times accept `1:23` or plain seconds;
+  "Set start/end" grabs the current playhead. Captions scale automatically to
+  the chosen resolution.
 - **Vivid color boost** applies a saturation/contrast grade — the punchy look
   people associate with HDR. Real HDR can't be created from SDR sources; for
   true grading use the mkv original in Resolve.

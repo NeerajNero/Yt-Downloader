@@ -66,7 +66,7 @@ export const startConvert = (path) =>
 
 export const startExport = (path, start, end, style, vivid, trimX, trimY,
   fgCrop, captions, captionSource = 'auto', captionPos = 'bottom',
-  captionStyle = 'karaoke') =>
+  captionStyle = 'karaoke', resolution = '1080') =>
   fetch('/api/export', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -74,7 +74,7 @@ export const startExport = (path, start, end, style, vivid, trimX, trimY,
       path, start, end, style, vivid,
       trim_x: trimX, trim_y: trimY, fg_crop: fgCrop,
       captions, caption_source: captionSource, caption_pos: captionPos,
-      caption_style: captionStyle,
+      caption_style: captionStyle, resolution,
     }),
   }).then(handle)
 
