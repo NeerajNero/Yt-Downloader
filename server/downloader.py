@@ -473,7 +473,7 @@ def start_export(src, start, end, style="crop", vivid=False,
                  trim_x=0.0, trim_y=0.0, fg_crop=0.0, captions=False,
                  caption_source="auto", caption_pos="bottom",
                  caption_style="karaoke", resolution="1080", vivid_amount=0,
-                 orientation="portrait", rotate="none"):
+                 orientation="portrait", rotate="none", rotate_captions=False):
     src = Path(src)
     job = _new_job("export", src.stem)
     job["src"] = str(src)
@@ -482,7 +482,7 @@ def start_export(src, start, end, style="crop", vivid=False,
         args=(job, _EVENTS[job["id"]], src, float(start), float(end),
               style, vivid, float(trim_x), float(trim_y), float(fg_crop),
               captions, caption_source, caption_pos, caption_style, resolution,
-              vivid_amount, orientation, rotate),
+              vivid_amount, orientation, rotate, rotate_captions),
         daemon=True,
     )
     thread.start()
@@ -493,7 +493,7 @@ def run_export(job, event, src, start, end, style="blur", vivid=False,
                trim_x=0.0, trim_y=0.0, fg_crop=0.0, captions=False,
                caption_source="auto", caption_pos="bottom",
                caption_style="karaoke", resolution="1080", vivid_amount=0,
-               orientation="portrait", rotate="none"):
+               orientation="portrait", rotate="none", rotate_captions=False):
     """Render one clip (portrait 9:16 or landscape 16:9); returns the output
     path. Raises on failure or Cancelled. Percent lands on the given job."""
     import tempfile
@@ -517,15 +517,36 @@ def run_export(job, event, src, start, end, style="blur", vivid=False,
             suffix += f"-{caption_style[:4]}"
         if caption_pos != "bottom":
             suffix += f"-{caption_pos[:3]}"
-    width, height = _dims(resolution, orientation)
+
+    final_w, final_h = _dims(resolution, orientation)
+    match_rotate = bool(rotate_captions) and rotate != "none"
+    if match_rotate:
+        # Build the whole frame (video + captions) in the pre-rotation
+        # orientation, then rotate the composite so captions rotate WITH the
+        # video. 90° swaps the build dims + caption canvas; 180° keeps them.
+        if rotate in ("right", "left"):
+            build_w, build_h = final_h, final_w
+            build_orient = "landscape" if orientation == "portrait" else "portrait"
+        else:
+            build_w, build_h = final_w, final_h
+            build_orient = orientation
+        source_rotate, composite_rotate = "none", rotate
+    else:
+        # Rotate the source only; captions burn on afterwards, staying upright.
+        build_w, build_h = final_w, final_h
+        build_orient = orientation
+        source_rotate, composite_rotate = rotate, "none"
+
     if resolution != "1080":
         suffix += f"_{resolution}"
     if rotate != "none":
         suffix += f"_rot{rotate}"
+        if match_rotate:
+            suffix += "cap"
     aspect = "16x9" if orientation == "landscape" else "9x16"
     out_path = shorts_dir / f"{src.stem}_{aspect}_{int(start)}s-{int(end)}s_{style}{suffix}.mp4"
-    filt = _export_filter(style, amount, trim_x, trim_y, fg_crop, width, height,
-                          rotate)
+    filt = _export_filter(style, amount, trim_x, trim_y, fg_crop,
+                          build_w, build_h, source_rotate)
 
     ass_file = None
     if captions:
@@ -548,7 +569,7 @@ def run_export(job, event, src, start, end, style="blur", vivid=False,
             n = write_manual_captions_ass(
                 manual, start, end, ass_file,
                 position=caption_pos, style=caption_style,
-                orientation=orientation,
+                orientation=build_orient,
             )
         else:
             t_path = transcript_path_for(src)
@@ -558,10 +579,14 @@ def run_export(job, event, src, start, end, style="blur", vivid=False,
             n = write_captions_ass(
                 transcript, start, end, ass_file,
                 position=caption_pos, style=caption_style,
-                orientation=orientation,
+                orientation=build_orient,
             )
         if n > 0:
             filt += "," + _subtitles_filter_path(ass_file)
+
+    # Matched rotation: turn the finished frame (video + burned captions).
+    if composite_rotate != "none":
+        filt += "," + _ROTATE_FILTER[composite_rotate]
 
     filter_args = (
         ["-filter_complex", filt] if style == "blur" else ["-vf", filt]
@@ -593,13 +618,14 @@ def run_export(job, event, src, start, end, style="blur", vivid=False,
 def _export_worker(job, event, src, start, end, style, vivid,
                    trim_x, trim_y, fg_crop, captions, caption_source,
                    caption_pos, caption_style, resolution, vivid_amount,
-                   orientation, rotate):
+                   orientation, rotate, rotate_captions):
     job["status"] = "exporting"
     try:
         out_path = run_export(
             job, event, src, start, end, style, vivid,
             trim_x, trim_y, fg_crop, captions, caption_source, caption_pos,
             caption_style, resolution, vivid_amount, orientation, rotate,
+            rotate_captions,
         )
         job["percent"] = 100.0
         job["path"] = str(out_path)

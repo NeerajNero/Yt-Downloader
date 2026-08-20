@@ -28,6 +28,7 @@ export default function Player({ item, jobs, config, onClose }) {
   const [resolution, setResolution] = useState('1080')
   const [orientation, setOrientation] = useState('portrait')
   const [rotate, setRotate] = useState('none')
+  const [rotateCaptions, setRotateCaptions] = useState(false)
   const [capsOpen, setCapsOpen] = useState(false)
   const [capSpeed, setCapSpeed] = useState('2.5')
   const [capItems, setCapItems] = useState([])
@@ -142,7 +143,7 @@ export default function Player({ item, jobs, config, onClose }) {
     run(
       startExport(item.path, s, e, style, vividAmount, tx, ty, fc,
         captions, captionSource, captionPos, captionStyle, resolution,
-        orientation, rotate),
+        orientation, rotate, rotateCaptions),
       'Export queued — progress shows in Jobs.'
     )
   }
@@ -447,6 +448,19 @@ export default function Player({ item, jobs, config, onClose }) {
                 <option value="middle">Middle</option>
                 <option value="top">Top</option>
               </select>
+              {rotate !== 'none' && (
+                <label
+                  className="vivid-check"
+                  title="Rotate captions with the video, so they read correctly when the phone is turned"
+                >
+                  <input
+                    type="checkbox"
+                    checked={rotateCaptions}
+                    onChange={(e) => setRotateCaptions(e.target.checked)}
+                  />
+                  Rotate captions too
+                </label>
+              )}
             </>
           )}
           <button className="btn accent" onClick={doExport}>Export clip</button>

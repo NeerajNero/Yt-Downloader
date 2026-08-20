@@ -141,7 +141,9 @@ convert for editing first).
   files). Styles: *Blurred pad* (whole frame over a blurred background) or
   *Center crop*. **Rotate** turns the footage 90° left/right (or 180°) inside
   the frame — e.g. rotate landscape footage 90° to fill a vertical 9:16 clip
-  edge-to-edge; captions burn on afterwards, so they stay upright and readable.
+  edge-to-edge. By default captions stay upright; tick **"Rotate captions
+  too"** (appears when rotation is set) to turn the captions with the video,
+  so both read correctly when the phone is turned.
   Times accept `1:23` or plain seconds; "Set start/end" grabs the current
   playhead. Captions render on a canvas matching the orientation, so they stay
   correctly proportioned in both portrait and landscape, at any resolution.

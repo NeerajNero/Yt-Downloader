@@ -167,6 +167,7 @@ class ExportBody(BaseModel):
     resolution: str = "1080"
     orientation: str = "portrait"
     rotate: str = "none"
+    rotate_captions: bool = False
 
 
 class SuggestBody(BaseModel):
@@ -414,6 +415,7 @@ def api_export(body: ExportBody):
         caption_pos=body.caption_pos, caption_style=body.caption_style,
         resolution=body.resolution, vivid_amount=body.vivid_amount,
         orientation=body.orientation, rotate=body.rotate,
+        rotate_captions=body.rotate_captions,
     )
 
 
