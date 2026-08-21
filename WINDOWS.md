@@ -77,6 +77,15 @@ Rebuild only when the files under `ui\src` change.
 
 ## 5. Run
 
+The simplest way — the launcher performs steps 3 and 4 automatically if
+they haven't been done yet, then starts the server:
+
+```powershell
+.\run.bat
+```
+
+Or manually:
+
 ```powershell
 venv\Scripts\python server\main.py
 ```
@@ -95,6 +104,21 @@ For age-restricted videos, drop a `cookies.txt` in the project root exactly as
 described in the README's "Age-restricted videos" section — the steps are
 identical on Windows. Do not copy `cookies.txt` between machines you don't
 control, and never commit it.
+
+## AI features on Windows
+
+Everything in the README's "Transcripts and captions" and "AI clip
+suggestions" sections works the same on Windows:
+
+- `pip install -r requirements.txt` already includes `faster-whisper`
+  (Windows wheels install cleanly, no compiler needed). The Whisper model
+  downloads once to `%USERPROFILE%\.cache\huggingface` on first transcribe.
+  Transcription runs on CPU; expect roughly real-time to 3× real-time speed.
+- Put `GEMINI_API_KEY=...` in the `.env` file in the project root (copy
+  `.env.example` to `.env` if you haven't). The key never leaves the machine
+  except in requests to Google's API.
+- Caption burn-in uses ffmpeg's subtitles filter — path escaping for Windows
+  drive letters is handled by the server, nothing to configure.
 
 ## Troubleshooting
 

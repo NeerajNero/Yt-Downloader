@@ -23,3 +23,12 @@ Thumbs.db
 
 # Logged-in YouTube session — never commit
 cookies.txt
+
+# Machine-local overrides (.env.example is the committed template)
+.env
+
+# Saved export presets (per-machine user data)
+presets.json
+
+# Music beds (user-supplied audio)
+music/

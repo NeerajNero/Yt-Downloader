@@ -4,8 +4,24 @@ import { fmtDuration, fmtSpeed } from './util.js'
 
 const TERMINAL = new Set(['done', 'error', 'cancelled'])
 
+const GLYPHS = {
+  download: '↓',
+  convert: '⚙',
+  export: '✂',
+  scenes: '◈',
+  pipeline: '→',
+  transcribe: '¶',
+  suggest: '✦',
+  autoshorts: '✦',
+  import: '⊕',
+  clippack: '✂',
+  postkit: '✎',
+  tighten: '⭃',
+}
+
 function readout(job) {
-  const parts = [`${Math.floor(job.percent || 0)}%`]
+  if (job.percent == null) return 'working…'
+  const parts = [`${Math.floor(job.percent)}%`]
   const speed = fmtSpeed(job.speed)
   if (speed) parts.push(speed)
   if (job.eta != null) parts.push(`${fmtDuration(job.eta)} left`)
@@ -36,7 +52,7 @@ export default function JobsPanel({ jobs }) {
           return (
             <li key={job.id} className="job-row">
               <span className="job-glyph mono" aria-hidden="true">
-                {job.kind === 'download' ? '↓' : '⚙'}
+                {GLYPHS[job.kind] || '⚙'}
               </span>
               <div className="job-main">
                 <div className="job-top">
@@ -46,13 +62,22 @@ export default function JobsPanel({ jobs }) {
                 <div
                   className="scrubber"
                   role="progressbar"
-                  aria-valuenow={Math.floor(job.percent || 0)}
+                  aria-valuenow={job.percent == null ? undefined : Math.floor(job.percent)}
                   aria-valuemin="0"
                   aria-valuemax="100"
                 >
                   <div
-                    className={`scrubber-fill${job.status === 'done' ? ' ok' : ''}`}
-                    style={{ width: `${Math.min(job.percent || 0, 100)}%` }}
+                    className={
+                      'scrubber-fill' +
+                      (job.status === 'done' ? ' ok' : '') +
+                      (job.percent == null && !TERMINAL.has(job.status)
+                        ? ' indeterminate' : '')
+                    }
+                    style={{
+                      width: job.percent == null
+                        ? '100%'
+                        : `${Math.min(job.percent, 100)}%`,
+                    }}
                   />
                 </div>
                 {active && <p className="mono muted readout">{readout(job)}</p>}

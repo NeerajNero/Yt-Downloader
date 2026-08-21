@@ -28,6 +28,16 @@ cd ui && npm install && npm run build && cd ..
 
 ## Run
 
+The easy way — the launcher script handles first-time setup (venv, Python
+deps, UI build) automatically and just starts the server on later runs:
+
+```sh
+./run.sh          # macOS / Linux
+run.bat           # Windows
+```
+
+Or manually:
+
 ```sh
 ./venv/bin/python server/main.py        # Windows: venv\Scripts\python server\main.py
 ```
@@ -35,6 +45,12 @@ cd ui && npm install && npm run build && cd ..
 The browser opens automatically at http://127.0.0.1:8765.
 
 ## Configuration
+
+Shared defaults live in `config.json` (committed). Machine-specific values go
+in `.env` (gitignored) — copy `.env.example` to `.env` and edit. `.env` and OS
+environment variables override `config.json`, so the Mac and Windows setups
+never conflict in git. Supported keys: `DOWNLOAD_DIR`, `PORT`, `COOKIES_FILE`,
+`PIPELINE_CMD`.
 
 `config.json`:
 
@@ -45,6 +61,14 @@ The browser opens automatically at http://127.0.0.1:8765.
   resolve against the project root. Default `cookies.txt`. Used only if the
   file exists; checked per request, so adding or refreshing it needs no
   restart.
+
+## HDR downloads
+
+When a video has HDR streams (HDR10 / HLG), the quality dropdown shows an
+**HDR (best available)** option after you Check the link. Picking it grabs the
+HDR video stream and merges it into mkv without re-encoding, so the real HDR
+metadata (BT.2020 primaries, PQ/HLG transfer) is preserved intact. The option
+only appears for videos that actually have HDR — SDR videos won't show it.
 
 ## Age-restricted videos
 
@@ -93,9 +117,180 @@ fix already:
 
 Then restart the server.
 
-## Not built yet (v2)
+## Importing local videos
 
-The disabled **Pipeline** button on library cards is a reserved hook for
-handing a file to the external VOD-analysis pipeline. Also out of scope for
-v1: the 9:16 Shorts exporter, scene detection, in-app player, playlists,
-websockets.
+Two ways to get local footage in:
+
+- **The + button** next to the ingest box opens a file picker; the file
+  uploads to the server with a progress bar and lands in the library.
+- **Paste a file path** into the ingest box — something like
+  `/Users/you/Movies/raw.mp4` (or `D:\footage\raw.mp4` on Windows;
+  surrounding quotes are fine) and press Check. The card shows the
+file's resolution, size, and duration, and **Import to library** copies it
+into its own library folder with a generated thumbnail and metadata sidecar,
+with copy progress in Jobs. Imported videos get every feature downloads get:
+player, scene detection, transcription, captions, 9:16 exports, AI Auto
+Shorts, and the pipeline hand-off. Supported types: mkv, mp4, webm, mov,
+m4a, mp3, opus.
+
+## Player, scene detection, and 9:16 clips
+
+Click a library thumbnail to open the player. It prefers the edit copy when
+one exists — mkv/AV1 originals don't play in every browser (if playback fails,
+convert for editing first).
+
+- **Detect scenes** runs ffmpeg scene-cut detection (threshold 0.30) and saves
+  a `<name>.scenes.json` sidecar; cuts appear as amber markers under the video,
+  click one to jump there.
+- **Export clip** renders an H.264 clip from the chosen time range into a
+  `shorts/` subfolder. Pick the **orientation** — *Portrait 9:16* (Shorts /
+  Reels / TikTok) or *Landscape 16:9* (YouTube) — and the **resolution**:
+  1080p (1080×1920 or 1920×1080) or 4K (2160×3840 or 3840×2160; slower, larger
+  files). Styles: *Blurred pad* (whole frame over a blurred background) or
+  *Center crop*. **Rotate** turns the footage 90° left/right (or 180°) inside
+  the frame — e.g. rotate landscape footage 90° to fill a vertical 9:16 clip
+  edge-to-edge. By default captions stay upright; tick **"Rotate captions
+  too"** (appears when rotation is set) to turn the captions with the video,
+  so both read correctly when the phone is turned.
+  Times accept `1:23` or plain seconds; "Set start/end" grabs the current
+  playhead. Captions render on a canvas matching the orientation, so they stay
+  correctly proportioned in both portrait and landscape, at any resolution.
+- **Vivid** is a 0–100 slider (in the export row) that grades the clip with
+  progressively stronger saturation, vibrance, and contrast — the punchy look
+  people associate with HDR. 0 keeps the original colors; 100 is deliberately
+  strong (near-oversaturated). Real HDR can't be created from SDR sources; for
+  true grading use the mkv original in Resolve. Each value produces its own
+  filename (`_vivid75` etc.) so you can compare intensities side by side.
+- **Grade** (dropdown) applies a cinematic colour grade: *Teal & orange*
+  (blockbuster cool-shadow/warm-highlight), *Moody* (cool, crushed), *Warm
+  film*, *Cool*, or *Black & white* — real colour tools, tasteful, stacks with
+  Vivid and HDR look.
+- **Music** (in the export row) mixes a background track under the clip. Pick a
+  track from the dropdown or "Add track" to upload one (stored in a gitignored
+  `music/` folder), set the volume, and tick **Duck under speech** to
+  automatically lower the music whenever someone's talking (sidechain
+  compression). The track loops/trims to the clip length automatically.
+- **HDR look** (checkbox) applies a stylized grade on top of Vivid: strong
+  local-contrast "clarity" plus gentle contrast and saturation, for the punchy,
+  high-dimensionality feel of an HDR display. It can't turn SDR into real HDR
+  (nothing can), but it makes the image *look* punchy without skewing colour.
+  A **Sharp** slider (0–100) appears when it's on — higher is crisper.
+- **Auto zoom** adds a slow Ken-Burns punch-in over the clip (a gentle
+  continuous zoom toward the end) for energy. Captions don't zoom — the zoom
+  is applied to the video before captions burn on.
+- **Normalize audio** applies loudness normalization to −14 LUFS (the common
+  social-platform target) so clip volume is consistent.
+- **Presets** — the whole export setup (orientation, resolution, style, vivid,
+  trim, rotation, zoom, normalize, and all caption settings) can be saved as a
+  named preset and re-applied in one click from the preset bar. Presets live in
+  a gitignored `presets.json` in the project root, so each machine keeps its own.
+- **Preview on video** — tick it (with captions on) to see the captions
+  overlaid on the player as it plays, so you can check wording, timing, and
+  position before committing to a render. It's an approximation; the burned-in
+  result is exact.
+
+## Transcripts and captions
+
+- **Transcribe** (in the player) runs Whisper locally via faster-whisper — no
+  cloud, no cost. The first run downloads the model (~500 MB for the default
+  `small`; change with `WHISPER_MODEL` in `.env`). Output is a
+  `<name>.transcript.json` sidecar with word-level timestamps.
+- **Captions** (checkbox in the export panel) burns word-timed captions into
+  the 9:16 clip. Four styles, selectable next to the checkbox:
+  *Karaoke* (default — white text, the spoken word fills amber),
+  *Typewriter* (words appear one by one as spoken and accumulate),
+  *Pop* (bold uppercase chunks that bounce in with an amber glow and drop
+  shadow), and *Minimal* (small clean static lines). All styles work with
+  both auto (transcript) and manual captions, at any position.
+- **Manual captions** — "Edit captions manually" in the player opens an
+  editor where each caption has its own text, start time, and on-screen
+  duration; "Add caption at playhead" pre-fills the start time. A global
+  words/sec speed controls how fast the amber fill sweeps the words. Saved
+  as a `<name>.captions.json` sidecar. At export, pick the caption source
+  (Auto transcript / Manual) and position (Bottom / Middle / Top) — the
+  position applies to both sources. Long lines wrap automatically.
+- macOS note: Homebrew's plain `ffmpeg` formula is built without libass and
+  can't burn captions — install `brew install ffmpeg-full` (the server prefers
+  it automatically). Windows WinGet builds already include libass.
+
+## AI clip suggestions and Auto Shorts (Google Gemini)
+
+Set `GEMINI_API_KEY` in `.env` (get a key at https://aistudio.google.com/apikey)
+and restart the server. The model defaults to `gemini-2.5-flash`; override with
+`GEMINI_MODEL`. Calls go directly to Google's REST API — no extra dependency.
+
+- **Suggest clips** — Gemini reads the transcript, scene cuts, and sampled
+  keyframes, and returns ranked clip suggestions (time range, title, hook).
+  Works on dialogue-free videos too, judging from the frames. Suggestions are
+  cached as `<name>.suggestions.json`; delete that file to re-analyze.
+- **Auto Shorts** — the full pipeline in one click: transcribe → detect scenes
+  → ask Gemini for the top clips → export each as a blurred-pad 9:16 with
+  auto-trimmed black bars and burned captions (when the video has speech).
+  Prerequisite steps are skipped automatically when their sidecar files
+  already exist.
+
+Typical Gemini cost is a fraction of a cent per video with `gemini-2.5-flash`.
+The transcript and scene detection stay fully local — only the compact
+transcript text and ~16 small keyframes are sent to Google.
+
+## Clip pack (shred for editing)
+
+For hand-assembled montages/edits (character-vs-character, velocity edits),
+**Clip pack** shreds a video into a pile of short, montage-ready shots you
+drop into DaVinci and arrange yourself. In the player:
+
+- Choose **Whole video** or **Selected range** (uses the start/end fields).
+- Set the **Max** length (1–5s). Each detected shot is cut into consecutive
+  pieces up to that length, never crossing a scene cut — so you get a natural
+  mix of 1s/2s/3s clips. Footage with no clear cuts (continuous gameplay)
+  falls back to even chunks automatically.
+- **Shred to clips** runs one job (auto-detecting scenes first if needed) and
+  writes numbered, timestamped clips into a `clips/` subfolder next to the
+  video, at the **source resolution and aspect** (raw material — you frame in
+  DaVinci), edit-friendly H.264 with audio. A `clippack.json` manifest lists
+  each clip's source time.
+
+Clips are intentionally *not* reframed or captioned — they're raw shots. It
+does not try to auto-isolate a specific character (that needs unreliable
+person tracking); you cherry-pick the shots you want. Note 4K sources take a
+while (each clip is re-encoded); 1080p and smaller are fast.
+
+## AI post kit
+
+**Post kit** (in the player's AI row, needs a Gemini key) reads the transcript
+and generates a ready-to-paste **title, description, and hashtags** for the
+clip, each with a Copy button. Cached as a `<name>.postkit.json` sidecar.
+
+## Remove silences (auto jump-cuts)
+
+**Remove silences** (in the player) auto-detects silent gaps and cuts them out,
+producing a tighter, faster-paced `<name>_tight.mp4` next to the original — great
+for turning rambly talking-head footage punchy. The job title reports the
+result (e.g. "45s → 31s, 12 cuts"). Works on any video with real pauses; footage
+with constant background noise may report no removable silence.
+
+## VOD pipeline hand-off
+
+Set `PIPELINE_CMD` in `.env` to enable the Pipeline button on library cards,
+e.g. `PIPELINE_CMD=python D:\vod-pipeline\autopipe.py`. Clicking it runs that
+command with the video file path appended as the last argument and tracks it
+as a job (done/error follows the command's exit code).
+
+## Not built yet
+
+Playlist support and websocket progress remain future work.
+
+## Data files per video
+
+Everything lives next to the media file, so the library survives restarts and
+folder moves:
+
+| File | Written by |
+| --- | --- |
+| `<name>.info.json`, thumbnail | download |
+| `<name>_edit.mp4` | Convert for editing |
+| `<name>.scenes.json` | scene detection |
+| `<name>.transcript.json` | Transcribe |
+| `<name>.captions.json` | manual caption editor |
+| `<name>.suggestions.json` | AI Suggest clips |
+| `shorts/*.mp4` | clip exports / Auto Shorts |

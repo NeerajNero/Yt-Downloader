@@ -46,12 +46,12 @@ export default function App() {
         {config && <span className="mono muted">{config.download_dir}</span>}
       </header>
 
-      <DownloadPanel />
+      <DownloadPanel onImported={refreshLibrary} />
       {jobs.length > 0 && <JobsPanel jobs={jobs} />}
       <Library
         items={library}
         jobs={jobs}
-        downloadDir={config?.download_dir}
+        config={config}
         onChanged={refreshLibrary}
       />
     </div>
