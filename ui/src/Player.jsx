@@ -10,7 +10,7 @@ import { fmtDuration, parseTime } from './util.js'
 // Everything a preset captures (not the per-clip start/end).
 const PRESET_KEYS = [
   'style', 'orientation', 'resolution', 'rotate', 'rotateCaptions',
-  'vividAmount', 'trimY', 'trimX', 'fgCrop', 'loudness', 'zoom',
+  'vividAmount', 'trimY', 'trimX', 'fgCrop', 'loudness', 'zoom', 'look', 'lookSharp',
   'captions', 'captionSource', 'captionStyle', 'captionPos',
 ]
 
@@ -39,6 +39,8 @@ export default function Player({ item, jobs, config, onClose }) {
   const [rotateCaptions, setRotateCaptions] = useState(false)
   const [loudness, setLoudness] = useState(false)
   const [zoom, setZoom] = useState('none')
+  const [look, setLook] = useState('none')
+  const [lookSharp, setLookSharp] = useState(50)
   const [presets, setPresets] = useState({})
   const [presetName, setPresetName] = useState('')
   const [previewCaps, setPreviewCaps] = useState(false)
@@ -128,7 +130,8 @@ export default function Player({ item, jobs, config, onClose }) {
     style: setStyle, orientation: setOrientation, resolution: setResolution,
     rotate: setRotate, rotateCaptions: setRotateCaptions,
     vividAmount: setVividAmount, trimY: setTrimY, trimX: setTrimX,
-    fgCrop: setFgCrop, loudness: setLoudness, zoom: setZoom,
+    fgCrop: setFgCrop, loudness: setLoudness, zoom: setZoom, look: setLook,
+    lookSharp: setLookSharp,
     captions: setCaptions, captionSource: setCaptionSource,
     captionStyle: setCaptionStyle, captionPos: setCaptionPos,
   }
@@ -144,7 +147,7 @@ export default function Player({ item, jobs, config, onClose }) {
 
   const currentSettings = () => ({
     style, orientation, resolution, rotate, rotateCaptions,
-    vividAmount, trimY, trimX, fgCrop, loudness, zoom,
+    vividAmount, trimY, trimX, fgCrop, loudness, zoom, look, lookSharp,
     captions, captionSource, captionStyle, captionPos,
   })
 
@@ -226,7 +229,7 @@ export default function Player({ item, jobs, config, onClose }) {
     run(
       startExport(item.path, s, e, style, vividAmount, tx, ty, fc,
         captions, captionSource, captionPos, captionStyle, resolution,
-        orientation, rotate, rotateCaptions),
+        orientation, rotate, rotateCaptions, loudness, zoom, look, lookSharp),
       'Export queued — progress shows in Jobs.'
     )
   }
@@ -588,6 +591,31 @@ export default function Player({ item, jobs, config, onClose }) {
             <option value="none">No zoom</option>
             <option value="in">Punch-in ⤢</option>
           </select>
+          <select
+            value={look}
+            onChange={(e) => setLook(e.target.value)}
+            aria-label="Stylized look"
+            title="HDR look: punchy local-contrast grade · Oil paint: painterly flatten"
+          >
+            <option value="none">No look</option>
+            <option value="hdr">HDR look</option>
+            <option value="oil">Oil paint</option>
+          </select>
+          {look !== 'none' && (
+            <label className="vivid-slider" title="HDR: higher = crisper · Oil paint: higher = more brush-stroke detail, lower = smoother">
+              <span className="mono muted">Sharp</span>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                step="5"
+                value={lookSharp}
+                onChange={(e) => setLookSharp(Number(e.target.value))}
+                aria-label="Look sharpness"
+              />
+              <span className="mono vivid-val">{lookSharp}</span>
+            </label>
+          )}
           <label className="vivid-check" title="Normalize loudness to -14 LUFS (social-platform target)">
             <input
               type="checkbox"

@@ -143,6 +143,7 @@ export default function DownloadPanel({ onImported }) {
                     aria-label="Quality"
                   >
                     <option value="best">Best available</option>
+                    {info.hdr && <option value="hdr">HDR (best available)</option>}
                     {info.heights.map((h) => (
                       <option key={h} value={String(h)}>{qualityLabel(h)}</option>
                     ))}

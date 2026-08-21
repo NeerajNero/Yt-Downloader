@@ -170,6 +170,8 @@ class ExportBody(BaseModel):
     rotate_captions: bool = False
     loudness: bool = False
     zoom: str = "none"
+    look: str = "none"
+    look_sharp: int = 50
 
 
 class SuggestBody(BaseModel):
@@ -401,6 +403,10 @@ def api_export(body: ExportBody):
         raise HTTPException(400, "Rotate must be none, right, left, or 180.")
     if body.zoom not in ("none", "in"):
         raise HTTPException(400, "Zoom must be none or in.")
+    if body.look not in downloader.LOOKS:
+        raise HTTPException(400, "Look must be none, hdr, or oil.")
+    if not (0 <= body.look_sharp <= 100):
+        raise HTTPException(400, "Look sharpness must be between 0 and 100.")
     if body.caption_style not in downloader.CAPTION_STYLES:
         raise HTTPException(
             400, "Caption style must be one of: "
@@ -427,7 +433,8 @@ def api_export(body: ExportBody):
         resolution=body.resolution, vivid_amount=body.vivid_amount,
         orientation=body.orientation, rotate=body.rotate,
         rotate_captions=body.rotate_captions,
-        loudness=body.loudness, zoom=body.zoom,
+        loudness=body.loudness, zoom=body.zoom, look=body.look,
+        look_sharp=body.look_sharp,
     )
 
 

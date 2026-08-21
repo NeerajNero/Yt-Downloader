@@ -158,10 +158,14 @@ def probe(url, cookiefile=None):
     with yt_dlp.YoutubeDL(base_opts) as ydl:
         info = ydl.extract_info(url, download=False)
 
-    heights = sorted(
-        {f["height"] for f in info.get("formats", [])
-         if f.get("height") and f.get("vcodec") not in (None, "none")},
-        reverse=True,
+    vformats = [
+        f for f in info.get("formats", [])
+        if f.get("height") and f.get("vcodec") not in (None, "none")
+    ]
+    heights = sorted({f["height"] for f in vformats}, reverse=True)
+    # HDR streams report a dynamic_range other than "SDR" (HDR/HLG/PQ/DV).
+    has_hdr = any(
+        (f.get("dynamic_range") or "SDR").upper() != "SDR" for f in vformats
     )
     return {
         "title": info.get("title"),
@@ -170,6 +174,7 @@ def probe(url, cookiefile=None):
         "thumbnail": info.get("thumbnail"),
         "webpage_url": info.get("webpage_url"),
         "heights": heights,
+        "hdr": has_hdr,
     }
 
 
@@ -180,6 +185,9 @@ def _format_for(quality):
         return "bv*+ba/b"
     if quality == "audio":
         return "ba/b"
+    if quality == "hdr":
+        # Prefer any non-SDR video stream; fall back to best if none merged.
+        return "bv*[dynamic_range!=SDR]+ba/bv*+ba/b"
     h = int(quality)
     return f"bv*[height<={h}]+ba/b[height<={h}]"
 
@@ -373,6 +381,42 @@ def _vivid_filter(amount):
             f"eq=contrast={contrast}:saturation={saturation}:gamma={gamma}")
 
 
+# Stylized "looks" applied after the vivid grade. Each is a filter chain.
+#
+# HDR look — the glowy, high-dimensionality feel of an HDR display: strong
+# local contrast (clarity) via a wide-radius unsharp, plus gentle global
+# contrast and saturation. No vibrance (it skewed warm/reddish) and no RGB
+# curve (kept the colour neutral).
+# `sharp` (0-100) scales the sharpening: HDR gets crisper, oil paint gets
+# more defined brush strokes (0 = fully smooth painterly).
+def _hdr_filter(sharp=60):
+    amount = round(0.5 + (sharp / 100.0) * 1.9, 2)   # 0.5 .. 2.4
+    return (
+        f"unsharp=7:7:{amount}:7:7:0.0,"
+        "eq=contrast=1.09:saturation=1.15:gamma=0.98"
+    )
+
+
+# Oil-paint look — a painterly flatten. `median` smooths texture into flat
+# colour regions (the paint blobs); the sharpness slider controls how much
+# edge/brush-stroke detail is brought back on top.
+def _oilpaint_filter(sharp=40):
+    amount = round((sharp / 100.0) * 1.6, 2)          # 0 .. 1.6
+    stroke = f",unsharp=7:7:{amount}:7:7:0.0" if amount else ""
+    return f"median=radius=9,eq=saturation=1.3:contrast=1.05{stroke}"
+
+
+LOOKS = {"none", "hdr", "oil"}
+
+
+def _look_filter(look, sharp=50):
+    if look == "hdr":
+        return _hdr_filter(sharp)
+    if look == "oil":
+        return _oilpaint_filter(sharp)
+    return ""
+
+
 def _probe_fps(src):
     out = subprocess.run(
         [FFPROBE_BIN, "-v", "error", "-select_streams", "v:0",
@@ -430,12 +474,19 @@ _ROTATE_FILTER = {
 
 
 def _export_filter(style, vivid_amount, trim_x=0.0, trim_y=0.0, fg_crop=0.0,
-                   width=1080, height=1920, rotate="none"):
+                   width=1080, height=1920, rotate="none", look="none", look_sharp=50):
     rot = _ROTATE_FILTER.get(rotate)
     pre = _pre_crop(trim_x, trim_y)
     # Source-prep chain applied first: rotate, then border trim.
     prep = ",".join(p for p in (rot, pre) if p)
-    grade = ("," + _vivid_filter(vivid_amount)) if vivid_amount else ""
+    # Grade chain: vivid boost then the stylized look (either/both/none).
+    grade_parts = []
+    if vivid_amount:
+        grade_parts.append(_vivid_filter(vivid_amount))
+    look_f = _look_filter(look, look_sharp)
+    if look_f:
+        grade_parts.append(look_f)
+    grade = ("," + ",".join(grade_parts)) if grade_parts else ""
     # Blur radius scales with the frame's short side so it's never under-blurred.
     sigma = round(24 * min(width, height) / 1080, 1)
     ar = width / height  # target aspect
@@ -500,7 +551,7 @@ def start_export(src, start, end, style="crop", vivid=False,
                  caption_source="auto", caption_pos="bottom",
                  caption_style="karaoke", resolution="1080", vivid_amount=0,
                  orientation="portrait", rotate="none", rotate_captions=False,
-                 loudness=False, zoom="none"):
+                 loudness=False, zoom="none", look="none", look_sharp=50):
     src = Path(src)
     job = _new_job("export", src.stem)
     job["src"] = str(src)
@@ -509,7 +560,8 @@ def start_export(src, start, end, style="crop", vivid=False,
         args=(job, _EVENTS[job["id"]], src, float(start), float(end),
               style, vivid, float(trim_x), float(trim_y), float(fg_crop),
               captions, caption_source, caption_pos, caption_style, resolution,
-              vivid_amount, orientation, rotate, rotate_captions, loudness, zoom),
+              vivid_amount, orientation, rotate, rotate_captions, loudness, zoom,
+              look, look_sharp),
         daemon=True,
     )
     thread.start()
@@ -521,7 +573,7 @@ def run_export(job, event, src, start, end, style="blur", vivid=False,
                caption_source="auto", caption_pos="bottom",
                caption_style="karaoke", resolution="1080", vivid_amount=0,
                orientation="portrait", rotate="none", rotate_captions=False,
-               loudness=False, zoom="none"):
+               loudness=False, zoom="none", look="none", look_sharp=50):
     """Render one clip (portrait 9:16 or landscape 16:9); returns the output
     path. Raises on failure or Cancelled. Percent lands on the given job."""
     import tempfile
@@ -573,12 +625,14 @@ def run_export(job, event, src, start, end, style="blur", vivid=False,
             suffix += "cap"
     if zoom != "none":
         suffix += "_zoom"
+    if look != "none":
+        suffix += f"_{look}"
     if loudness:
         suffix += "_norm"
     aspect = "16x9" if orientation == "landscape" else "9x16"
     out_path = shorts_dir / f"{src.stem}_{aspect}_{int(start)}s-{int(end)}s_{style}{suffix}.mp4"
     filt = _export_filter(style, amount, trim_x, trim_y, fg_crop,
-                          build_w, build_h, source_rotate)
+                          build_w, build_h, source_rotate, look, look_sharp)
     # Zoom the framed video before captions/rotation so captions don't zoom.
     if zoom == "in":
         filt += "," + _zoom_filter(
@@ -659,14 +713,14 @@ def run_export(job, event, src, start, end, style="blur", vivid=False,
 def _export_worker(job, event, src, start, end, style, vivid,
                    trim_x, trim_y, fg_crop, captions, caption_source,
                    caption_pos, caption_style, resolution, vivid_amount,
-                   orientation, rotate, rotate_captions, loudness, zoom):
+                   orientation, rotate, rotate_captions, loudness, zoom, look, look_sharp):
     job["status"] = "exporting"
     try:
         out_path = run_export(
             job, event, src, start, end, style, vivid,
             trim_x, trim_y, fg_crop, captions, caption_source, caption_pos,
             caption_style, resolution, vivid_amount, orientation, rotate,
-            rotate_captions, loudness, zoom,
+            rotate_captions, loudness, zoom, look, look_sharp,
         )
         job["percent"] = 100.0
         job["path"] = str(out_path)
