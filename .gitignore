@@ -29,3 +29,6 @@ cookies.txt
 
 # Saved export presets (per-machine user data)
 presets.json
+
+# Music beds (user-supplied audio)
+music/

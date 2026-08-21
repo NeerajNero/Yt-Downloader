@@ -161,6 +161,15 @@ convert for editing first).
   strong (near-oversaturated). Real HDR can't be created from SDR sources; for
   true grading use the mkv original in Resolve. Each value produces its own
   filename (`_vivid75` etc.) so you can compare intensities side by side.
+- **Grade** (dropdown) applies a cinematic colour grade: *Teal & orange*
+  (blockbuster cool-shadow/warm-highlight), *Moody* (cool, crushed), *Warm
+  film*, *Cool*, or *Black & white* — real colour tools, tasteful, stacks with
+  Vivid and HDR look.
+- **Music** (in the export row) mixes a background track under the clip. Pick a
+  track from the dropdown or "Add track" to upload one (stored in a gitignored
+  `music/` folder), set the volume, and tick **Duck under speech** to
+  automatically lower the music whenever someone's talking (sidechain
+  compression). The track loops/trims to the clip length automatically.
 - **HDR look** (checkbox) applies a stylized grade on top of Vivid: strong
   local-contrast "clarity" plus gentle contrast and saturation, for the punchy,
   high-dimensionality feel of an HDR display. It can't turn SDR into real HDR
@@ -245,6 +254,20 @@ Clips are intentionally *not* reframed or captioned — they're raw shots. It
 does not try to auto-isolate a specific character (that needs unreliable
 person tracking); you cherry-pick the shots you want. Note 4K sources take a
 while (each clip is re-encoded); 1080p and smaller are fast.
+
+## AI post kit
+
+**Post kit** (in the player's AI row, needs a Gemini key) reads the transcript
+and generates a ready-to-paste **title, description, and hashtags** for the
+clip, each with a Copy button. Cached as a `<name>.postkit.json` sidecar.
+
+## Remove silences (auto jump-cuts)
+
+**Remove silences** (in the player) auto-detects silent gaps and cuts them out,
+producing a tighter, faster-paced `<name>_tight.mp4` next to the original — great
+for turning rambly talking-head footage punchy. The job title reports the
+result (e.g. "45s → 31s, 12 cuts"). Works on any video with real pauses; footage
+with constant background noise may report no removable silence.
 
 ## VOD pipeline hand-off
 

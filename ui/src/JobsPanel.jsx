@@ -15,6 +15,8 @@ const GLYPHS = {
   autoshorts: '✦',
   import: '⊕',
   clippack: '✂',
+  postkit: '✎',
+  tighten: '⭃',
 }
 
 function readout(job) {

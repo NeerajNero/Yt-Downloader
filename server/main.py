@@ -172,6 +172,10 @@ class ExportBody(BaseModel):
     zoom: str = "none"
     look: str = "none"
     look_sharp: int = 50
+    grade: str = "none"
+    music: str = ""
+    music_gain: int = 60
+    duck: bool = True
 
 
 class SuggestBody(BaseModel):
@@ -407,6 +411,8 @@ def api_export(body: ExportBody):
         raise HTTPException(400, "Look must be none or hdr.")
     if not (0 <= body.look_sharp <= 100):
         raise HTTPException(400, "Look sharpness must be between 0 and 100.")
+    if body.grade not in downloader.GRADES:
+        raise HTTPException(400, "Unknown colour grade.")
     if body.caption_style not in downloader.CAPTION_STYLES:
         raise HTTPException(
             400, "Caption style must be one of: "
@@ -434,8 +440,49 @@ def api_export(body: ExportBody):
         orientation=body.orientation, rotate=body.rotate,
         rotate_captions=body.rotate_captions,
         loudness=body.loudness, zoom=body.zoom, look=body.look,
-        look_sharp=body.look_sharp,
+        look_sharp=body.look_sharp, grade=body.grade,
+        music=_music_path(body.music), music_gain=body.music_gain, duck=body.duck,
     )
+
+
+MUSIC_DIR = ROOT / "music"
+AUDIO_EXTS = {".mp3", ".m4a", ".aac", ".wav", ".ogg", ".opus", ".flac"}
+
+
+def _music_path(name):
+    """Resolve a music track filename to an absolute path under MUSIC_DIR."""
+    if not name:
+        return ""
+    p = (MUSIC_DIR / Path(name).name)
+    return str(p) if p.is_file() else ""
+
+
+@app.get("/api/music")
+def api_music_list():
+    if not MUSIC_DIR.is_dir():
+        return []
+    return sorted(
+        f.name for f in MUSIC_DIR.iterdir()
+        if f.suffix.lower() in AUDIO_EXTS
+    )
+
+
+@app.post("/api/music/upload")
+async def api_music_upload(request: Request, filename: str):
+    import re
+    name = Path(filename).name
+    if Path(name).suffix.lower() not in AUDIO_EXTS:
+        raise HTTPException(400, "Not a supported audio file.")
+    safe = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", name).strip() or "track"
+    MUSIC_DIR.mkdir(parents=True, exist_ok=True)
+    dest = MUSIC_DIR / safe
+    with open(dest, "wb") as f:
+        async for chunk in request.stream():
+            f.write(chunk)
+    if dest.stat().st_size == 0:
+        dest.unlink(missing_ok=True)
+        raise HTTPException(400, "The upload was empty.")
+    return {"ok": True, "name": safe}
 
 
 PRESETS_FILE = ROOT / "presets.json"
@@ -558,6 +605,26 @@ def api_suggestions(path: str):
     return json.loads(s_path.read_text(encoding="utf-8"))
 
 
+@app.post("/api/postkit")
+def api_postkit(body: PathBody):
+    if not ai.api_key():
+        raise HTTPException(400, "No Gemini API key — set GEMINI_API_KEY in .env.")
+    src = _safe_path(body.path)
+    if not src.is_file():
+        raise HTTPException(404, "That file no longer exists.")
+    title, _ = _meta_for(src)
+    return ai.start_postkit(src, title)
+
+
+@app.get("/api/postkit")
+def api_postkit_get(path: str):
+    src = _safe_path(path)
+    p = ai.postkit_path_for(src)
+    if not p.is_file():
+        raise HTTPException(404, "No post kit yet.")
+    return json.loads(p.read_text(encoding="utf-8"))
+
+
 @app.post("/api/autoshorts")
 def api_autoshorts(body: SuggestBody):
     if not ai.api_key():
@@ -583,6 +650,14 @@ def api_scenes_start(body: PathBody):
     if not src.is_file():
         raise HTTPException(404, "That file no longer exists.")
     return downloader.start_scenes(src)
+
+
+@app.post("/api/tighten")
+def api_tighten(body: PathBody):
+    src = _safe_path(body.path)
+    if not src.is_file():
+        raise HTTPException(404, "That file no longer exists.")
+    return downloader.start_tighten(src)
 
 
 @app.post("/api/clippack")

@@ -405,6 +405,31 @@ def _look_filter(look, sharp=50):
     return ""
 
 
+# Cinematic colour grades — tasteful film looks via real colour tools
+# (colorbalance shadows/mids/highlights + eq). colorbalance ranges are -1..1.
+GRADES = {
+    "none": "",
+    # Blockbuster teal shadows, warm-orange highlights.
+    "teal_orange": ("colorbalance=rs=-0.08:bs=0.10:rh=0.12:bh=-0.10,"
+                    "eq=contrast=1.06:saturation=1.12"),
+    # Cool, crushed, desaturated — brooding.
+    "moody": ("colorbalance=rs=-0.05:gs=0.02:bs=0.10:rm=-0.03:bm=0.05,"
+              "eq=contrast=1.09:saturation=0.82:brightness=-0.03"),
+    # Warm golden-hour film.
+    "warm": ("colorbalance=rs=0.07:rm=0.06:rh=0.09:bs=-0.05:bh=-0.07,"
+             "eq=saturation=1.08"),
+    # Clean cool daylight.
+    "cool": ("colorbalance=rs=-0.06:bs=0.09:rh=-0.05:bh=0.09,"
+             "eq=saturation=1.05"),
+    # High-contrast black & white.
+    "bw": "hue=s=0,eq=contrast=1.14",
+}
+
+
+def _grade_filter(grade):
+    return GRADES.get(grade, "")
+
+
 def _probe_fps(src):
     out = subprocess.run(
         [FFPROBE_BIN, "-v", "error", "-select_streams", "v:0",
@@ -462,19 +487,23 @@ _ROTATE_FILTER = {
 
 
 def _export_filter(style, vivid_amount, trim_x=0.0, trim_y=0.0, fg_crop=0.0,
-                   width=1080, height=1920, rotate="none", look="none", look_sharp=50):
+                   width=1080, height=1920, rotate="none", look="none",
+                   look_sharp=50, grade="none"):
     rot = _ROTATE_FILTER.get(rotate)
     pre = _pre_crop(trim_x, trim_y)
     # Source-prep chain applied first: rotate, then border trim.
     prep = ",".join(p for p in (rot, pre) if p)
-    # Grade chain: vivid boost then the stylized look (either/both/none).
+    # Grade chain: vivid boost, then colour grade, then the stylized look.
     grade_parts = []
     if vivid_amount:
         grade_parts.append(_vivid_filter(vivid_amount))
+    grade_f = _grade_filter(grade)
+    if grade_f:
+        grade_parts.append(grade_f)
     look_f = _look_filter(look, look_sharp)
     if look_f:
         grade_parts.append(look_f)
-    grade = ("," + ",".join(grade_parts)) if grade_parts else ""
+    grade_chain = ("," + ",".join(grade_parts)) if grade_parts else ""
     # Blur radius scales with the frame's short side so it's never under-blurred.
     sigma = round(24 * min(width, height) / 1080, 1)
     ar = width / height  # target aspect
@@ -487,7 +516,7 @@ def _export_filter(style, vivid_amount, trim_x=0.0, trim_y=0.0, fg_crop=0.0,
             fg = f"crop=trunc(iw*{(100 - 2 * fg_crop) / 100:.4f}/2)*2:ih,"
         fg += (f"scale={width}:{height}:force_original_aspect_ratio=decrease"
                ":force_divisible_by=2")
-        fg += grade
+        fg += grade_chain
         head = f"[0:v]{prep},split=2" if prep else "[0:v]split=2"
         return (
             f"{head}[bgin][fgin];"
@@ -500,7 +529,7 @@ def _export_filter(style, vivid_amount, trim_x=0.0, trim_y=0.0, fg_crop=0.0,
           f"scale={width}:{height}")
     if prep:
         vf = prep + "," + vf
-    vf += grade
+    vf += grade_chain
     return vf
 
 
@@ -539,7 +568,8 @@ def start_export(src, start, end, style="crop", vivid=False,
                  caption_source="auto", caption_pos="bottom",
                  caption_style="karaoke", resolution="1080", vivid_amount=0,
                  orientation="portrait", rotate="none", rotate_captions=False,
-                 loudness=False, zoom="none", look="none", look_sharp=50):
+                 loudness=False, zoom="none", look="none", look_sharp=50, grade="none",
+                 music="", music_gain=60, duck=True):
     src = Path(src)
     job = _new_job("export", src.stem)
     job["src"] = str(src)
@@ -549,7 +579,7 @@ def start_export(src, start, end, style="crop", vivid=False,
               style, vivid, float(trim_x), float(trim_y), float(fg_crop),
               captions, caption_source, caption_pos, caption_style, resolution,
               vivid_amount, orientation, rotate, rotate_captions, loudness, zoom,
-              look, look_sharp),
+              look, look_sharp, grade, music, music_gain, duck),
         daemon=True,
     )
     thread.start()
@@ -561,7 +591,8 @@ def run_export(job, event, src, start, end, style="blur", vivid=False,
                caption_source="auto", caption_pos="bottom",
                caption_style="karaoke", resolution="1080", vivid_amount=0,
                orientation="portrait", rotate="none", rotate_captions=False,
-               loudness=False, zoom="none", look="none", look_sharp=50):
+               loudness=False, zoom="none", look="none", look_sharp=50, grade="none",
+                 music="", music_gain=60, duck=True):
     """Render one clip (portrait 9:16 or landscape 16:9); returns the output
     path. Raises on failure or Cancelled. Percent lands on the given job."""
     import tempfile
@@ -615,12 +646,16 @@ def run_export(job, event, src, start, end, style="blur", vivid=False,
         suffix += "_zoom"
     if look != "none":
         suffix += f"_{look}"
+    if grade != "none":
+        suffix += f"_{grade}"
     if loudness:
         suffix += "_norm"
+    if music and Path(music).is_file():
+        suffix += "_music"
     aspect = "16x9" if orientation == "landscape" else "9x16"
     out_path = shorts_dir / f"{src.stem}_{aspect}_{int(start)}s-{int(end)}s_{style}{suffix}.mp4"
     filt = _export_filter(style, amount, trim_x, trim_y, fg_crop,
-                          build_w, build_h, source_rotate, look, look_sharp)
+                          build_w, build_h, source_rotate, look, look_sharp, grade)  # video-only filter
     # Zoom the framed video before captions/rotation so captions don't zoom.
     if zoom == "in":
         filt += "," + _zoom_filter(
@@ -667,16 +702,41 @@ def run_export(job, event, src, start, end, style="blur", vivid=False,
     if composite_rotate != "none":
         filt += "," + _ROTATE_FILTER[composite_rotate]
 
-    filter_args = (
-        ["-filter_complex", filt] if style == "blur" else ["-vf", filt]
-    )
-    # loudnorm to -14 LUFS — the common target for social platforms.
-    audio_args = (
-        ["-af", "loudnorm=I=-14:TP=-1.5:LRA=11"] if loudness else []
-    )
+    loudnorm = "loudnorm=I=-14:TP=-1.5:LRA=11"
+    music_path = music if (music and Path(music).is_file()) else ""
+    inputs = ["-ss", str(start), "-to", str(end), "-i", str(src)]
+
+    if music_path:
+        # Mix a looped music bed under the original audio; optionally duck the
+        # music under speech via sidechain compression. Everything becomes one
+        # -filter_complex so we can map video [v] + mixed audio [a].
+        vlabel = (f"[0:v]{filt}[v]" if style != "blur" else f"{filt}[v]")
+        gain = round(max(0.0, min(music_gain, 100.0)) / 100.0 * 1.2, 3)
+        if duck:
+            amix = (
+                f"[1:a]volume={gain}[mus];"
+                "[mus][0:a]sidechaincompress=threshold=0.02:ratio=8:"
+                "attack=15:release=350[duckmus];"
+                "[0:a][duckmus]amix=inputs=2:duration=first:dropout_transition=0[amix]"
+            )
+        else:
+            amix = (
+                f"[1:a]volume={gain}[mus];"
+                "[0:a][mus]amix=inputs=2:duration=first:dropout_transition=0[amix]"
+            )
+        atail = f";[amix]{loudnorm}[a]" if loudness else ";[amix]anull[a]"
+        graph = f"{vlabel};{amix}{atail}"
+        inputs += ["-stream_loop", "-1", "-i", str(music_path)]
+        av_args = ["-filter_complex", graph, "-map", "[v]", "-map", "[a]"]
+    else:
+        filter_args = (
+            ["-filter_complex", filt] if style == "blur" else ["-vf", filt]
+        )
+        av_args = [*filter_args] + (["-af", loudnorm] if loudness else [])
+
     cmd = [
-        FFMPEG_BIN, "-y", "-ss", str(start), "-to", str(end), "-i", str(src),
-        *filter_args, *audio_args,
+        FFMPEG_BIN, "-y", *inputs,
+        *av_args,
         "-c:v", "libx264", "-crf", "18", "-preset", "medium",
         "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-b:a", "192k",
@@ -701,14 +761,15 @@ def run_export(job, event, src, start, end, style="blur", vivid=False,
 def _export_worker(job, event, src, start, end, style, vivid,
                    trim_x, trim_y, fg_crop, captions, caption_source,
                    caption_pos, caption_style, resolution, vivid_amount,
-                   orientation, rotate, rotate_captions, loudness, zoom, look, look_sharp):
+                   orientation, rotate, rotate_captions, loudness, zoom, look, look_sharp, grade, music, music_gain, duck):
     job["status"] = "exporting"
     try:
         out_path = run_export(
             job, event, src, start, end, style, vivid,
             trim_x, trim_y, fg_crop, captions, caption_source, caption_pos,
             caption_style, resolution, vivid_amount, orientation, rotate,
-            rotate_captions, loudness, zoom, look, look_sharp,
+            rotate_captions, loudness, zoom, look, look_sharp, grade,
+            music, music_gain, duck,
         )
         job["percent"] = 100.0
         job["path"] = str(out_path)
@@ -1366,6 +1427,100 @@ def _clippack_worker(job, event, src, start, end, max_len, min_len):
         job["percent"] = 100.0
         job["path"] = str(outdir)
         job["status"] = "done"
+    except Exception as exc:
+        if event.is_set() or isinstance(exc, Cancelled):
+            job["status"] = "cancelled"
+        else:
+            job["status"] = "error"
+            job["error"] = str(exc)
+
+
+# ----------------------------------------------------- silence removal
+
+def start_tighten(src, threshold_db=-30.0, min_silence=0.5, pad=0.06):
+    src = Path(src)
+    job = _new_job("tighten", src.stem)
+    job["src"] = str(src)
+    thread = threading.Thread(
+        target=_tighten_worker,
+        args=(job, _EVENTS[job["id"]], src, float(threshold_db),
+              float(min_silence), float(pad)),
+        daemon=True,
+    )
+    thread.start()
+    return job
+
+
+def _tighten_worker(job, event, src, threshold_db, min_silence, pad):
+    import re as _re
+
+    job["status"] = "tightening"
+    try:
+        duration = _probe_duration(src) or 0
+        # 1. Detect silent regions.
+        det = subprocess.run(
+            [FFMPEG_BIN, "-i", str(src),
+             "-af", f"silencedetect=n={threshold_db}dB:d={min_silence}",
+             "-f", "null", "-"],
+            capture_output=True, text=True,
+        )
+        starts = [float(m) for m in _re.findall(r"silence_start: ([0-9.]+)", det.stderr)]
+        ends = [float(m) for m in _re.findall(r"silence_end: ([0-9.]+)", det.stderr)]
+        silences = list(zip(starts, ends))
+
+        # 2. Build keep segments (complement), padding so cuts aren't abrupt.
+        keeps = []
+        cursor = 0.0
+        for s, e in silences:
+            seg_end = min(s + pad, duration)
+            if seg_end - cursor > 0.15:
+                keeps.append((round(cursor, 3), round(seg_end, 3)))
+            cursor = max(e - pad, cursor)
+        if duration - cursor > 0.15:
+            keeps.append((round(cursor, 3), round(duration, 3)))
+
+        if not keeps:
+            raise RuntimeError("Everything was detected as silent — try a lower threshold.")
+        kept = sum(b - a for a, b in keeps)
+        if len(keeps) <= 1 or kept >= duration - 0.2:
+            raise RuntimeError("No removable silence found in this video.")
+
+        # 3. Concat the kept spans (re-encode for clean cuts).
+        parts = []
+        for i, (a, b) in enumerate(keeps):
+            parts.append(
+                f"[0:v]trim={a}:{b},setpts=PTS-STARTPTS[v{i}];"
+                f"[0:a]atrim={a}:{b},asetpts=PTS-STARTPTS[a{i}]"
+            )
+        concat_in = "".join(f"[v{i}][a{i}]" for i in range(len(keeps)))
+        graph = ";".join(parts) + f";{concat_in}concat=n={len(keeps)}:v=1:a=1[v][a]"
+
+        out_path = src.with_name(src.stem + "_tight.mp4")
+        cmd = [
+            FFMPEG_BIN, "-y", "-i", str(src),
+            "-filter_complex", graph, "-map", "[v]", "-map", "[a]",
+            "-c:v", "libx264", "-crf", "18", "-preset", "veryfast",
+            "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k",
+            "-movflags", "+faststart",
+            "-progress", "pipe:1", "-nostats", "-loglevel", "error",
+            str(out_path),
+        ]
+        code, stderr = _run_ffmpeg_progress(job, event, cmd, out_path, kept)
+        if event.is_set():
+            job["status"] = "cancelled"
+            out_path.unlink(missing_ok=True)
+        elif code == 0:
+            job["percent"] = 100.0
+            job["path"] = str(out_path)
+            job["title"] = (
+                f"{src.stem} — {duration:.0f}s → {kept:.0f}s "
+                f"({len(keeps)} cuts)"
+            )
+            job["status"] = "done"
+        else:
+            job["status"] = "error"
+            job["error"] = stderr.strip() or f"ffmpeg exited with code {code}"
+            out_path.unlink(missing_ok=True)
     except Exception as exc:
         if event.is_set() or isinstance(exc, Cancelled):
             job["status"] = "cancelled"

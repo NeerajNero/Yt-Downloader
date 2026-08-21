@@ -2,7 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
   deletePreset, detectBorders, getCaptions, getPresets, getScenes,
   getSuggestions, getTranscript, reveal, savePreset, saveCaptions,
-  startAutoShorts, startClipPack, startExport, startScenes, startSuggest,
+  startAutoShorts, startClipPack, startExport, startPostkit, getPostkit,
+  getMusic, uploadMusic, startScenes, startSuggest, startTighten,
   startTranscribe,
 } from './api.js'
 import { fmtDuration, parseTime } from './util.js'
@@ -10,14 +11,14 @@ import { fmtDuration, parseTime } from './util.js'
 // Everything a preset captures (not the per-clip start/end).
 const PRESET_KEYS = [
   'style', 'orientation', 'resolution', 'rotate', 'rotateCaptions',
-  'vividAmount', 'trimY', 'trimX', 'fgCrop', 'loudness', 'zoom', 'look', 'lookSharp',
+  'vividAmount', 'trimY', 'trimX', 'fgCrop', 'loudness', 'zoom', 'look', 'lookSharp', 'grade', 'music', 'musicGain', 'duck',
   'captions', 'captionSource', 'captionStyle', 'captionPos',
 ]
 
 const ACTIVE = new Set([
   'queued', 'starting', 'downloading', 'merging', 'converting',
   'exporting', 'analyzing', 'running', 'cancelling',
-  'transcribing', 'suggesting', 'shredding',
+  'transcribing', 'suggesting', 'shredding', 'writing', 'tightening',
 ])
 
 export default function Player({ item, jobs, config, onClose }) {
@@ -41,11 +42,18 @@ export default function Player({ item, jobs, config, onClose }) {
   const [zoom, setZoom] = useState('none')
   const [look, setLook] = useState('none')
   const [lookSharp, setLookSharp] = useState(50)
+  const [grade, setGrade] = useState('none')
   const [presets, setPresets] = useState({})
   const [presetName, setPresetName] = useState('')
   const [previewCaps, setPreviewCaps] = useState(false)
   const [transcript, setTranscript] = useState(null)
   const [nowTime, setNowTime] = useState(0)
+  const [postkit, setPostkit] = useState(null)
+  const [music, setMusic] = useState('')
+  const [musicGain, setMusicGain] = useState(60)
+  const [duck, setDuck] = useState(true)
+  const [musicList, setMusicList] = useState([])
+  const musicRef = useRef(null)
   const [clipMax, setClipMax] = useState('3')
   const [clipScope, setClipScope] = useState('whole')
   const [capsOpen, setCapsOpen] = useState(false)
@@ -88,6 +96,8 @@ export default function Player({ item, jobs, config, onClose }) {
       .catch(() => setHasManualCaps(false))
     getTranscript(item.path).then(setTranscript).catch(() => setTranscript(null))
     getPresets().then(setPresets).catch(() => setPresets({}))
+    getPostkit(item.path).then(setPostkit).catch(() => setPostkit(null))
+    getMusic().then(setMusicList).catch(() => setMusicList([]))
   }, [item.path])
 
   // When background jobs for this file finish, pull their results in.
@@ -131,7 +141,8 @@ export default function Player({ item, jobs, config, onClose }) {
     rotate: setRotate, rotateCaptions: setRotateCaptions,
     vividAmount: setVividAmount, trimY: setTrimY, trimX: setTrimX,
     fgCrop: setFgCrop, loudness: setLoudness, zoom: setZoom, look: setLook,
-    lookSharp: setLookSharp,
+    lookSharp: setLookSharp, grade: setGrade,
+    music: setMusic, musicGain: setMusicGain, duck: setDuck,
     captions: setCaptions, captionSource: setCaptionSource,
     captionStyle: setCaptionStyle, captionPos: setCaptionPos,
   }
@@ -147,7 +158,8 @@ export default function Player({ item, jobs, config, onClose }) {
 
   const currentSettings = () => ({
     style, orientation, resolution, rotate, rotateCaptions,
-    vividAmount, trimY, trimX, fgCrop, loudness, zoom, look, lookSharp,
+    vividAmount, trimY, trimX, fgCrop, loudness, zoom, look, lookSharp, grade,
+    music, musicGain, duck,
     captions, captionSource, captionStyle, captionPos,
   })
 
@@ -182,6 +194,34 @@ export default function Player({ item, jobs, config, onClose }) {
     run(
       startAutoShorts(item.path),
       'Auto Shorts started — clips land below when done.'
+    )
+
+  const postkitting = activeJob('postkit')
+  const doPostkit = () =>
+    run(startPostkit(item.path), 'Writing title & hashtags — shows below when done.')
+  useEffect(() => {
+    if (!postkitting) getPostkit(item.path).then(setPostkit).catch(() => {})
+  }, [postkitting]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const onPickMusic = (e) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    setError(null)
+    uploadMusic(file)
+      .then((r) => {
+        getMusic().then(setMusicList).catch(() => {})
+        setMusic(r.name)
+        setNotice(`Added music "${r.name}".`)
+      })
+      .catch((err) => setError(err.message))
+  }
+
+  const tightening = activeJob('tighten')
+  const doTighten = () =>
+    run(
+      startTighten(item.path),
+      'Removing silences — the tightened video lands in the card\'s folder.'
     )
 
   const clipPacking = activeJob('clippack')
@@ -229,7 +269,8 @@ export default function Player({ item, jobs, config, onClose }) {
     run(
       startExport(item.path, s, e, style, vividAmount, tx, ty, fc,
         captions, captionSource, captionPos, captionStyle, resolution,
-        orientation, rotate, rotateCaptions, loudness, zoom, look, lookSharp),
+        orientation, rotate, rotateCaptions, loudness, zoom, look, lookSharp, grade,
+        music, musicGain, duck),
       'Export queued — progress shows in Jobs.'
     )
   }
@@ -441,10 +482,47 @@ export default function Player({ item, jobs, config, onClose }) {
           >
             {autoShorting ? 'Making Shorts…' : 'Auto Shorts'}
           </button>
+          <button
+            className="btn ghost"
+            onClick={doPostkit}
+            disabled={!aiEnabled || postkitting}
+            title={aiEnabled
+              ? 'Generate a title, description and hashtags from the transcript'
+              : 'Set GEMINI_API_KEY in .env to enable'}
+          >
+            {postkitting ? 'Writing…' : 'Post kit'}
+          </button>
           {config?.ai_model && (
             <span className="mono muted ai-model">{config.ai_model}</span>
           )}
         </div>
+
+        {postkit && (postkit.title || postkit.hashtags?.length > 0) && (
+          <div className="postkit">
+            <div className="postkit-row">
+              <span className="postkit-label mono muted">Title</span>
+              <span className="postkit-val">{postkit.title}</span>
+              <button className="btn ghost" onClick={() => navigator.clipboard?.writeText(postkit.title)}>Copy</button>
+            </div>
+            <div className="postkit-row">
+              <span className="postkit-label mono muted">Desc</span>
+              <span className="postkit-val">{postkit.description}</span>
+              <button className="btn ghost" onClick={() => navigator.clipboard?.writeText(postkit.description)}>Copy</button>
+            </div>
+            <div className="postkit-row">
+              <span className="postkit-label mono muted">Tags</span>
+              <span className="postkit-val mono">
+                {(postkit.hashtags || []).map((h) => `#${h}`).join(' ')}
+              </span>
+              <button
+                className="btn ghost"
+                onClick={() => navigator.clipboard?.writeText((postkit.hashtags || []).map((h) => `#${h}`).join(' '))}
+              >
+                Copy
+              </button>
+            </div>
+          </div>
+        )}
 
         <div className="ai-row">
           <span className="mono muted">Clip pack</span>
@@ -476,6 +554,14 @@ export default function Player({ item, jobs, config, onClose }) {
             title="Shred every shot into short clips for hand-editing in DaVinci"
           >
             {clipPacking ? 'Shredding…' : 'Shred to clips'}
+          </button>
+          <button
+            className="btn"
+            onClick={doTighten}
+            disabled={tightening}
+            title="Auto-cut silent gaps for a punchier, faster-paced version"
+          >
+            {tightening ? 'Tightening…' : 'Remove silences'}
           </button>
         </div>
 
@@ -590,6 +676,19 @@ export default function Player({ item, jobs, config, onClose }) {
           >
             <option value="none">No zoom</option>
             <option value="in">Punch-in ⤢</option>
+          </select>
+          <select
+            value={grade}
+            onChange={(e) => setGrade(e.target.value)}
+            aria-label="Colour grade"
+            title="Cinematic colour grade"
+          >
+            <option value="none">No grade</option>
+            <option value="teal_orange">Teal & orange</option>
+            <option value="moody">Moody</option>
+            <option value="warm">Warm film</option>
+            <option value="cool">Cool</option>
+            <option value="bw">Black & white</option>
           </select>
           <label className="vivid-check" title="Punchy local-contrast HDR-look grade">
             <input
@@ -810,6 +909,52 @@ export default function Player({ item, jobs, config, onClose }) {
               />
               % crop video
             </label>
+          )}
+        </div>
+
+        <div className="trim-row">
+          <span className="mono muted">Music</span>
+          <select
+            value={music}
+            onChange={(e) => setMusic(e.target.value)}
+            aria-label="Background music track"
+          >
+            <option value="">None</option>
+            {musicList.map((m) => (
+              <option key={m} value={m}>{m}</option>
+            ))}
+          </select>
+          <button className="btn ghost" onClick={() => musicRef.current?.click()}>
+            Add track
+          </button>
+          <input
+            ref={musicRef}
+            type="file"
+            accept=".mp3,.m4a,.aac,.wav,.ogg,.opus,.flac,audio/*"
+            onChange={onPickMusic}
+            hidden
+          />
+          {music && (
+            <>
+              <label className="vivid-slider" title="Music volume under the video">
+                <span className="mono muted">Vol</span>
+                <input
+                  type="range" min="0" max="100" step="5"
+                  value={musicGain}
+                  onChange={(e) => setMusicGain(Number(e.target.value))}
+                  aria-label="Music volume"
+                />
+                <span className="mono vivid-val">{musicGain}</span>
+              </label>
+              <label className="vivid-check" title="Automatically lower the music under speech">
+                <input
+                  type="checkbox"
+                  checked={duck}
+                  onChange={(e) => setDuck(e.target.checked)}
+                />
+                Duck under speech
+              </label>
+            </>
           )}
         </div>
         {error && <p className="error-line">{error}</p>}

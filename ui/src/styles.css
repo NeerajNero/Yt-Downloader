@@ -617,3 +617,22 @@ input[type="text"]::placeholder { color: var(--muted); }
 @media (prefers-reduced-motion: reduce) {
   .cap-preview .cap-w { transition: none; }
 }
+
+/* ---- AI post kit ---- */
+.chip-writing, .chip-tightening { color: var(--accent); border-color: rgba(242, 163, 60, 0.4); }
+.postkit {
+  margin-bottom: 8px;
+  border: 1px solid rgba(242, 163, 60, 0.35);
+  border-radius: 8px;
+  padding: 6px 12px;
+}
+.postkit-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  border-top: 1px solid var(--border);
+}
+.postkit-row:first-child { border-top: none; }
+.postkit-label { width: 40px; flex-shrink: 0; }
+.postkit-val { flex: 1; min-width: 0; font-size: 13px; overflow-wrap: anywhere; }

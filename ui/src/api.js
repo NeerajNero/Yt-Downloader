@@ -68,7 +68,8 @@ export const startExport = (path, start, end, style, vividAmount, trimX, trimY,
   fgCrop, captions, captionSource = 'auto', captionPos = 'bottom',
   captionStyle = 'karaoke', resolution = '1080', orientation = 'portrait',
   rotate = 'none', rotateCaptions = false, loudness = false, zoom = 'none',
-  look = 'none', lookSharp = 50) =>
+  look = 'none', lookSharp = 50, grade = 'none',
+  music = '', musicGain = 60, duck = true) =>
   fetch('/api/export', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -78,8 +79,16 @@ export const startExport = (path, start, end, style, vividAmount, trimX, trimY,
       captions, caption_source: captionSource, caption_pos: captionPos,
       caption_style: captionStyle, resolution, orientation, rotate,
       rotate_captions: rotateCaptions, loudness, zoom, look,
-      look_sharp: lookSharp,
+      look_sharp: lookSharp, grade, music, music_gain: musicGain, duck,
     }),
+  }).then(handle)
+
+export const getMusic = () => fetch('/api/music').then(handle)
+
+export const uploadMusic = (file) =>
+  fetch(`/api/music/upload?filename=${encodeURIComponent(file.name)}`, {
+    method: 'POST',
+    body: file,
   }).then(handle)
 
 export const getTranscript = (path) =>
@@ -135,11 +144,28 @@ export const startAutoShorts = (path, count = 3) =>
     body: JSON.stringify({ path, count }),
   }).then(handle)
 
+export const startPostkit = (path) =>
+  fetch('/api/postkit', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path }),
+  }).then(handle)
+
+export const getPostkit = (path) =>
+  fetch(`/api/postkit?path=${encodeURIComponent(path)}`).then(handle)
+
 export const startClipPack = (path, start, end, maxLen) =>
   fetch('/api/clippack', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path, start, end, max_len: maxLen }),
+  }).then(handle)
+
+export const startTighten = (path) =>
+  fetch('/api/tighten', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path }),
   }).then(handle)
 
 export const detectBorders = (path) =>

@@ -279,3 +279,85 @@ def _has_speech(src):
     transcript = json.loads(t_path.read_text(encoding="utf-8"))
     words = sum(len(seg["words"]) for seg in transcript["segments"])
     return words >= 20
+
+
+# ------------------------------------------------------- AI post kit
+
+POSTKIT_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "title": {"type": "STRING", "description": "punchy title, under 80 chars"},
+        "description": {"type": "STRING", "description": "1-2 sentence description"},
+        "hashtags": {
+            "type": "ARRAY",
+            "items": {"type": "STRING"},
+            "description": "8-12 relevant hashtags, no # symbol",
+        },
+    },
+    "required": ["title", "description", "hashtags"],
+}
+
+
+def postkit_path_for(src):
+    return Path(src).parent / f"{Path(src).stem}.postkit.json"
+
+
+def run_postkit(src, title, job=None, event=None):
+    src = Path(src)
+    cached = postkit_path_for(src)
+    if cached.is_file():
+        return json.loads(cached.read_text(encoding="utf-8"))
+
+    if job is not None:
+        job["status"] = "transcribing"
+    transcript = downloader.run_transcribe(src, job=job, event=event)
+    if event is not None and event.is_set():
+        raise Cancelled()
+
+    if job is not None:
+        job["status"] = "writing"
+        job["percent"] = None
+    text = _compact_transcript(transcript) or "(no speech — judge from the title)"
+    prompt = f"""You are a social media manager for short-form video (YouTube Shorts, TikTok, Reels).
+
+Video title: "{title}"
+Transcript:
+{text}
+
+Write:
+- title: a punchy, specific title under 80 characters (no ALL CAPS, no clickbait lies)
+- description: 1-2 natural sentences summarizing the hook
+- hashtags: 8-12 relevant, specific hashtags (lowercase, no # symbol, no spaces)"""
+    result = _gemini_generate([{"text": prompt}], schema=POSTKIT_SCHEMA)
+
+    data = {
+        "src": str(src),
+        "title": result.get("title", ""),
+        "description": result.get("description", ""),
+        "hashtags": [h.lstrip("#").strip() for h in result.get("hashtags", []) if h.strip()],
+    }
+    cached.write_text(json.dumps(data), encoding="utf-8")
+    return data
+
+
+def start_postkit(src, title):
+    src = Path(src)
+    job = downloader._new_job("postkit", title or src.stem)
+    job["src"] = str(src)
+
+    def worker(job=job, event=downloader._EVENTS[job["id"]]):
+        try:
+            run_postkit(src, title, job=job, event=event)
+            job["percent"] = 100.0
+            job["path"] = str(postkit_path_for(src))
+            job["status"] = "done"
+        except Exception as exc:
+            if event.is_set() or isinstance(exc, Cancelled):
+                job["status"] = "cancelled"
+            else:
+                job["status"] = "error"
+                job["error"] = str(exc)
+
+    import threading
+    threading.Thread(target=worker, daemon=True).start()
+    return job
