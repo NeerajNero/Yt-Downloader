@@ -591,18 +591,16 @@ export default function Player({ item, jobs, config, onClose }) {
             <option value="none">No zoom</option>
             <option value="in">Punch-in ⤢</option>
           </select>
-          <select
-            value={look}
-            onChange={(e) => setLook(e.target.value)}
-            aria-label="Stylized look"
-            title="HDR look: punchy local-contrast grade · Oil paint: painterly flatten"
-          >
-            <option value="none">No look</option>
-            <option value="hdr">HDR look</option>
-            <option value="oil">Oil paint</option>
-          </select>
-          {look !== 'none' && (
-            <label className="vivid-slider" title="HDR: higher = crisper · Oil paint: higher = more brush-stroke detail, lower = smoother">
+          <label className="vivid-check" title="Punchy local-contrast HDR-look grade">
+            <input
+              type="checkbox"
+              checked={look === 'hdr'}
+              onChange={(e) => setLook(e.target.checked ? 'hdr' : 'none')}
+            />
+            HDR look
+          </label>
+          {look === 'hdr' && (
+            <label className="vivid-slider" title="Higher = crisper local contrast">
               <span className="mono muted">Sharp</span>
               <input
                 type="range"

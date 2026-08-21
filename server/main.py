@@ -404,7 +404,7 @@ def api_export(body: ExportBody):
     if body.zoom not in ("none", "in"):
         raise HTTPException(400, "Zoom must be none or in.")
     if body.look not in downloader.LOOKS:
-        raise HTTPException(400, "Look must be none, hdr, or oil.")
+        raise HTTPException(400, "Look must be none or hdr.")
     if not (0 <= body.look_sharp <= 100):
         raise HTTPException(400, "Look sharpness must be between 0 and 100.")
     if body.caption_style not in downloader.CAPTION_STYLES:

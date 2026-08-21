@@ -387,8 +387,7 @@ def _vivid_filter(amount):
 # local contrast (clarity) via a wide-radius unsharp, plus gentle global
 # contrast and saturation. No vibrance (it skewed warm/reddish) and no RGB
 # curve (kept the colour neutral).
-# `sharp` (0-100) scales the sharpening: HDR gets crisper, oil paint gets
-# more defined brush strokes (0 = fully smooth painterly).
+# `sharp` (0-100) scales the local-contrast sharpening — higher is crisper.
 def _hdr_filter(sharp=60):
     amount = round(0.5 + (sharp / 100.0) * 1.9, 2)   # 0.5 .. 2.4
     return (
@@ -397,23 +396,12 @@ def _hdr_filter(sharp=60):
     )
 
 
-# Oil-paint look — a painterly flatten. `median` smooths texture into flat
-# colour regions (the paint blobs); the sharpness slider controls how much
-# edge/brush-stroke detail is brought back on top.
-def _oilpaint_filter(sharp=40):
-    amount = round((sharp / 100.0) * 1.6, 2)          # 0 .. 1.6
-    stroke = f",unsharp=7:7:{amount}:7:7:0.0" if amount else ""
-    return f"median=radius=9,eq=saturation=1.3:contrast=1.05{stroke}"
-
-
-LOOKS = {"none", "hdr", "oil"}
+LOOKS = {"none", "hdr"}
 
 
 def _look_filter(look, sharp=50):
     if look == "hdr":
         return _hdr_filter(sharp)
-    if look == "oil":
-        return _oilpaint_filter(sharp)
     return ""
 
 

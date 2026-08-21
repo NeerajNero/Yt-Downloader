@@ -161,17 +161,11 @@ convert for editing first).
   strong (near-oversaturated). Real HDR can't be created from SDR sources; for
   true grading use the mkv original in Resolve. Each value produces its own
   filename (`_vivid75` etc.) so you can compare intensities side by side.
-- **Look** (dropdown) applies a stylized grade on top of Vivid:
-  - *HDR look* — strong local-contrast "clarity" plus gentle contrast and
-    saturation, for the punchy, high-dimensionality feel of an HDR display.
-    It can't turn SDR into real HDR (nothing can), but it makes the image
-    *look* punchy without skewing colour.
-  - *Oil paint* — a painterly flatten (median smoothing melts texture into
-    paint-like colour regions, with edges brought back as brush strokes and a
-    richer saturation). Note it's heavier to render on 4K.
-  - A **Sharp** slider (0–100) appears when a look is selected: for HDR, higher
-    is crisper; for oil paint, higher adds brush-stroke detail while lower is
-    smoother and softer.
+- **HDR look** (checkbox) applies a stylized grade on top of Vivid: strong
+  local-contrast "clarity" plus gentle contrast and saturation, for the punchy,
+  high-dimensionality feel of an HDR display. It can't turn SDR into real HDR
+  (nothing can), but it makes the image *look* punchy without skewing colour.
+  A **Sharp** slider (0–100) appears when it's on — higher is crisper.
 - **Auto zoom** adds a slow Ken-Burns punch-in over the clip (a gentle
   continuous zoom toward the end) for energy. Captions don't zoom — the zoom
   is applied to the video before captions burn on.
