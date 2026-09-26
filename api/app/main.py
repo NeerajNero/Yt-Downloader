@@ -1,21 +1,32 @@
 """YT Studio brain API.
 
-Phase 0: just a health check so the stack wires up end to end.
-Later phases add Hasura Action handlers, event-trigger handlers, library
-file serving, worker result upload, and Wake-on-LAN.
+Not a general REST API — CRUD goes through Hasura. This service handles what
+GraphQL can't: library file serving + worker result uploads (files.py), cron
+webhooks (internal.py), and later Hasura Action/event handlers and Wake-on-LAN.
 """
 
-import os
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-app = FastAPI(title="YT Studio API")
+from . import files, internal, settings
+from .db import pool
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    pool.open()
+    try:
+        yield
+    finally:
+        pool.close()
+
+
+app = FastAPI(title="YT Studio API", lifespan=lifespan)
+app.include_router(files.router)
+app.include_router(internal.router)
 
 
 @app.get("/api/healthz")
 def healthz():
-    return {
-        "ok": True,
-        "service": "yt-studio-api",
-        "library_dir": os.environ.get("LIBRARY_DIR", "/library"),
-    }
+    return {"ok": True, "service": "yt-studio-api", "library_dir": str(settings.LIBRARY_DIR)}

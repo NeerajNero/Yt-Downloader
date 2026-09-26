@@ -315,24 +315,72 @@ Each phase ends with something you can run from your phone (or at least your bro
 
 **Test:** phone opens the PWA over Tailscale, sees the machines list live; `hasura migrate apply` is repeatable on a clean volume.
 
-### Phase 1 — Job queue + first worker (transcription) + live dashboard
-1. `worker/agent`: config file (name, capabilities, DB URL over tailnet, library mode), claim query
-   (SKIP LOCKED), heartbeat thread (every 15 s), progress/cancel via row updates, graceful shutdown
-   (requeue own job).
-2. Watchdog: Hasura cron trigger (every minute) → `api` endpoint → requeue stale jobs (heartbeat > 2 min),
-   fail jobs out of attempts; mark machines offline when `last_seen_at` is stale.
-3. Port `run_transcribe` → `worker/core/transcribe.py` with `device`/`compute_type` from config
-   (`cuda`+`int8_float16` on the GTX 1650). Result: transcript sidecar written, `assets` row inserted.
-4. Storage v0 (decision needed, see §5): start with "worker downloads the file from the brain over HTTP,
-   uploads results back" — simplest, no mounts. For transcription, add an optimization: brain extracts
-   audio-only (`ffmpeg -vn`) so the laptop pulls ~50 MB, not 5 GB. (If we choose a shared folder instead, this step shrinks.)
-5. PWA dashboard page: jobs table via subscription (status, progress bar, machine, cancel button —
-   cancel = mutation setting `cancel_requested`).
-6. `scripts/import_v1_library.py`: walk `downloads/`, insert `videos` + `assets` rows from the sidecars.
+### Phase 1 — Job queue + first worker (transcription) + live dashboard ✅ built, verified locally 2026-09-27 — awaiting server deploy + laptop install (1h)
 
-**Test:** from the phone, pick a library video → "Transcribe" → job appears queued → NVIDIA laptop claims it → live progress → transcript asset appears. Kill the worker mid-job → watchdog requeues → completes on restart.
+Goal: from the phone, transcribe a library video on the NVIDIA laptop with live progress,
+surviving worker crashes. Detailed task list (in build order, each step testable):
 
-### Phase 2 — All v1 features as job types (v1 retired at the end)
+**1a. Worker package skeleton** — `worker/` becomes an installable package (`pyproject.toml`,
+plain `pip install -e .` on the Windows machines; deps: `psycopg[binary]`, `requests`,
+`faster-whisper` as an extra `[transcribe]`).
+- `worker/agent/config.py`: loads `worker.toml` — `name`, `capabilities = [...]`,
+  `database_url` (tailnet address of the brain, e.g. `postgres://ytstudio:…@<brain-ts-ip>:5432/ytstudio`),
+  `brain_url` (e.g. `http://<brain-ts-ip>:8080`), `ffmpeg_path`, `work_dir` (local scratch),
+  `whisper = { model = "small", device = "cuda", compute_type = "int8_float16" }`.
+- `worker/worker.toml.example` per machine.
+
+**1b. Claim loop** — `worker/agent/main.py`:
+- On startup: upsert own `machines` row by name (`status='online'`, `last_seen_at=now()`).
+- Loop: claim with
+  `UPDATE jobs SET status='claimed', claimed_by=$me, claimed_at=now(), heartbeat_at=now(), attempts=attempts+1
+   WHERE id = (SELECT id FROM jobs WHERE status='queued' AND run_after <= now() AND type = ANY($caps)
+   ORDER BY priority, created_at LIMIT 1 FOR UPDATE SKIP LOCKED) RETURNING *` — else sleep 3 s.
+- Run the job's adapter with `report(percent, note)` (throttled UPDATE ~1/s) and `should_cancel()`
+  (reads `status='cancel_requested'` on each report; also checked by the heartbeat thread).
+- Heartbeat thread: every 15 s `UPDATE jobs SET heartbeat_at=now()` + `UPDATE machines SET last_seen_at=now()`.
+- Finish: `status='done', result=…, progress=100` / `status='error', error=…`. Graceful shutdown
+  (SIGINT/SIGTERM): flip own running job back to `queued`, machine to `offline`.
+- Test on the Mac first with a `noop` job type (sleeps, reports progress) before touching Whisper.
+
+**1c. Watchdog** — Hasura cron trigger (every minute) → `POST /api/internal/watchdog` on `api`
+(guard with the admin secret header): requeue `claimed|running` jobs with `heartbeat_at` older than
+2 min (`attempts >= max_attempts` → `error`, note "worker died"); mark machines `offline` when
+`last_seen_at` > 90 s. Add the cron trigger to Hasura metadata (`cron_triggers.yaml`) so it deploys with git.
+
+**1d. File transfer v0** — in `api/app/files.py`:
+- `GET /api/files/{video_id}/source` — stream the source file from the library.
+- `GET /api/files/{video_id}/audio` — cached `ffmpeg -vn -c:a aac` extract (the api container image
+  must add ffmpeg) so the laptop pulls ~50 MB instead of 5 GB.
+- `POST /api/files/{video_id}/assets/{kind}` — worker uploads a result file (e.g. `transcript.json`);
+  api writes it into the video's library folder and upserts the `assets` row.
+- `worker/agent/storage.py` wraps download-to-scratch / upload-result against these endpoints.
+
+**1e. Transcribe job type** — port v1 `run_transcribe` (server/downloader.py:937) →
+`worker/core/transcribe.py`: pure function `(audio_path, model_cfg, report, should_cancel) → transcript dict`;
+adapter in `worker/agent/jobs/transcribe.py` does download-audio → transcribe → upload asset.
+Same output JSON shape as v1 (segments + word timestamps) so v1 sidecars stay compatible.
+
+**1f. Library import** — `scripts/import_v1_library.py`: walk `LIBRARY_DIR` for `*/*.info.json`
+(reuse v1's scan logic from server/main.py:api_library), insert `videos` + `assets` rows
+(relative `storage_path`), idempotent by `(source, youtube_id)` / path. Run it against the copied
+v1 `downloads/` on the server.
+
+**1g. PWA: jobs dashboard + library v0** —
+- `jobs.graphql` subscription (status, type, progress, progress_note, machine{name}, video{title}, error);
+  Jobs page with progress bars; cancel button = mutation setting `cancel_requested`; retry = back to `queued`.
+- Library v0 page: `videos` list (title, thumb via `/api/files/...`, duration, has-transcript badge)
+  with a **Transcribe** button = `insert_jobs_one(type:"transcribe", video_id:…)` (plain mutation; Actions come in Phase 2).
+- Machines page: green dot goes live now that workers report `last_seen_at`.
+
+**1h. Windows install** — on the NVIDIA laptop: Python 3.12, `pip install -e worker[transcribe]`,
+CUDA runtime (cuBLAS/cuDNN wheels via `pip install nvidia-cublas-cu12 nvidia-cudnn-cu12` if needed),
+`worker.toml`, Task Scheduler at-logon task (`docs/WORKER-WINDOWS.md` with the exact steps).
+
+**Phase-1 exit test:** phone → library video → Transcribe → job queued → laptop claims → live progress
+on the dashboard → transcript asset appears. Kill the worker mid-job → watchdog requeues within ~2 min →
+job completes after worker restart. Cancel works from the phone.
+
+### Phase 2 — All v1 features as job types (v1 retired at the end)  ← NEXT
 1. Port the rest of `worker/core/`: `ytdlp_ops` (download/probe), `media` (scenes, borders, convert,
    clippack, tighten, import), `render` + `captions` (export), `gemini` (suggest, postkit) —
    library-relative paths, `report()` callback, cancel checks, `encoders.py` (libx264 default, h264_amf

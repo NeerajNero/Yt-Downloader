@@ -1,0 +1,63 @@
+subscription Jobs {
+  jobs(order_by: { created_at: desc }, limit: 60) {
+    id
+    type
+    status
+    priority
+    progress
+    progress_note
+    error
+    attempts
+    max_attempts
+    created_at
+    updated_at
+    claimed_at
+    result
+    machine {
+      id
+      name
+    }
+    video {
+      id
+      title
+    }
+  }
+}
+
+mutation SetJobStatus($id: uuid!, $status: String!) {
+  update_jobs_by_pk(pk_columns: { id: $id }, _set: { status: $status }) {
+    id
+    status
+  }
+}
+
+mutation RetryJob($id: uuid!) {
+  update_jobs_by_pk(
+    pk_columns: { id: $id }
+    _set: {
+      status: "queued"
+      error: null
+      progress: null
+      progress_note: null
+      claimed_by: null
+      claimed_at: null
+      heartbeat_at: null
+      attempts: 0
+    }
+  ) {
+    id
+    status
+  }
+}
+
+mutation ClearFinishedJobs {
+  delete_jobs(where: { status: { _in: ["done", "error", "cancelled"] } }) {
+    affected_rows
+  }
+}
+
+mutation EnqueueJob($type: String!, $video_id: uuid, $payload: jsonb) {
+  insert_jobs_one(object: { type: $type, video_id: $video_id, payload: $payload }) {
+    id
+  }
+}

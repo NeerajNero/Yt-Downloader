@@ -23,11 +23,17 @@ generations side by side while v2 is being built:
 | Deploy to the Ubuntu server + phone | Follow [docs/DEPLOY.md](docs/DEPLOY.md) (Docker, `tailscale serve`, PWA install) |
 | Hack on the PWA | `cd web && npm install && npm run dev` (proxies to the containers) |
 | Change the DB schema | Hasura CLI workflow at the bottom of [docs/DEPLOY.md](docs/DEPLOY.md) |
+| Index the v1 library into the DB | `docker compose exec api python scripts/import_v1_library.py` (idempotent) |
+| Install a worker on Windows | [docs/WORKER-WINDOWS.md](docs/WORKER-WINDOWS.md) |
+| Run a worker on the Mac (dev) | `cp worker/examples/mac-dev.toml worker/worker.toml && cd worker && ../venv/bin/yt-worker` |
+| Run the tests | `venv/bin/python -m pytest worker/tests api/tests` (needs the compose stack) |
 
-**Status:** Phase 0 (foundation) is built and verified — compose stack, schema
-migrations with auto-apply, machines dashboard with live subscriptions, PWA
-shell. Next: Phase 1 (job queue + transcription worker + jobs dashboard); the
-worked-out task list is in PLAN.md §4.
+**Status:** Phases 0 and 1 are built and verified locally — compose stack, schema,
+Postgres job queue (`FOR UPDATE SKIP LOCKED` claim loop, heartbeats, cancel,
+watchdog requeue), transcription worker, library file endpoints, v1 library
+importer, and the PWA's Jobs / Library / Machines pages with live subscriptions.
+Next: deploy to the server + install the laptop worker, then Phase 2 (all v1
+features as job types). Task lists are in PLAN.md §4.
 
 ---
 

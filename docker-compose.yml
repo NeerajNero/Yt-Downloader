@@ -42,6 +42,9 @@ services:
       HASURA_GRAPHQL_ENABLED_LOG_TYPES: startup, http-log, webhook-log
       HASURA_GRAPHQL_MIGRATIONS_DIR: /hasura-migrations
       HASURA_GRAPHQL_METADATA_DIR: /hasura-metadata
+      # Cron triggers send this as x-api-secret to the api (Hasura forbids
+      # HASURA_GRAPHQL_* names in value_from_env, hence the alias).
+      WATCHDOG_SECRET: ${HASURA_ADMIN_SECRET}
     volumes:
       - ./hasura/migrations:/hasura-migrations:ro
       - ./hasura/metadata:/hasura-metadata:ro
@@ -67,6 +70,8 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
     volumes:
       - ${LIBRARY_DIR:-./downloads}:/library
+      # one-off scripts, e.g.: docker compose exec api python scripts/import_v1_library.py
+      - ./scripts:/srv/scripts:ro
 
   web:
     # Multi-stage build: node builds the PWA, Caddy serves it and proxies

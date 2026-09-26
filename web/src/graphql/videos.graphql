@@ -1,0 +1,31 @@
+subscription Library {
+  videos(order_by: { created_at: desc }) {
+    id
+    title
+    channel
+    duration
+    width
+    height
+    vcodec
+    status
+    storage_path
+    thumb_path
+    size_bytes
+    created_at
+    assets {
+      id
+      kind
+      data
+    }
+    jobs(
+      where: { status: { _in: ["queued", "claimed", "running", "cancel_requested"] } }
+      order_by: { created_at: desc }
+    ) {
+      id
+      type
+      status
+      progress
+      progress_note
+    }
+  }
+}

@@ -39,6 +39,20 @@ docker compose up -d --build
 The Hasura image auto-applies `hasura/migrations` and `hasura/metadata` on
 every boot — no manual migrate step, a fresh machine comes up fully schema'd.
 
+Copy the v1 library into `LIBRARY_DIR` (one folder per video with its
+`.info.json` sidecar), then index it:
+
+```sh
+docker compose exec api python scripts/import_v1_library.py   # idempotent
+```
+
+Postgres must be reachable from the workers over the tailnet:
+
+```sh
+sudo ufw allow in on tailscale0 to any port 5432
+sudo ufw allow in on tailscale0 to any port 8080
+```
+
 ## 2. Serve over HTTPS on the tailnet
 
 ```sh
@@ -60,6 +74,13 @@ cd ~/yt-studio && git pull && docker compose up -d --build
 
 Schema changes ride along automatically (migrations apply on boot).
 
+## Workers
+
+Windows install steps for the NVIDIA laptop and gaming PC: `docs/WORKER-WINDOWS.md`.
+A Hasura cron trigger calls the api's watchdog every minute (requeues jobs whose
+worker died, marks silent machines offline) — nothing to set up, it ships in
+`hasura/metadata`.
+
 ## Ports on the server
 
 | Port | What | Exposure |
@@ -71,7 +92,12 @@ Schema changes ride along automatically (migrations apply on boot).
 ## Dev on the Mac
 
 Same compose file: `.env` uses `POSTGRES_PORT=5433` (local Postgres owns 5432)
-and dev-grade secrets. Web dev loop: `cd web && npm run dev` (proxies `/v1`
+and dev-grade secrets. The Mac has the standalone `docker-compose` binary
+rather than the `docker compose` plugin — same commands, one hyphen.
+Local worker: `cp worker/examples/mac-dev.toml worker/worker.toml`, then
+`venv/bin/pip install -e "worker[transcribe,dev]"` and
+`cd worker && ../venv/bin/yt-worker`. Tests: `venv/bin/python -m pytest worker/tests api/tests`
+(they need the compose stack up). Web dev loop: `cd web && npm run dev` (proxies `/v1`
 and `/api` to the containers). After changing any `.graphql` document or the
 DB schema: `cd web && HASURA_ADMIN_SECRET=devsecret npm run codegen` — the
 generated `src/gql/generated.ts` is committed.

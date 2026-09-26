@@ -1,0 +1,11 @@
+# Render + LLM worker — gaming PC (Ryzen 5 3600, RX 6750 XT), Windows 11.
+# render/llm/download job types arrive in Phase 2; until then this machine
+# can still run the queue smoke test ("noop").
+name = "gaming-pc"
+os = "windows-11"
+capabilities = ["noop"]
+database_url = "postgres://ytstudio:POSTGRES_PASSWORD@100.x.y.z:5432/ytstudio?sslmode=disable"
+brain_url = "http://100.x.y.z:8080"
+api_secret = "HASURA_ADMIN_SECRET"
+ffmpeg_path = "C:/ffmpeg/bin/ffmpeg.exe"   # Gyan full build (has h264_amf + libass)
+work_dir = "D:/ytstudio/work"

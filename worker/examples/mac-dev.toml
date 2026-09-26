@@ -1,0 +1,14 @@
+# Dev worker on the Mac against the local compose stack (docker compose up).
+name = "mac-dev"
+os = "macos"
+capabilities = ["noop", "transcribe"]
+database_url = "postgres://ytstudio:devpass@localhost:5433/ytstudio"
+brain_url = "http://localhost:8080"
+api_secret = "devsecret"
+ffmpeg_path = "/opt/homebrew/bin/ffmpeg"
+work_dir = "work"
+
+[whisper]
+model = "small"
+device = "cpu"
+compute_type = "int8"

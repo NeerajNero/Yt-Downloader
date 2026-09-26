@@ -31,7 +31,7 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/v1': { target: 'http://localhost:8081', ws: true },
-      '/api': { target: 'http://localhost:8000' },
+      '/api': { target: 'http://localhost:8080' }  // api has no host port; go through Caddy,
     },
   },
 })

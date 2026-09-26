@@ -38,3 +38,8 @@ web/node_modules/
 web/dist/
 web/dev-dist/
 api/__pycache__/
+worker/work/
+worker.toml
+worker/*.egg-info/
+web/tsconfig.tsbuildinfo
+.pytest_cache/
