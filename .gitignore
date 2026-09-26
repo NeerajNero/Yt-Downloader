@@ -32,3 +32,9 @@ presets.json
 
 # Music beds (user-supplied audio)
 music/
+
+# v2
+web/node_modules/
+web/dist/
+web/dev-dist/
+api/__pycache__/

@@ -1,9 +1,43 @@
 # YT Studio
 
-A local web app for downloading videos at the best possible quality and prepping
-them for editing. Paste a URL, check it, pick a quality, download with live
-progress. Every download lands in a library where you can open it in your file
-manager or create an edit-friendly H.264 copy for DaVinci Resolve.
+A Shorts-editing pipeline for one gaming YouTube channel. This repo holds two
+generations side by side while v2 is being built:
+
+- **v2 (current work)** — a three-machine job system: an always-on Ubuntu server
+  ("brain") running Postgres + Hasura + FastAPI + a React PWA in Docker Compose,
+  a Windows 11 NVIDIA laptop for GPU transcription, and a Windows 11 gaming PC
+  (RX 6750 XT) for hardware-encoded renders and a local LLM. Everything talks
+  over Tailscale; the PWA is used from a phone. Postgres is the single source of
+  truth; workers claim jobs with `FOR UPDATE SKIP LOCKED`.
+- **v1 (legacy, still runnable)** — the original single-machine web app at
+  `server/` + `ui/`, documented in the rest of this README. It stays until v2
+  reaches feature parity (Phase 2), because its ffmpeg/caption/AI logic is the
+  port source for the v2 workers.
+
+## v2 quickstart
+
+| I want to… | Do this |
+|---|---|
+| Understand the architecture & roadmap | Read [PLAN.md](PLAN.md); conventions in [CLAUDE.md](CLAUDE.md) |
+| Run the brain stack (dev or server) | `cp .env.example .env`, fill the v2 section, `docker compose up -d --build` → PWA at `http://localhost:8080` |
+| Deploy to the Ubuntu server + phone | Follow [docs/DEPLOY.md](docs/DEPLOY.md) (Docker, `tailscale serve`, PWA install) |
+| Hack on the PWA | `cd web && npm install && npm run dev` (proxies to the containers) |
+| Change the DB schema | Hasura CLI workflow at the bottom of [docs/DEPLOY.md](docs/DEPLOY.md) |
+
+**Status:** Phase 0 (foundation) is built and verified — compose stack, schema
+migrations with auto-apply, machines dashboard with live subscriptions, PWA
+shell. Next: Phase 1 (job queue + transcription worker + jobs dashboard); the
+worked-out task list is in PLAN.md §4.
+
+---
+
+# v1 — the original single-machine app
+
+Everything below documents v1. A local web app for downloading videos at the
+best possible quality and prepping them for editing. Paste a URL, check it,
+pick a quality, download with live progress. Every download lands in a library
+where you can open it in your file manager or create an edit-friendly H.264
+copy for DaVinci Resolve.
 
 Localhost only — the server binds to 127.0.0.1 and is unreachable from other
 machines. No auth, no database; the library is a filesystem scan of the
