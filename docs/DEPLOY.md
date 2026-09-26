@@ -49,8 +49,8 @@ docker compose exec api python scripts/import_v1_library.py   # idempotent
 Postgres must be reachable from the workers over the tailnet:
 
 ```sh
-sudo ufw allow in on tailscale0 to any port 5432
-sudo ufw allow in on tailscale0 to any port 8080
+sudo ufw allow in on tailscale0 to any port 5433   # POSTGRES_PORT
+sudo ufw allow in on tailscale0 to any port 8085   # WEB_PORT
 ```
 
 ## 2. Serve over HTTPS on the tailnet

@@ -69,9 +69,9 @@ Common problems:
   CUDA wheels aren't on PATH. `run-worker.bat` adds them; if you start
   `yt-worker` by hand, run it through the bat file instead.
 - `CUDA out of memory` — use `small`, or `compute_type = "int8"`.
-- Connection refused to Postgres — the brain must expose 5432 on the host
+- Connection refused to Postgres — the brain must expose POSTGRES_PORT on the host
   (compose does) and the Ubuntu firewall must allow it from the tailnet
-  (`sudo ufw allow in on tailscale0 to any port 5432`).
+  (`sudo ufw allow in on tailscale0 to any port 5433   # POSTGRES_PORT`).
 
 ## 5. Run at logon (Task Scheduler)
 
