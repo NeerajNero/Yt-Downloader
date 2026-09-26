@@ -1,0 +1,11 @@
+subscription Machines {
+  machines(order_by: { name: asc }) {
+    id
+    name
+    os
+    capabilities
+    status
+    tailscale_ip
+    last_seen_at
+  }
+}

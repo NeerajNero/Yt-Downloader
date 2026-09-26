@@ -1,0 +1,14 @@
+- name: watchdog
+  webhook: http://api:8000/api/internal/watchdog
+  schedule: '* * * * *'
+  include_in_metadata: true
+  payload: {}
+  headers:
+    - name: x-api-secret
+      value_from_env: WATCHDOG_SECRET
+  retry_conf:
+    num_retries: 0
+    retry_interval_seconds: 10
+    timeout_seconds: 60
+    tolerance_seconds: 21600
+  comment: Requeue jobs whose worker died; mark silent machines offline.
