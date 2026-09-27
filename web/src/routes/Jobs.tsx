@@ -1,4 +1,5 @@
 import { useMutation, useSubscription } from '@apollo/client'
+import { Link } from 'react-router-dom'
 import Progress from '../components/Progress'
 import {
   ClearFinishedJobsDocument,
@@ -34,7 +35,10 @@ function JobCard({ job }: { job: Job }) {
         <span className="job-type mono">{job.type}</span>
         <span className={`pill ${job.status}`}>{job.status.replace('_', ' ')}</span>
       </div>
-      <div className="job-title">{job.video?.title ?? 'no video'}</div>
+      <div className="job-title">
+        {job.video ? <Link to={`/video/${job.video.id}`}>{job.video.title}</Link> : 'no video'}
+        {job.clip && <span className="muted small"> · {job.clip.title ?? `${Math.round(job.clip.start_s)}s–${Math.round(job.clip.end_s)}s`}</span>}
+      </div>
       <Progress value={job.progress} active={job.status === 'running' || job.status === 'claimed'} />
       <div className="job-meta mono muted small">
         <span>{job.progress != null ? `${Math.round(job.progress)}%` : ''} {job.progress_note ?? ''}</span>

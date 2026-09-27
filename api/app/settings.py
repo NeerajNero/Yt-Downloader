@@ -11,3 +11,8 @@ FFMPEG = os.environ.get("FFMPEG_PATH", "ffmpeg")
 # Watchdog thresholds (seconds)
 JOB_STALE_AFTER = int(os.environ.get("JOB_STALE_AFTER", "120"))
 MACHINE_OFFLINE_AFTER = int(os.environ.get("MACHINE_OFFLINE_AFTER", "90"))
+
+# Auto Wake-on-LAN: a queued job nobody online can serve for this long wakes a
+# capable offline machine; don't re-send within AUTO_WAKE_RETRY.
+AUTO_WAKE_AFTER = int(os.environ.get("AUTO_WAKE_AFTER", "60"))
+AUTO_WAKE_RETRY = int(os.environ.get("AUTO_WAKE_RETRY", "300"))

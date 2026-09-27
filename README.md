@@ -28,12 +28,14 @@ generations side by side while v2 is being built:
 | Run a worker on the Mac (dev) | `cp worker/examples/mac-dev.toml worker/worker.toml && cd worker && ../venv/bin/yt-worker` |
 | Run the tests | `venv/bin/python -m pytest worker/tests api/tests` (needs the compose stack) |
 
-**Status:** Phases 0 and 1 are built and verified locally — compose stack, schema,
-Postgres job queue (`FOR UPDATE SKIP LOCKED` claim loop, heartbeats, cancel,
-watchdog requeue), transcription worker, library file endpoints, v1 library
-importer, and the PWA's Jobs / Library / Machines pages with live subscriptions.
-Next: deploy to the server + install the laptop worker, then Phase 2 (all v1
-features as job types). Task lists are in PLAN.md §4.
+**Status:** Phases 0–2 are built and verified locally. v2 now does everything v1
+did, from the phone: paste a link (with a note and a "while I'm away" pipeline),
+download on the brain, transcribe on the laptop, scenes / edit copy / clip pack /
+silence removal on the brain, Gemini clip suggestions and post kits, and captioned
+9:16 / 16:9 renders on the gaming PC with h264_amf — plus Wake-on-LAN for the PC
+and an event chain that runs the whole thing unattended. Next: deploy, run the
+phone test on the real machines, retire `server/` + `ui/`, then Phase 3 (recipes).
+Task lists are in PLAN.md §4.
 
 ---
 

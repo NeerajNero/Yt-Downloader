@@ -51,7 +51,36 @@ def run_watchdog() -> dict:
             (f"{settings.MACHINE_OFFLINE_AFTER} seconds",),
         )
         offline = [r["name"] for r in cur.fetchall()]
-    return {"requeued": requeued, "cancelled": cancelled, "offline": offline}
+    woken = auto_wake()
+    return {"requeued": requeued, "cancelled": cancelled, "offline": offline, "woken": woken}
+
+
+def auto_wake() -> list[str]:
+    """A job has waited AUTO_WAKE_AFTER with no online machine able to run it,
+    and an offline machine with a MAC address can: send a magic packet
+    (at most once per AUTO_WAKE_RETRY)."""
+    from .actions import wake
+
+    woken: list[str] = []
+    with cursor() as cur:
+        cur.execute(
+            """select distinct m.name
+                 from jobs j
+                 join machines m on j.type = any(m.capabilities)
+                where j.status = 'queued' and j.run_after <= now()
+                  and j.created_at < now() - %s::interval
+                  and m.status <> 'online' and m.mac_address is not null
+                  and (m.woken_at is null or m.woken_at < now() - %s::interval)
+                  and not exists (select 1 from machines o
+                                   where o.status = 'online' and j.type = any(o.capabilities))""",
+            (f"{settings.AUTO_WAKE_AFTER} seconds", f"{settings.AUTO_WAKE_RETRY} seconds"),
+        )
+        names = [r["name"] for r in cur.fetchall()]
+    for name in names:
+        ok, _ = wake(name)
+        if ok:
+            woken.append(name)
+    return woken
 
 
 @router.post("/watchdog")

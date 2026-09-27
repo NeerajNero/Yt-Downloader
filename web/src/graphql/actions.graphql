@@ -1,0 +1,34 @@
+mutation ProbeUrl($url: String!) {
+  probe_url(url: $url) {
+    title
+    uploader
+    duration
+    thumbnail
+    webpage_url
+    heights
+    hdr
+    youtube_id
+    existing_video_id
+  }
+}
+
+mutation StartDownload($url: String!, $quality: String!, $title: String, $youtube_id: String, $note: String, $pipeline: String) {
+  start_download(url: $url, quality: $quality, title: $title, youtube_id: $youtube_id, note: $note, pipeline: $pipeline) {
+    video_id
+    job_id
+    existing
+  }
+}
+
+mutation Enqueue($type: String!, $video_id: uuid, $clip_id: uuid, $payload: jsonb) {
+  enqueue_job(type: $type, video_id: $video_id, clip_id: $clip_id, payload: $payload) {
+    job_id
+  }
+}
+
+mutation WakeMachine($name: String!) {
+  wake_machine(name: $name) {
+    ok
+    message
+  }
+}

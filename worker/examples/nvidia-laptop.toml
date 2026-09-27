@@ -4,8 +4,8 @@
 name = "nvidia-laptop"
 os = "windows-11"
 capabilities = ["transcribe"]
-database_url = "postgres://ytstudio:POSTGRES_PASSWORD@100.x.y.z:5432/ytstudio?sslmode=disable"
-brain_url = "http://100.x.y.z:8080"
+database_url = "postgres://ytstudio:POSTGRES_PASSWORD@100.x.y.z:5433/ytstudio?sslmode=disable"  # port = POSTGRES_PORT in the brain's .env
+brain_url = "http://100.x.y.z:8085"                    # port = WEB_PORT in the brain's .env
 api_secret = "HASURA_ADMIN_SECRET"
 ffmpeg_path = "C:/ffmpeg/bin/ffmpeg.exe"
 work_dir = "C:/ytstudio/work"

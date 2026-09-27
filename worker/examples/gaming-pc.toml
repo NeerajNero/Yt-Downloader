@@ -1,11 +1,13 @@
-# Render + LLM worker — gaming PC (Ryzen 5 3600, RX 6750 XT), Windows 11.
-# render/llm/download job types arrive in Phase 2; until then this machine
-# can still run the queue smoke test ("noop").
+# Render worker — gaming PC (Ryzen 5 3600, RX 6750 XT), Windows 11.
+# Install with:  pip install -e ".\yt-studio\worker[download]"
+# `llm` (idea ranking) arrives in Phase 4.
 name = "gaming-pc"
 os = "windows-11"
-capabilities = ["noop"]
-database_url = "postgres://ytstudio:POSTGRES_PASSWORD@100.x.y.z:5432/ytstudio?sslmode=disable"
-brain_url = "http://100.x.y.z:8080"
+capabilities = ["render", "download", "convert", "clippack", "tighten"]
+database_url = "postgres://ytstudio:POSTGRES_PASSWORD@100.x.y.z:5433/ytstudio?sslmode=disable"  # port = POSTGRES_PORT in the brain's .env
+brain_url = "http://100.x.y.z:8085"                    # port = WEB_PORT in the brain's .env
 api_secret = "HASURA_ADMIN_SECRET"
 ffmpeg_path = "C:/ffmpeg/bin/ffmpeg.exe"   # Gyan full build (has h264_amf + libass)
-work_dir = "D:/ytstudio/work"
+encoder = "h264_amf"                       # AMD hardware H.264; "libx264" for max quality (slow)
+work_dir = "D:/ytstudio/work"              # source cache + scratch; a 5 GB 4K source is fetched once
+# cookies_file = "C:/ytstudio/cookies.txt" # YouTube session for age-gated downloads (optional)

@@ -49,8 +49,8 @@ docker compose exec api python scripts/import_v1_library.py   # idempotent
 Postgres must be reachable from the workers over the tailnet:
 
 ```sh
-sudo ufw allow in on tailscale0 to any port 5432
-sudo ufw allow in on tailscale0 to any port 8080
+sudo ufw allow in on tailscale0 to any port 5433   # POSTGRES_PORT
+sudo ufw allow in on tailscale0 to any port 8085   # WEB_PORT
 ```
 
 ## 2. Serve over HTTPS on the tailnet
@@ -76,10 +76,31 @@ Schema changes ride along automatically (migrations apply on boot).
 
 ## Workers
 
-Windows install steps for the NVIDIA laptop and gaming PC: `docs/WORKER-WINDOWS.md`.
+The compose stack includes a **brain-side worker** (`worker` service) with the
+library mounted: downloads, scene detection, edit copies, clip packs, silence
+removal and the Gemini jobs run on the server itself with no file transfer.
+Renders and transcription go to the Windows machines — install steps in
+`docs/WORKER-WINDOWS.md`. `BRAIN_WORKER_CAPABILITIES` in `.env` changes what
+the brain claims (add `render` for slow libx264 fallback renders).
+
+Server-side files that are not in git:
+
+| What | Where |
+|---|---|
+| YouTube cookies (age-gated downloads) | `$LIBRARY_DIR/.config/cookies.txt` |
+| Music beds for renders | `$LIBRARY_DIR/.music/` (or upload from the video page) |
+| Audio extracts cache | `$LIBRARY_DIR/.cache/audio/` (safe to delete) |
+
+**Wake-on-LAN**: the `wol` service runs on the host network and sends magic
+packets on the api's behalf. Put the gaming PC's MAC address into
+`machines.mac_address` (Hasura console → machines, or `psql`). The watchdog
+auto-wakes a capable offline machine when a job has waited a minute with nobody
+online to run it; the Machines page has a manual Wake button too.
+
 A Hasura cron trigger calls the api's watchdog every minute (requeues jobs whose
 worker died, marks silent machines offline) — nothing to set up, it ships in
-`hasura/metadata`.
+`hasura/metadata`, as do the event triggers that fan out the pipeline
+(download → transcribe + scenes → suggest → renders).
 
 ## Ports on the server
 

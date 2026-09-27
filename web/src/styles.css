@@ -189,3 +189,79 @@ body {
 @media (max-width: 420px) {
   .video-card { grid-template-columns: 96px 1fr; }
 }
+
+/* ---- Phase 2: ingest, video page ----------------------------------------- */
+
+.row { display: flex; align-items: center; gap: 8px; }
+.row.wrap { flex-wrap: wrap; }
+.grow { flex: 1; min-width: 0; }
+.field { display: grid; gap: 6px; }
+input[type="text"], textarea, select {
+  background: var(--panel2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font: inherit;
+  min-width: 0;
+}
+textarea { resize: vertical; }
+.choices { display: grid; gap: 6px; }
+.choice {
+  display: flex; gap: 10px; align-items: flex-start;
+  border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; cursor: pointer;
+}
+.choice.active { border-color: var(--accent); }
+.choice input { margin-top: 4px; accent-color: var(--accent); }
+.choice span { display: grid; gap: 2px; }
+.probe-card { display: grid; grid-template-columns: 120px 1fr; gap: 12px; align-items: start; }
+.probe-thumb { width: 100%; border-radius: 8px; }
+.link-card { text-decoration: none; color: inherit; }
+.note { color: var(--accent); font-style: italic; }
+.chip.accent { color: var(--accent); border-color: var(--accent); }
+.chip.bad { color: var(--danger); border-color: var(--danger); }
+.pill.rendered, .pill.approved { color: var(--ok); border-color: var(--ok); }
+.pill.rendering, .pill.downloading { color: var(--accent); border-color: var(--accent); }
+.pill.rejected, .pill.failed { color: var(--danger); border-color: var(--danger); }
+.video-h { font-size: 16px; color: var(--text); overflow-wrap: anywhere; }
+
+.player-wrap { position: relative; }
+.player-video { width: 100%; max-height: 60vh; background: #000; border-radius: 8px; display: block; }
+.player-empty { display: grid; place-items: center; aspect-ratio: 16 / 9; }
+.cap-preview {
+  position: absolute; left: 8%; right: 8%; text-align: center; pointer-events: none;
+  font-weight: 700; font-size: clamp(14px, 3.5vw, 24px); color: #fff;
+  text-shadow: 0 0 6px #000, 0 2px 2px #000;
+}
+.cap-preview-bottom { bottom: 12%; }
+.cap-preview-middle { top: 50%; transform: translateY(-50%); }
+.cap-preview-top { top: 10%; }
+.capstyle-pop { text-transform: uppercase; }
+.capstyle-minimal { font-weight: 400; font-size: clamp(12px, 2.5vw, 18px); }
+.cap-preview .cap-w.amber { color: var(--accent); }
+
+.marker-strip { position: relative; height: 14px; background: var(--border); border-radius: 999px; cursor: pointer; }
+.marker { position: absolute; top: 0; bottom: 0; width: 3px; margin-left: -1px; background: var(--accent); border: 0; padding: 0; cursor: pointer; }
+.marker-head { position: absolute; top: -2px; bottom: -2px; width: 2px; background: #fff; }
+
+.time-field { display: flex; gap: 4px; align-items: center; }
+.time-field input { width: 64px; }
+.check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
+.check input { accent-color: var(--accent); }
+.slider { display: inline-flex; align-items: center; gap: 6px; }
+.slider input[type="range"] { width: 90px; accent-color: var(--accent); }
+.num { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); }
+.num input { width: 52px; }
+label.btn { display: inline-flex; }
+
+.clip-row { display: flex; gap: 10px; align-items: flex-start; border-top: 1px solid var(--border); padding-top: 8px; flex-wrap: wrap; }
+.clip-row:first-child { border-top: 0; padding-top: 0; }
+.clip-main { flex: 1; min-width: 200px; display: grid; gap: 2px; }
+.clip-title { font-weight: 600; font-size: 13.5px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.clip-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+a.btn { text-decoration: none; display: inline-flex; align-items: center; }
+
+.postkit { display: grid; gap: 6px; border-top: 1px solid var(--border); padding-top: 8px; }
+.postkit-row { display: flex; gap: 8px; align-items: flex-start; }
+.postkit-label { width: 40px; flex-shrink: 0; }
+.postkit-val { flex: 1; min-width: 0; font-size: 13px; overflow-wrap: anywhere; }
