@@ -138,6 +138,11 @@ class PostkitPayload(BaseModel):
     pass
 
 
+class StylePayload(BaseModel):
+    style_id: str
+    url: str | None = None
+
+
 PAYLOADS: dict[str, type[BaseModel]] = {
     "noop": NoopPayload,
     "transcribe": TranscribePayload,
@@ -150,6 +155,7 @@ PAYLOADS: dict[str, type[BaseModel]] = {
     "tighten": TightenPayload,
     "suggest": SuggestPayload,
     "postkit": PostkitPayload,
+    "style": StylePayload,
 }
 
 # Job types that need a video_id.

@@ -12,7 +12,7 @@ from worker.agent.config import WorkerConfig
 from worker.core.ffmpeg import Tools
 
 ALL_JOB_TYPES = ["download", "transcribe", "scenes", "borders", "convert", "render",
-                 "clippack", "tighten", "suggest", "postkit", "noop"]
+                 "clippack", "tighten", "suggest", "postkit", "style", "noop"]
 
 FFMPEG_JOBS = ["scenes", "borders", "convert", "render", "clippack", "tighten"]
 
@@ -31,4 +31,6 @@ def detect_supported(cfg: WorkerConfig) -> list[str]:
         have.append("transcribe")
     if os.environ.get("GEMINI_API_KEY") and ffmpeg_ok:
         have += ["suggest", "postkit"]
+        if "download" in have:
+            have.append("style")
     return [t for t in ALL_JOB_TYPES if t in have]

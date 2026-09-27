@@ -14,6 +14,16 @@ type Mutation {
   wake_machine(name: String!): WakeOutput
 }
 
+type Mutation {
+  analyze_style(url: String!): AnalyzeStyleOutput
+}
+
+type AnalyzeStyleOutput {
+  style_id: uuid!
+  job_id: uuid
+  existing: Boolean!
+}
+
 type ProbeResult {
   title: String
   uploader: String

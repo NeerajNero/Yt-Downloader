@@ -115,7 +115,7 @@ Handler = Callable[[JobContext], dict[str, Any]]
 _MODULES = {
     "noop": "noop", "transcribe": "transcribe", "download": "download", "scenes": "scenes",
     "borders": "borders", "convert": "convert", "render": "render", "clippack": "clippack",
-    "tighten": "tighten", "suggest": "suggest", "postkit": "postkit",
+    "tighten": "tighten", "suggest": "suggest", "postkit": "postkit", "style": "style",
 }
 
 
