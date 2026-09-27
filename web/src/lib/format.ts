@@ -31,3 +31,15 @@ export function resolution(w: number | null | undefined, h: number | null | unde
   if (short >= 1080) return '1080p'
   return `${short}p`
 }
+
+/** "1:23" / "83" / "1:02:03" -> seconds, or null. */
+export function parseTime(text: string): number | null {
+  const t = text.trim()
+  if (!t) return null
+  if (/^\d+(\.\d+)?$/.test(t)) return parseFloat(t)
+  const parts = t.split(':').map(Number)
+  if (parts.some((n) => Number.isNaN(n))) return null
+  return parts.reduce((acc, n) => acc * 60 + n, 0)
+}
+
+export const secs = (n: number) => duration(n)

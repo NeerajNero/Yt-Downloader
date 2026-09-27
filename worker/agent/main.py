@@ -27,6 +27,7 @@ from worker.agent.db import Db
 from worker.agent.jobs import JobContext, get_handler
 from worker.agent.storage import Storage
 from worker.core.errors import Cancelled
+from worker.core.ffmpeg import Tools
 
 log = logging.getLogger("worker")
 
@@ -60,7 +61,8 @@ class Worker:
     def __init__(self, cfg: WorkerConfig):
         self.cfg = cfg
         self.db = Db(cfg.database_url)
-        self.storage = Storage(cfg.brain_url, cfg.api_secret, cfg.work_dir)
+        self.storage = Storage(cfg.brain_url, cfg.api_secret, cfg.work_dir, cfg.library_dir)
+        self.tools = Tools(cfg.ffmpeg_path)
         self.machine_id: str | None = None
         self.stopping = threading.Event()
         # current job bookkeeping (shared with the heartbeat thread)
@@ -78,8 +80,9 @@ class Worker:
             "os": self.cfg.os_name or f"{platform.system().lower()}-{platform.release()}",
         })
         self.machine_id = str(row["id"])
-        log.info("registered as %s (%s) capabilities=%s", self.cfg.name, self.machine_id,
-                 ",".join(self.cfg.capabilities))
+        log.info("registered as %s (%s) capabilities=%s library=%s encoder=%s", self.cfg.name,
+                 self.machine_id, ",".join(self.cfg.capabilities),
+                 self.cfg.library_dir or "http", self.cfg.encoder)
 
     def run_forever(self) -> None:
         self.register()
@@ -137,7 +140,7 @@ class Worker:
         log.info("job %s %s attempt %s video=%s", job_id, job["type"], job["attempts"], job.get("video_id"))
         self.db.execute("update jobs set status = 'running' where id = %s and status = 'claimed'", (job_id,))
 
-        ctx = JobContext(job=job, cfg=self.cfg, db=self.db, storage=self.storage,
+        ctx = JobContext(job=job, cfg=self.cfg, db=self.db, storage=self.storage, tools=self.tools,
                          report=self._report, should_cancel=self._should_cancel)
         t0 = time.monotonic()
         try:

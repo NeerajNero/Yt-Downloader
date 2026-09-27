@@ -6,6 +6,8 @@ subscription Machines {
     capabilities
     status
     tailscale_ip
+    mac_address
     last_seen_at
+    woken_at
   }
 }

@@ -10,11 +10,14 @@ requires-python = ">=3.11"
 dependencies = [
   "psycopg[binary]>=3.2",
   "requests>=2.32",
+  "pydantic>=2.6",
 ]
 
 [project.optional-dependencies]
 # NVIDIA laptop (and any machine that should transcribe)
 transcribe = ["faster-whisper>=1.1"]
+# any machine with the `download` capability (yt-dlp nightly channel: pip install -U --pre yt-dlp)
+download = ["yt-dlp>=2025.1.1"]
 dev = ["pytest>=8"]
 
 [project.scripts]

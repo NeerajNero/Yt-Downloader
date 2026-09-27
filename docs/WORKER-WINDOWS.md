@@ -29,8 +29,8 @@ python -m pip install -U pip
 pip install -e ".\yt-studio\worker[transcribe]"
 pip install nvidia-cublas-cu12 nvidia-cudnn-cu12    # CUDA 12 runtime for ctranslate2
 
-# Gaming PC (queue smoke test only until Phase 2):
-pip install -e ".\yt-studio\worker"
+# Gaming PC (renders + downloads):
+pip install -e ".\yt-studio\worker[download]"
 ```
 
 An NVIDIA driver that supports CUDA 12 is required (any recent Game Ready
@@ -100,8 +100,16 @@ C:\ytstudio\venv\Scripts\pip install -e ".\worker[transcribe]"
 
 then end and re-run the scheduled task.
 
-## Gaming PC extras (Phase 2)
+## Gaming PC extras
 
-- NIC driver: enable *Wake on Magic Packet*; Power Options → disable *Fast
-  startup*; prefer Ethernet. Put the MAC address into `machines.mac_address`.
-- Ollama native Windows build for the LLM jobs (uses the 6750 XT via ROCm/Vulkan).
+- `encoder = "h264_amf"` in worker.toml uses the RX 6750 XT. Check the Gyan
+  build has it: `ffmpeg -encoders | findstr amf`. Switch to `libx264` for a
+  final-quality pass (slower, better at the same bitrate).
+- Renders pull the source from the brain once into `work_dir/cache` and reuse
+  it for every clip of that video. Clear the cache folder when the disk fills.
+- Wake-on-LAN: NIC driver → enable *Wake on Magic Packet*; Power Options →
+  disable *Fast startup*; prefer Ethernet. Find the MAC with `ipconfig /all`
+  and store it in `machines.mac_address` on the brain. Then the PWA's Machines
+  page can wake it, and the watchdog wakes it automatically when a render is
+  waiting.
+- Ollama native Windows build for the LLM jobs (Phase 4; uses the 6750 XT via ROCm/Vulkan).

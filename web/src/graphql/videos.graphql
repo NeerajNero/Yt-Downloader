@@ -8,6 +8,8 @@ subscription Library {
     height
     vcodec
     status
+    pipeline
+    note
     storage_path
     thumb_path
     size_bytes
@@ -16,6 +18,16 @@ subscription Library {
       id
       kind
       data
+    }
+    clips_aggregate {
+      aggregate {
+        count
+      }
+    }
+    rendered: clips_aggregate(where: { status: { _in: ["rendered", "approved", "posted"] } }) {
+      aggregate {
+        count
+      }
     }
     jobs(
       where: { status: { _in: ["queued", "claimed", "running", "cancel_requested"] } }
@@ -27,5 +39,88 @@ subscription Library {
       progress
       progress_note
     }
+  }
+}
+
+subscription VideoDetail($id: uuid!) {
+  videos_by_pk(id: $id) {
+    id
+    title
+    channel
+    duration
+    width
+    height
+    vcodec
+    status
+    pipeline
+    note
+    url
+    storage_path
+    thumb_path
+    size_bytes
+    created_at
+    assets {
+      id
+      kind
+      path
+      data
+      created_at
+    }
+    clips(order_by: { created_at: asc }) {
+      id
+      start_s
+      end_s
+      title
+      hook
+      reason
+      origin
+      status
+      output_path
+      render_settings
+      created_at
+    }
+    jobs(order_by: { created_at: desc }, limit: 30) {
+      id
+      type
+      status
+      progress
+      progress_note
+      error
+      clip_id
+      created_at
+    }
+  }
+}
+
+mutation UpdateVideo($id: uuid!, $note: String, $pipeline: String) {
+  update_videos_by_pk(pk_columns: { id: $id }, _set: { note: $note, pipeline: $pipeline }) {
+    id
+    note
+    pipeline
+  }
+}
+
+mutation DeleteVideo($id: uuid!) {
+  delete_videos_by_pk(id: $id) {
+    id
+  }
+}
+
+mutation SetClipStatus($id: uuid!, $status: String!) {
+  update_clips_by_pk(pk_columns: { id: $id }, _set: { status: $status }) {
+    id
+    status
+  }
+}
+
+mutation DeleteClip($id: uuid!) {
+  delete_clips_by_pk(id: $id) {
+    id
+  }
+}
+
+mutation InsertClip($video_id: uuid!, $start_s: Float!, $end_s: Float!, $title: String) {
+  insert_clips_one(object: { video_id: $video_id, start_s: $start_s, end_s: $end_s, title: $title, origin: "manual" }) {
+    id
   }
 }

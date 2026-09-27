@@ -2,6 +2,9 @@ table:
   name: jobs
   schema: public
 object_relationships:
+  - name: clip
+    using:
+      foreign_key_constraint_on: clip_id
   - name: machine
     using:
       foreign_key_constraint_on: claimed_by
@@ -26,3 +29,18 @@ array_relationships:
         table:
           name: jobs
           schema: public
+event_triggers:
+  - name: job_status
+    definition:
+      enable_manual: true
+      update:
+        columns:
+          - status
+    retry_conf:
+      interval_sec: 10
+      num_retries: 3
+      timeout_sec: 60
+    webhook: http://api:8000/api/events/job
+    headers:
+      - name: x-api-secret
+        value_from_env: WATCHDOG_SECRET

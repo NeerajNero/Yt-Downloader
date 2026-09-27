@@ -1,10 +1,12 @@
 """Library file endpoints.
 
-  GET  /api/files/{video_id}/source          stream the source media
+  GET  /api/files/{video_id}/source          stream the source media (Range OK)
   GET  /api/files/{video_id}/thumb           thumbnail image
-  GET  /api/files/{video_id}/audio           cached AAC audio-only extract (for transcription)
+  GET  /api/files/{video_id}/audio           cached AAC audio-only extract (transcription)
   GET  /api/files/{video_id}/asset/{kind}    a sidecar / derived file
-  POST /api/files/{video_id}/assets/{kind}   worker uploads a result (x-api-secret)
+  GET  /api/files/get?path=<rel>             any library file by relative path (players, workers)
+  PUT  /api/files/put?path=<rel>             worker stores a produced file (x-api-secret)
+  POST /api/files/{video_id}/assets/{kind}   upload a sidecar + upsert its assets row (x-api-secret)
 """
 
 from __future__ import annotations
@@ -24,6 +26,9 @@ from .db import cursor
 router = APIRouter(prefix="/api/files", tags=["files"])
 
 IMAGE_TYPES = {".webp": "image/webp", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png"}
+MEDIA_TYPES = {".mp4": "video/mp4", ".mkv": "video/x-matroska", ".webm": "video/webm",
+               ".mov": "video/quicktime", ".m4a": "audio/mp4", ".mp3": "audio/mpeg",
+               ".opus": "audio/ogg", ".json": "application/json", ".ass": "text/plain"}
 
 _audio_locks: dict[str, threading.Lock] = {}
 _audio_locks_guard = threading.Lock()
@@ -45,11 +50,42 @@ def _existing(p: Path) -> Path:
     return p
 
 
+def _serve(p: Path, download_name: str | None = None) -> FileResponse:
+    media_type = MEDIA_TYPES.get(p.suffix.lower()) or IMAGE_TYPES.get(p.suffix.lower())
+    return FileResponse(p, media_type=media_type, filename=download_name)
+
+
+@router.get("/get")
+@router.head("/get")
+def get_any(path: str = Query(...)):
+    return _serve(_existing(library.resolve(path)))
+
+
+@router.put("/put", dependencies=[Depends(require_secret)])
+async def put_any(request: Request, path: str = Query(...)):
+    """Streamed write of a worker output to a library-relative path."""
+    dest = library.resolve(path)
+    if dest.is_dir():
+        raise HTTPException(status_code=400, detail="path is a directory")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_name(dest.name + ".part")
+    size = 0
+    with tmp.open("wb") as fh:
+        async for chunk in request.stream():
+            fh.write(chunk)
+            size += len(chunk)
+    if size == 0:
+        tmp.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail="empty upload")
+    tmp.replace(dest)
+    return {"ok": True, "path": library.relative(dest), "bytes": size}
+
+
 @router.get("/{video_id}/source")
 def source(video_id: str):
     v = _video(video_id)
     p = _existing(library.resolve(v["storage_path"]))
-    return FileResponse(p, filename=p.name)
+    return _serve(p, p.name)
 
 
 @router.get("/{video_id}/thumb")
@@ -91,7 +127,7 @@ def asset(video_id: str, kind: str):
     if row is None or not row["path"]:
         raise HTTPException(status_code=404, detail="asset not found")
     p = _existing(library.resolve(row["path"]))
-    return FileResponse(p, filename=p.name)
+    return _serve(p, p.name)
 
 
 def _summarize(kind: str, body: bytes) -> dict | None:
@@ -107,7 +143,9 @@ def _summarize(kind: str, body: bytes) -> dict | None:
     if kind == "scenes":
         return {"scenes": len(obj.get("scenes") or []), "threshold": obj.get("threshold")}
     if kind == "captions":
-        return {"items": len(obj.get("items") or [])}
+        return {"items": len(obj.get("items") or []), "speed": obj.get("speed")}
+    if kind == "postkit":
+        return {k: obj.get(k) for k in ("title", "description", "hashtags")}
     return None
 
 
@@ -115,6 +153,8 @@ def _summarize(kind: str, body: bytes) -> dict | None:
 async def upload_asset(video_id: str, kind: str, request: Request,
                        job_id: str | None = Query(default=None),
                        filename: str | None = Query(default=None)):
+    """Write a sidecar next to the media and upsert its `assets` row. Used by
+    the PWA for manual captions (kind=captions) and available to workers."""
     v = _video(video_id)
     src = library.resolve(v["storage_path"])
     dest = library.sidecar_for(src, kind, filename)
@@ -123,6 +163,11 @@ async def upload_asset(video_id: str, kind: str, request: Request,
     body = await request.body()
     if not body:
         raise HTTPException(status_code=400, detail="empty upload")
+    if dest.suffix == ".json":
+        try:
+            json.loads(body)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="body must be JSON")
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_name(dest.name + ".part")
     tmp.write_bytes(body)

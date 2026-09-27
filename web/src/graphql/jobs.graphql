@@ -21,6 +21,12 @@ subscription Jobs {
       id
       title
     }
+    clip {
+      id
+      title
+      start_s
+      end_s
+    }
   }
 }
 

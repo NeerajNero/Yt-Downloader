@@ -1,8 +1,9 @@
 import { NavLink } from 'react-router-dom'
 
 const tabs = [
-  { to: '/', label: 'Jobs' },
   { to: '/library', label: 'Library' },
+  { to: '/add', label: 'Add' },
+  { to: '/', label: 'Jobs' },
   { to: '/machines', label: 'Machines' },
 ]
 

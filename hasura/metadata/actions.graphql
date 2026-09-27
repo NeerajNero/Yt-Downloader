@@ -1,0 +1,42 @@
+type Mutation {
+  probe_url(url: String!): ProbeResult
+}
+
+type Mutation {
+  start_download(url: String!, quality: String!, title: String, youtube_id: String, note: String, pipeline: String): StartDownloadOutput
+}
+
+type Mutation {
+  enqueue_job(type: String!, video_id: uuid, clip_id: uuid, payload: jsonb): EnqueueOutput
+}
+
+type Mutation {
+  wake_machine(name: String!): WakeOutput
+}
+
+type ProbeResult {
+  title: String
+  uploader: String
+  duration: Float
+  thumbnail: String
+  webpage_url: String
+  heights: [Int!]!
+  hdr: Boolean!
+  youtube_id: String
+  existing_video_id: uuid
+}
+
+type StartDownloadOutput {
+  video_id: uuid!
+  job_id: uuid
+  existing: Boolean!
+}
+
+type EnqueueOutput {
+  job_id: uuid!
+}
+
+type WakeOutput {
+  ok: Boolean!
+  message: String
+}

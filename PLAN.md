@@ -380,7 +380,7 @@ CUDA runtime (cuBLAS/cuDNN wheels via `pip install nvidia-cublas-cu12 nvidia-cud
 on the dashboard → transcript asset appears. Kill the worker mid-job → watchdog requeues within ~2 min →
 job completes after worker restart. Cancel works from the phone.
 
-### Phase 2 — All v1 features as job types (v1 retired at the end)  ← NEXT
+### Phase 2 — All v1 features as job types (v1 retired at the end) ✅ built, verified locally 2026-09-27 — awaiting server deploy + phone test (step 8 pending)
 1. Port the rest of `worker/core/`: `ytdlp_ops` (download/probe), `media` (scenes, borders, convert,
    clippack, tighten, import), `render` + `captions` (export), `gemini` (suggest, postkit) —
    library-relative paths, `report()` callback, cancel checks, `encoders.py` (libx264 default, h264_amf
@@ -397,11 +397,18 @@ job completes after worker restart. Cancel works from the phone.
 6. PWA: library page (videos grid from DB), video page (player streaming from the brain's file endpoint,
    transcribe/scenes/suggest/export controls — port the `Player.jsx` UX, decomposed into components),
    job cancel/retry.
-7. Retire `server/` + `ui/` (delete; `git tag v1` first).
+7. **Ideas inbox ("queue this for later")** — the phone-first flow the whole system exists for:
+   paste a URL + a note from the phone, pick a pipeline (`prepare` = download → transcribe + scenes
+   → suggest clips; `shorts` = also render every suggested clip with default settings), and the
+   machines do the work while you're out. `videos.note` + `videos.pipeline` columns; the fan-out in
+   step 4 reads `pipeline` to decide how far to go. The library shows "ready to edit" items with the
+   note, so at home you open the video page and the clips/transcript/renders are already there.
+8. Retire `server/` + `ui/` (delete; `git tag v1` first) — once the phone test below passes on the
+   real machines, not before.
 
 **Test:** full v1 workflow phone-first: paste URL → download (gaming PC or brain) → auto transcribe+scenes → suggest clips → export a captioned 9:16 → play the result on the phone. Gaming PC asleep → render job wakes it.
 
-### Phase 3 — Edit recipes
+### Phase 3 — Edit recipes  ← NEXT
 1. `recipes` table + CRUD in PWA; migrate `presets.json` as seed data. Extend the settings JSON for your
    every-short edits: watermark overlay, SFX layers (reuse the music/duck machinery), punch-in zoom markers.
 2. `auto_apply` recipes: event trigger on video ready (after transcribe/scenes) → render jobs per recipe.
