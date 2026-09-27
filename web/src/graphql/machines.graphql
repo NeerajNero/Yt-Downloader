@@ -4,10 +4,22 @@ subscription Machines {
     name
     os
     capabilities
+    fallback
+    supported
+    paused
     status
     tailscale_ip
     mac_address
     last_seen_at
     woken_at
+  }
+}
+
+mutation UpdateMachine($id: uuid!, $capabilities: [String!], $fallback: [String!], $paused: Boolean) {
+  update_machines_by_pk(pk_columns: { id: $id }, _set: { capabilities: $capabilities, fallback: $fallback, paused: $paused }) {
+    id
+    capabilities
+    fallback
+    paused
   }
 }

@@ -29,8 +29,8 @@ python -m pip install -U pip
 pip install -e ".\yt-studio\worker[transcribe]"
 pip install nvidia-cublas-cu12 nvidia-cudnn-cu12    # CUDA 12 runtime for ctranslate2
 
-# Gaming PC (renders + downloads):
-pip install -e ".\yt-studio\worker[download]"
+# Gaming PC (renders + downloads; transcribe extra so it can cover for the laptop):
+pip install -e ".\yt-studio\worker[download,transcribe]"
 ```
 
 An NVIDIA driver that supports CUDA 12 is required (any recent Game Ready
@@ -102,6 +102,10 @@ then end and re-run the scheduled task.
 
 ## Gaming PC extras
 
+- With `[transcribe]` installed the PC can be the laptop's fallback for
+  transcription. faster-whisper has no AMD GPU path, so it runs on the Ryzen's
+  CPU (`device = "cpu"`, `compute_type = "int8"` in the `[whisper]` block) —
+  slower than the 1650 but fine for Shorts-length sources.
 - `encoder = "h264_amf"` in worker.toml uses the RX 6750 XT. Check the Gyan
   build has it: `ffmpeg -encoders | findstr amf`. Switch to `libx264` for a
   final-quality pass (slower, better at the same bitrate).

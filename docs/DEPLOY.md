@@ -80,8 +80,24 @@ The compose stack includes a **brain-side worker** (`worker` service) with the
 library mounted: downloads, scene detection, edit copies, clip packs, silence
 removal and the Gemini jobs run on the server itself with no file transfer.
 Renders and transcription go to the Windows machines — install steps in
-`docs/WORKER-WINDOWS.md`. `BRAIN_WORKER_CAPABILITIES` in `.env` changes what
-the brain claims (add `render` for slow libx264 fallback renders).
+`docs/WORKER-WINDOWS.md`.
+
+**Who does what is decided on the PWA's Machines page** (More → Machines): a
+checkbox per job type per machine, plus a pause switch. Workers pick up changes
+within 15 s. A worker reports what it can physically run when it connects, so
+only installed abilities can be ticked. The capability lists in `.env` /
+`worker.toml` are just the first-time default.
+
+Each job type per machine is **off**, **does it**, or **fallback**. "Does it"
+machines share the work. A "fallback" machine only claims a job when every
+"does it" machine for that type is offline, and only after the job has waited a
+minute (so the watchdog gets a chance to wake a sleeping primary first; a
+machine that was just woken counts as online for three minutes).
+
+Recommended split: brain = download, scenes, bars, suggest, post kit; gaming PC
+= render, edit copy, clip pack, silences (+ download), with transcribe, scenes,
+bars, suggest and post kit as fallbacks; laptop = transcribe. With that, a
+closed laptop means transcription runs on the gaming PC's CPU instead of waiting.
 
 Server-side files that are not in git:
 
