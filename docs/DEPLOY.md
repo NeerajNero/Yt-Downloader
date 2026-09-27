@@ -153,6 +153,13 @@ generated `src/gql/generated.ts` is committed.
 
 ## Hasura workflow (schema changes)
 
+Write every `up.sql` so it can run twice (`create table if not exists`,
+`add column if not exists`, `drop trigger if exists` before `create trigger`,
+`on conflict do nothing`). The cli-migrations image re-runs a migration whose
+previous attempt didn't get recorded, and a non-idempotent file then crash-loops
+the Hasura container with "relation already exists". If that ever happens on
+the server: fix the SQL, `git pull`, `docker compose up -d hasura`.
+
 ```sh
 cd hasura
 hasura migrate create <name> --database-name default   # writes up/down.sql; edit them

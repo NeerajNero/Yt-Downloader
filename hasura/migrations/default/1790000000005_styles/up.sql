@@ -1,6 +1,7 @@
 -- Style clone: paste a Short, get its edit broken down into a report, a
 -- recipe for our renderer, and DaVinci Resolve steps for the rest.
-create table styles (
+-- Idempotent (see 0002).
+create table if not exists styles (
   id            uuid primary key default gen_random_uuid(),
   url           text not null,
   youtube_id    text unique,
@@ -22,6 +23,7 @@ create table styles (
   created_at    timestamptz not null default now(),
   updated_at    timestamptz not null default now()
 );
+drop trigger if exists styles_set_updated_at on styles;
 create trigger styles_set_updated_at
   before update on styles
   for each row execute function set_updated_at();

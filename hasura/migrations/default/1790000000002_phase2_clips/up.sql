@@ -1,12 +1,13 @@
 -- Phase 2: clips (segments of a video, proposed by AI or by hand, possibly
 -- rendered) + the ideas-inbox columns on videos.
+-- Idempotent on purpose: cli-migrations re-runs a file whose earlier attempt
+-- was interrupted, and a half-applied migration must not wedge the boot.
 
-alter table videos
-  add column note     text,
-  add column pipeline text not null default 'none'
-             check (pipeline in ('none', 'prepare', 'shorts'));
+alter table videos add column if not exists note text;
+alter table videos add column if not exists pipeline text not null default 'none'
+  check (pipeline in ('none', 'prepare', 'shorts'));
 
-create table clips (
+create table if not exists clips (
   id              uuid primary key default gen_random_uuid(),
   video_id        uuid not null references videos(id) on delete cascade,
   start_s         real not null,
@@ -25,13 +26,14 @@ create table clips (
   created_at      timestamptz not null default now(),
   updated_at      timestamptz not null default now()
 );
-create index clips_video_idx on clips (video_id);
+create index if not exists clips_video_idx on clips (video_id);
+drop trigger if exists clips_set_updated_at on clips;
 create trigger clips_set_updated_at
   before update on clips
   for each row execute function set_updated_at();
 
-alter table jobs add column clip_id uuid references clips(id) on delete set null;
-create index jobs_clip_idx on jobs (clip_id);
+alter table jobs add column if not exists clip_id uuid references clips(id) on delete set null;
+create index if not exists jobs_clip_idx on jobs (clip_id);
 
 -- Wake-on-LAN bookkeeping: when we last sent a magic packet to a machine.
-alter table machines add column woken_at timestamptz;
+alter table machines add column if not exists woken_at timestamptz;

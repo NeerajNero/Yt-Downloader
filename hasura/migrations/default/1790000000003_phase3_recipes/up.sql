@@ -1,7 +1,7 @@
 -- Phase 3: recipes = saved render settings (v1 presets, formalised), optionally
--- applied automatically to every suggested clip.
+-- applied automatically to every suggested clip. Idempotent (see 0002).
 
-create table recipes (
+create table if not exists recipes (
   id          uuid primary key default gen_random_uuid(),
   name        text unique not null,
   description text,
@@ -10,12 +10,13 @@ create table recipes (
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
+drop trigger if exists recipes_set_updated_at on recipes;
 create trigger recipes_set_updated_at
   before update on recipes
   for each row execute function set_updated_at();
 
-alter table clips add column recipe_id uuid references recipes(id) on delete set null;
-create index clips_recipe_idx on clips (recipe_id);
+alter table clips add column if not exists recipe_id uuid references recipes(id) on delete set null;
+create index if not exists clips_recipe_idx on clips (recipe_id);
 
 -- The v1 preset (presets.json) becomes the first recipe.
 insert into recipes (name, description, settings) values (

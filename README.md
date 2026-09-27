@@ -6,13 +6,13 @@ generations side by side while v2 is being built:
 - **v2 (current work)** — a three-machine job system: an always-on Ubuntu server
   ("brain") running Postgres + Hasura + FastAPI + a React PWA in Docker Compose,
   a Windows 11 NVIDIA laptop for GPU transcription, and a Windows 11 gaming PC
-  (RX 6750 XT) for hardware-encoded renders and a local LLM. Everything talks
-  over Tailscale; the PWA is used from a phone. Postgres is the single source of
-  truth; workers claim jobs with `FOR UPDATE SKIP LOCKED`.
+  (RX 6750 XT) for hardware-encoded renders and the heavy re-encodes. Everything
+  talks over Tailscale; the PWA is used from a phone. Postgres is the single
+  source of truth; workers claim jobs with `FOR UPDATE SKIP LOCKED`.
 - **v1 (legacy, still runnable)** — the original single-machine web app at
-  `server/` + `ui/`, documented in the rest of this README. It stays until v2
-  reaches feature parity (Phase 2), because its ffmpeg/caption/AI logic is the
-  port source for the v2 workers.
+  `server/` + `ui/`, documented in the rest of this README. It is retired once
+  the v2 phone test passes on the real machines; its ffmpeg/caption/AI logic was
+  the port source for the v2 workers.
 
 ## v2 quickstart
 
@@ -22,21 +22,69 @@ generations side by side while v2 is being built:
 | Run the brain stack (dev or server) | `cp .env.example .env`, fill the v2 section, `docker compose up -d --build` → PWA at `http://localhost:8080` |
 | Deploy to the Ubuntu server + phone | Follow [docs/DEPLOY.md](docs/DEPLOY.md) (Docker, `tailscale serve`, PWA install) |
 | Hack on the PWA | `cd web && npm install && npm run dev` (proxies to the containers) |
-| Change the DB schema | Hasura CLI workflow at the bottom of [docs/DEPLOY.md](docs/DEPLOY.md) |
+| Change the DB schema | Hasura CLI workflow at the bottom of [docs/DEPLOY.md](docs/DEPLOY.md); write migrations idempotently |
 | Index the v1 library into the DB | `docker compose exec api python scripts/import_v1_library.py` (idempotent) |
 | Install a worker on Windows | [docs/WORKER-WINDOWS.md](docs/WORKER-WINDOWS.md) |
+| Decide which machine does what | PWA → More → Machines (per job type: off / does it / fallback; pause) |
 | Run a worker on the Mac (dev) | `cp worker/examples/mac-dev.toml worker/worker.toml && cd worker && ../venv/bin/yt-worker` |
 | Run the tests | `venv/bin/python -m pytest worker/tests api/tests` (needs the compose stack) |
 
-**Status:** Phases 0–3 are built and verified locally. v2 does everything v1 did,
-from the phone, plus: an ideas inbox (link + note + "while I'm away" pipeline),
-recipes (saved export setups with watermark, SFX layers and punch-in zoom markers)
-that auto-apply to every AI-suggested clip, a Review tab with swipeable rendered
-clips (approve / reject / tweak), a DaVinci Resolve timeline export, and **style
-clone**: paste a Short you like and get its edit broken down into a recipe plus
-Resolve steps for the parts a renderer can't do. Next:
-deploy + phone test on the real machines, retire `server/` + `ui/`, then Phase 4
-(idea engine). Task lists are in PLAN.md §4.
+## What v2 does
+
+**From the phone (PWA tabs)**
+
+| Tab | What's there |
+|---|---|
+| Library | Every video with thumbnails, badges (transcript, scenes, edit copy, post kit, clips rendered), the note you left, and live job state |
+| Add | Paste a link → check → quality → a note to self → "while I'm away": *just download* / *prepare for editing* / *Auto Shorts*. Or upload a file from the device |
+| Video page | Player with scene markers and live caption preview · Transcribe / Detect scenes / Suggest clips / Auto Shorts / Post kit / **Plan an edit** / Edit copy / Remove silences · Clips (use, render, approve, reject, play) · Export panel (the whole v1 control set + recipes, watermark, SFX layers, punch-in zoom markers) · Caption editor · Clip pack · **Montage builder** · Resolve timeline export |
+| Review | Rendered clips as swipeable cards: approve / reject / mark posted / tweak / download, with the post kit |
+| Jobs | Live queue with progress, cancel, retry, which machine took it |
+| More | Machines (assignment + wake), Recipes, **Styles** (clone a Short's edit), AI models |
+
+**The pipeline.** A ready video with *prepare* fans out transcribe + scenes, then
+clip suggestions, a post kit and an AI edit plan once both exist. *Auto Shorts*
+also renders every suggested clip with each auto-apply recipe. Hasura event
+triggers drive the chain, a cron watchdog requeues jobs whose worker died, and
+Wake-on-LAN brings the gaming PC up when a render is waiting.
+
+**Editing features**
+
+- **Renders**: 9:16 or 16:9, crop or blurred pad, rotation, border trim, vivid /
+  colour grades / HDR look, Ken-Burns zoom, burned captions in four styles from
+  the Whisper transcript or hand-typed captions, music bed with ducking,
+  −14 LUFS loudness, watermark, SFX layers, punch-in zoom markers. Encoder per
+  machine (`h264_amf` on the gaming PC, libx264 elsewhere).
+- **Sequences**: several shots with per-shot speed (0.25×–4×) and punch-ins,
+  joined with hard cuts or 22 transitions (crossfade, wipes, slides, zoom-through,
+  …), captions kept in sync across speed changes.
+- **Montage builder**: shots from scene cuts, the clip pack, suggested clips, the
+  AI plan or a hand-picked range → include, reorder, speed, punch, preview → render.
+- **AI edit plan**: Gemini reads the transcript, scene cuts, keyframes and your
+  note and proposes the shot order (hook first), speeds, punch-ins, transition,
+  caption style, grade, music vibe, SFX ideas and Resolve notes; loads straight
+  into the montage builder.
+- **Recipes**: saved export setups (your v1 preset is seeded); auto-apply ones
+  render every suggested clip unattended.
+- **Style clone**: paste someone's Short → measured cuts/loudness + Gemini's
+  breakdown → a recipe for what we can do and DaVinci Resolve steps for the rest.
+- **Resolve hand-off**: FCPXML timeline of a video's clips.
+
+**Machines.** Who does what is set on the Machines page per job type: *does it*
+(shares the work), *fallback* (only when every primary machine is offline, after
+a minute's grace so a sleeping PC can be woken first), or off. Workers report
+what they can physically run, so only installed abilities can be assigned.
+Recommended: brain = download, scenes, bars, Gemini jobs; gaming PC = renders and
+re-encodes, fallback for the rest; laptop = transcribe.
+
+**AI.** Gemini for suggestions, post kits, style clone and edit plans, with retry
+and a model fallback chain (`GEMINI_MODELS`) for 503/429; More → AI models shows
+what your key can call. Whisper (faster-whisper) for transcripts.
+
+**Status:** Phases 0–3.6 are built and verified locally; the pipeline is deployed
+on the server and awaiting the worker installs and the phone test. Next: retire
+`server/` + `ui/`, then Phase 4 (idea engine) and Phase 5 (feedback loop).
+Task lists are in PLAN.md §4.
 
 ---
 
