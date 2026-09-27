@@ -58,8 +58,9 @@ cd C:\ytstudio
 .\yt-studio\worker\run-worker.bat
 ```
 
-You should see `registered as nvidia-laptop … capabilities=transcribe` and the
-machine's dot turns green on the PWA's Machines page. Queue a transcribe from the
+You should see `registered as nvidia-laptop`, a `can run:` line listing what
+this machine has installed, and `assigned (Machines page): …`. The dot turns
+green on the PWA's Machines page, where you tick which jobs it should take. Queue a transcribe from the
 Library page and watch it run. The first transcription downloads the Whisper
 model (~500 MB for `small`) into the Hugging Face cache.
 

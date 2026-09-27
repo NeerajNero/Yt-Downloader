@@ -1,6 +1,7 @@
 # Dev worker on the Mac against the local compose stack (docker compose up).
 name = "mac-dev"
 os = "macos"
+# Only the first-time default — afterwards assign jobs on the PWA's Machines page.
 capabilities = ["noop", "transcribe", "render"]
 database_url = "postgres://ytstudio:devpass@localhost:5433/ytstudio"
 brain_url = "http://localhost:8080"

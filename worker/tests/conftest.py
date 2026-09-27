@@ -39,6 +39,7 @@ def worker(db, job_type, tmp_path):
                        poll_interval=0.2, heartbeat_interval=0.5)
     w = Worker(cfg)
     w.register()
+    w.supported = list(w.assigned)  # tests use synthetic job types
     yield w
     w.stopping.set()
     db.execute("delete from jobs where claimed_by = %s", (w.machine_id,))

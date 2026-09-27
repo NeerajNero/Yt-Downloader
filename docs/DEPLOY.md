@@ -80,8 +80,15 @@ The compose stack includes a **brain-side worker** (`worker` service) with the
 library mounted: downloads, scene detection, edit copies, clip packs, silence
 removal and the Gemini jobs run on the server itself with no file transfer.
 Renders and transcription go to the Windows machines — install steps in
-`docs/WORKER-WINDOWS.md`. `BRAIN_WORKER_CAPABILITIES` in `.env` changes what
-the brain claims (add `render` for slow libx264 fallback renders).
+`docs/WORKER-WINDOWS.md`.
+
+**Who does what is decided on the PWA's Machines page** (More → Machines): a
+checkbox per job type per machine, plus a pause switch. Workers pick up changes
+within 15 s. A worker reports what it can physically run when it connects, so
+only installed abilities can be ticked. The capability lists in `.env` /
+`worker.toml` are just the first-time default. Recommended split: brain =
+download, scenes, bars, suggest, post kit; gaming PC = render, edit copy, clip
+pack, silences (+ download as a fallback); laptop = transcribe.
 
 Server-side files that are not in git:
 

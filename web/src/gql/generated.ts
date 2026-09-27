@@ -1800,7 +1800,9 @@ export type Machines = {
   mac_address?: Maybe<Scalars['macaddr']['output']>;
   name: Scalars['String']['output'];
   os?: Maybe<Scalars['String']['output']>;
+  paused: Scalars['Boolean']['output'];
   status: Scalars['String']['output'];
+  supported: Array<Scalars['String']['output']>;
   tailscale_ip?: Maybe<Scalars['inet']['output']>;
   woken_at?: Maybe<Scalars['timestamptz']['output']>;
   wol_via?: Maybe<Scalars['uuid']['output']>;
@@ -1862,7 +1864,9 @@ export type Machines_Bool_Exp = {
   mac_address?: InputMaybe<Macaddr_Comparison_Exp>;
   name?: InputMaybe<String_Comparison_Exp>;
   os?: InputMaybe<String_Comparison_Exp>;
+  paused?: InputMaybe<Boolean_Comparison_Exp>;
   status?: InputMaybe<String_Comparison_Exp>;
+  supported?: InputMaybe<String_Array_Comparison_Exp>;
   tailscale_ip?: InputMaybe<Inet_Comparison_Exp>;
   woken_at?: InputMaybe<Timestamptz_Comparison_Exp>;
   wol_via?: InputMaybe<Uuid_Comparison_Exp>;
@@ -1886,7 +1890,9 @@ export type Machines_Insert_Input = {
   mac_address?: InputMaybe<Scalars['macaddr']['input']>;
   name?: InputMaybe<Scalars['String']['input']>;
   os?: InputMaybe<Scalars['String']['input']>;
+  paused?: InputMaybe<Scalars['Boolean']['input']>;
   status?: InputMaybe<Scalars['String']['input']>;
+  supported?: InputMaybe<Array<Scalars['String']['input']>>;
   tailscale_ip?: InputMaybe<Scalars['inet']['input']>;
   woken_at?: InputMaybe<Scalars['timestamptz']['input']>;
   wol_via?: InputMaybe<Scalars['uuid']['input']>;
@@ -1902,6 +1908,7 @@ export type Machines_Max_Fields = {
   name?: Maybe<Scalars['String']['output']>;
   os?: Maybe<Scalars['String']['output']>;
   status?: Maybe<Scalars['String']['output']>;
+  supported?: Maybe<Array<Scalars['String']['output']>>;
   woken_at?: Maybe<Scalars['timestamptz']['output']>;
   wol_via?: Maybe<Scalars['uuid']['output']>;
 };
@@ -1916,6 +1923,7 @@ export type Machines_Min_Fields = {
   name?: Maybe<Scalars['String']['output']>;
   os?: Maybe<Scalars['String']['output']>;
   status?: Maybe<Scalars['String']['output']>;
+  supported?: Maybe<Array<Scalars['String']['output']>>;
   woken_at?: Maybe<Scalars['timestamptz']['output']>;
   wol_via?: Maybe<Scalars['uuid']['output']>;
 };
@@ -1953,7 +1961,9 @@ export type Machines_Order_By = {
   mac_address?: InputMaybe<Order_By>;
   name?: InputMaybe<Order_By>;
   os?: InputMaybe<Order_By>;
+  paused?: InputMaybe<Order_By>;
   status?: InputMaybe<Order_By>;
+  supported?: InputMaybe<Order_By>;
   tailscale_ip?: InputMaybe<Order_By>;
   woken_at?: InputMaybe<Order_By>;
   wol_via?: InputMaybe<Order_By>;
@@ -1981,7 +1991,11 @@ export enum Machines_Select_Column {
   /** column name */
   Os = 'os',
   /** column name */
+  Paused = 'paused',
+  /** column name */
   Status = 'status',
+  /** column name */
+  Supported = 'supported',
   /** column name */
   TailscaleIp = 'tailscale_ip',
   /** column name */
@@ -1999,7 +2013,9 @@ export type Machines_Set_Input = {
   mac_address?: InputMaybe<Scalars['macaddr']['input']>;
   name?: InputMaybe<Scalars['String']['input']>;
   os?: InputMaybe<Scalars['String']['input']>;
+  paused?: InputMaybe<Scalars['Boolean']['input']>;
   status?: InputMaybe<Scalars['String']['input']>;
+  supported?: InputMaybe<Array<Scalars['String']['input']>>;
   tailscale_ip?: InputMaybe<Scalars['inet']['input']>;
   woken_at?: InputMaybe<Scalars['timestamptz']['input']>;
   wol_via?: InputMaybe<Scalars['uuid']['input']>;
@@ -2022,7 +2038,9 @@ export type Machines_Stream_Cursor_Value_Input = {
   mac_address?: InputMaybe<Scalars['macaddr']['input']>;
   name?: InputMaybe<Scalars['String']['input']>;
   os?: InputMaybe<Scalars['String']['input']>;
+  paused?: InputMaybe<Scalars['Boolean']['input']>;
   status?: InputMaybe<Scalars['String']['input']>;
+  supported?: InputMaybe<Array<Scalars['String']['input']>>;
   tailscale_ip?: InputMaybe<Scalars['inet']['input']>;
   woken_at?: InputMaybe<Scalars['timestamptz']['input']>;
   wol_via?: InputMaybe<Scalars['uuid']['input']>;
@@ -2045,7 +2063,11 @@ export enum Machines_Update_Column {
   /** column name */
   Os = 'os',
   /** column name */
+  Paused = 'paused',
+  /** column name */
   Status = 'status',
+  /** column name */
+  Supported = 'supported',
   /** column name */
   TailscaleIp = 'tailscale_ip',
   /** column name */
@@ -3863,7 +3885,16 @@ export type EnqueueJobMutation = { __typename?: 'mutation_root', insert_jobs_one
 export type MachinesSubscriptionVariables = Exact<{ [key: string]: never; }>;
 
 
-export type MachinesSubscription = { __typename?: 'subscription_root', machines: Array<{ __typename?: 'machines', id: string, name: string, os?: string | null, capabilities: Array<string>, status: string, tailscale_ip?: string | null, mac_address?: string | null, last_seen_at?: string | null, woken_at?: string | null }> };
+export type MachinesSubscription = { __typename?: 'subscription_root', machines: Array<{ __typename?: 'machines', id: string, name: string, os?: string | null, capabilities: Array<string>, supported: Array<string>, paused: boolean, status: string, tailscale_ip?: string | null, mac_address?: string | null, last_seen_at?: string | null, woken_at?: string | null }> };
+
+export type UpdateMachineMutationVariables = Exact<{
+  id: Scalars['uuid']['input'];
+  capabilities?: InputMaybe<Array<Scalars['String']['input']> | Scalars['String']['input']>;
+  paused?: InputMaybe<Scalars['Boolean']['input']>;
+}>;
+
+
+export type UpdateMachineMutation = { __typename?: 'mutation_root', update_machines_by_pk?: { __typename?: 'machines', id: string, capabilities: Array<string>, paused: boolean } | null };
 
 export type RecipesSubscriptionVariables = Exact<{ [key: string]: never; }>;
 
@@ -3971,7 +4002,8 @@ export const SetJobStatusDocument = {"kind":"Document","definitions":[{"kind":"O
 export const RetryJobDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"RetryJob"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"id"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"uuid"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"update_jobs_by_pk"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"pk_columns"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"id"},"value":{"kind":"Variable","name":{"kind":"Name","value":"id"}}}]}},{"kind":"Argument","name":{"kind":"Name","value":"_set"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"status"},"value":{"kind":"StringValue","value":"queued","block":false}},{"kind":"ObjectField","name":{"kind":"Name","value":"error"},"value":{"kind":"NullValue"}},{"kind":"ObjectField","name":{"kind":"Name","value":"progress"},"value":{"kind":"NullValue"}},{"kind":"ObjectField","name":{"kind":"Name","value":"progress_note"},"value":{"kind":"NullValue"}},{"kind":"ObjectField","name":{"kind":"Name","value":"claimed_by"},"value":{"kind":"NullValue"}},{"kind":"ObjectField","name":{"kind":"Name","value":"claimed_at"},"value":{"kind":"NullValue"}},{"kind":"ObjectField","name":{"kind":"Name","value":"heartbeat_at"},"value":{"kind":"NullValue"}},{"kind":"ObjectField","name":{"kind":"Name","value":"attempts"},"value":{"kind":"IntValue","value":"0"}}]}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"status"}}]}}]}}]} as unknown as DocumentNode<RetryJobMutation, RetryJobMutationVariables>;
 export const ClearFinishedJobsDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"ClearFinishedJobs"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"delete_jobs"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"where"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"status"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"_in"},"value":{"kind":"ListValue","values":[{"kind":"StringValue","value":"done","block":false},{"kind":"StringValue","value":"error","block":false},{"kind":"StringValue","value":"cancelled","block":false}]}}]}}]}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"affected_rows"}}]}}]}}]} as unknown as DocumentNode<ClearFinishedJobsMutation, ClearFinishedJobsMutationVariables>;
 export const EnqueueJobDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"EnqueueJob"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"type"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"video_id"}},"type":{"kind":"NamedType","name":{"kind":"Name","value":"uuid"}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"payload"}},"type":{"kind":"NamedType","name":{"kind":"Name","value":"jsonb"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"insert_jobs_one"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"object"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"type"},"value":{"kind":"Variable","name":{"kind":"Name","value":"type"}}},{"kind":"ObjectField","name":{"kind":"Name","value":"video_id"},"value":{"kind":"Variable","name":{"kind":"Name","value":"video_id"}}},{"kind":"ObjectField","name":{"kind":"Name","value":"payload"},"value":{"kind":"Variable","name":{"kind":"Name","value":"payload"}}}]}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}}]}}]}}]} as unknown as DocumentNode<EnqueueJobMutation, EnqueueJobMutationVariables>;
-export const MachinesDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"subscription","name":{"kind":"Name","value":"Machines"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"machines"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"order_by"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"name"},"value":{"kind":"EnumValue","value":"asc"}}]}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"os"}},{"kind":"Field","name":{"kind":"Name","value":"capabilities"}},{"kind":"Field","name":{"kind":"Name","value":"status"}},{"kind":"Field","name":{"kind":"Name","value":"tailscale_ip"}},{"kind":"Field","name":{"kind":"Name","value":"mac_address"}},{"kind":"Field","name":{"kind":"Name","value":"last_seen_at"}},{"kind":"Field","name":{"kind":"Name","value":"woken_at"}}]}}]}}]} as unknown as DocumentNode<MachinesSubscription, MachinesSubscriptionVariables>;
+export const MachinesDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"subscription","name":{"kind":"Name","value":"Machines"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"machines"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"order_by"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"name"},"value":{"kind":"EnumValue","value":"asc"}}]}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"os"}},{"kind":"Field","name":{"kind":"Name","value":"capabilities"}},{"kind":"Field","name":{"kind":"Name","value":"supported"}},{"kind":"Field","name":{"kind":"Name","value":"paused"}},{"kind":"Field","name":{"kind":"Name","value":"status"}},{"kind":"Field","name":{"kind":"Name","value":"tailscale_ip"}},{"kind":"Field","name":{"kind":"Name","value":"mac_address"}},{"kind":"Field","name":{"kind":"Name","value":"last_seen_at"}},{"kind":"Field","name":{"kind":"Name","value":"woken_at"}}]}}]}}]} as unknown as DocumentNode<MachinesSubscription, MachinesSubscriptionVariables>;
+export const UpdateMachineDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"UpdateMachine"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"id"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"uuid"}}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"capabilities"}},"type":{"kind":"ListType","type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"paused"}},"type":{"kind":"NamedType","name":{"kind":"Name","value":"Boolean"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"update_machines_by_pk"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"pk_columns"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"id"},"value":{"kind":"Variable","name":{"kind":"Name","value":"id"}}}]}},{"kind":"Argument","name":{"kind":"Name","value":"_set"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"capabilities"},"value":{"kind":"Variable","name":{"kind":"Name","value":"capabilities"}}},{"kind":"ObjectField","name":{"kind":"Name","value":"paused"},"value":{"kind":"Variable","name":{"kind":"Name","value":"paused"}}}]}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"capabilities"}},{"kind":"Field","name":{"kind":"Name","value":"paused"}}]}}]}}]} as unknown as DocumentNode<UpdateMachineMutation, UpdateMachineMutationVariables>;
 export const RecipesDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"subscription","name":{"kind":"Name","value":"Recipes"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"recipes"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"order_by"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"name"},"value":{"kind":"EnumValue","value":"asc"}}]}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"description"}},{"kind":"Field","name":{"kind":"Name","value":"settings"}},{"kind":"Field","name":{"kind":"Name","value":"auto_apply"}},{"kind":"Field","name":{"kind":"Name","value":"created_at"}},{"kind":"Field","name":{"kind":"Name","value":"updated_at"}},{"kind":"Field","name":{"kind":"Name","value":"clips_aggregate"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"aggregate"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"count"}}]}}]}}]}}]}}]} as unknown as DocumentNode<RecipesSubscription, RecipesSubscriptionVariables>;
 export const InsertRecipeDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"InsertRecipe"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"name"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"description"}},"type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"settings"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"jsonb"}}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"auto_apply"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"Boolean"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"insert_recipes_one"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"object"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"name"},"value":{"kind":"Variable","name":{"kind":"Name","value":"name"}}},{"kind":"ObjectField","name":{"kind":"Name","value":"description"},"value":{"kind":"Variable","name":{"kind":"Name","value":"description"}}},{"kind":"ObjectField","name":{"kind":"Name","value":"settings"},"value":{"kind":"Variable","name":{"kind":"Name","value":"settings"}}},{"kind":"ObjectField","name":{"kind":"Name","value":"auto_apply"},"value":{"kind":"Variable","name":{"kind":"Name","value":"auto_apply"}}}]}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}}]}}]}}]} as unknown as DocumentNode<InsertRecipeMutation, InsertRecipeMutationVariables>;
 export const UpdateRecipeDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"UpdateRecipe"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"id"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"uuid"}}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"name"}},"type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"description"}},"type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"settings"}},"type":{"kind":"NamedType","name":{"kind":"Name","value":"jsonb"}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"auto_apply"}},"type":{"kind":"NamedType","name":{"kind":"Name","value":"Boolean"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"update_recipes_by_pk"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"pk_columns"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"id"},"value":{"kind":"Variable","name":{"kind":"Name","value":"id"}}}]}},{"kind":"Argument","name":{"kind":"Name","value":"_set"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"name"},"value":{"kind":"Variable","name":{"kind":"Name","value":"name"}}},{"kind":"ObjectField","name":{"kind":"Name","value":"description"},"value":{"kind":"Variable","name":{"kind":"Name","value":"description"}}},{"kind":"ObjectField","name":{"kind":"Name","value":"settings"},"value":{"kind":"Variable","name":{"kind":"Name","value":"settings"}}},{"kind":"ObjectField","name":{"kind":"Name","value":"auto_apply"},"value":{"kind":"Variable","name":{"kind":"Name","value":"auto_apply"}}}]}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}}]}}]}}]} as unknown as DocumentNode<UpdateRecipeMutation, UpdateRecipeMutationVariables>;

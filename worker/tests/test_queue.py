@@ -38,6 +38,7 @@ def test_claim_is_exclusive_across_workers(db, worker, job_type):
     from dataclasses import replace
     w2 = Worker(replace(worker.cfg, name=worker.cfg.name + "-b"))
     w2.register()
+    w2.supported = list(w2.assigned)
     try:
         got = [w for w in (worker.claim(), w2.claim()) if w is not None]
         assert len(got) == 1
@@ -145,6 +146,22 @@ def test_stop_signal_requeues_without_burning_attempt(db, worker, job_type):
 def test_register_upserts_machine_online(db, worker):
     m = db.fetch_one("select * from machines where id = %s", (worker.machine_id,))
     assert m["status"] == "online" and m["capabilities"] == worker.cfg.capabilities
+    assert "noop" in m["supported"]
+
+
+def test_assignment_from_db_wins_and_pause_stops_claims(db, worker, job_type):
+    enqueue(db, job_type)
+    # The Machines page reassigns: config caps are ignored once the row is set.
+    db.execute("update machines set capabilities = '{}', paused = true where id = %s", (worker.machine_id,))
+    worker._apply_assignment(db.fetch_one("select capabilities, paused from machines where id = %s", (worker.machine_id,)))
+    assert worker.claim() is None
+    db.execute("update machines set capabilities = %s, paused = false where id = %s", ([job_type], worker.machine_id))
+    worker._apply_assignment(db.fetch_one("select capabilities, paused from machines where id = %s", (worker.machine_id,)))
+    assert worker.claim() is not None
+    # Re-registering (worker restart) must not clobber the page's assignment.
+    db.execute("update machines set capabilities = '{noop}' where id = %s", (worker.machine_id,))
+    worker.register()
+    assert worker.assigned == ["noop"]
     worker.shutdown()
     m = db.fetch_one("select * from machines where id = %s", (worker.machine_id,))
     assert m["status"] == "offline"

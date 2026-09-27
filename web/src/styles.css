@@ -283,3 +283,12 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; }
 .review-video { width: 100%; aspect-ratio: 9 / 16; max-height: 60vh; background: #000; border-radius: 8px; object-fit: contain; }
 .review-card.landscape .review-video { aspect-ratio: 16 / 9; }
 .marker-list { display: grid; gap: 4px; }
+
+/* ---- Machines: capability matrix ---------------------------------------- */
+.machine-card .machine-head { flex-wrap: wrap; }
+.status-dot.paused { background: var(--danger); }
+.cap-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 4px 12px; }
+.cap-row { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: center; padding: 4px 6px; border-radius: 6px; font-size: 13px; }
+.cap-row.on { background: var(--panel); }
+.cap-row.off { opacity: 0.45; }
+.cap-row input { accent-color: var(--accent); }

@@ -3,6 +3,7 @@
 # `llm` (idea ranking) arrives in Phase 4.
 name = "gaming-pc"
 os = "windows-11"
+# Only the first-time default — afterwards assign jobs on the PWA's Machines page.
 capabilities = ["render", "download", "convert", "clippack", "tighten"]
 database_url = "postgres://ytstudio:POSTGRES_PASSWORD@100.x.y.z:5433/ytstudio?sslmode=disable"  # port = POSTGRES_PORT in the brain's .env
 brain_url = "http://100.x.y.z:8085"                    # port = WEB_PORT in the brain's .env

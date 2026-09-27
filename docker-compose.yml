@@ -82,10 +82,10 @@ services:
       # one-off scripts, e.g.: docker compose exec api python scripts/import_v1_library.py
       - ./scripts:/srv/scripts:ro
 
-  # Brain-side worker: has the library mounted, so download/scenes/convert/
-  # clip packs/silence removal and the Gemini jobs run here without any file
-  # transfer. Renders go to the gaming PC (h264_amf); enable `render` here too
-  # if you want slow libx264 fallback renders on the brain.
+  # Brain-side worker: has the library mounted, so downloads, scene detection
+  # and the Gemini jobs run here without any file transfer. WHICH jobs it
+  # claims is set on the PWA's Machines page; the capabilities below only
+  # seed that the first time the machine registers.
   worker:
     image: yt-studio-brain
     restart: unless-stopped
@@ -97,7 +97,7 @@ services:
     command: ["yt-worker"]
     environment:
       YT_WORKER_NAME: brain
-      YT_WORKER_CAPABILITIES: ${BRAIN_WORKER_CAPABILITIES:-download,scenes,borders,convert,clippack,tighten,suggest,postkit}
+      YT_WORKER_CAPABILITIES: ${BRAIN_WORKER_CAPABILITIES:-download,scenes,borders,suggest,postkit}
       YT_WORKER_DATABASE_URL: postgres://ytstudio:${POSTGRES_PASSWORD}@postgres:5432/ytstudio
       YT_WORKER_BRAIN_URL: http://api:8000
       YT_WORKER_API_SECRET: ${HASURA_ADMIN_SECRET}

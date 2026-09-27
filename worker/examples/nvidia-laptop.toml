@@ -3,6 +3,7 @@
 # (POSTGRES_PASSWORD / HASURA_ADMIN_SECRET from the brain's .env).
 name = "nvidia-laptop"
 os = "windows-11"
+# Only the first-time default — afterwards assign jobs on the PWA's Machines page.
 capabilities = ["transcribe"]
 database_url = "postgres://ytstudio:POSTGRES_PASSWORD@100.x.y.z:5433/ytstudio?sslmode=disable"  # port = POSTGRES_PORT in the brain's .env
 brain_url = "http://100.x.y.z:8085"                    # port = WEB_PORT in the brain's .env
