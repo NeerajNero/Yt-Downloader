@@ -1,6 +1,7 @@
 import { useMutation, useSubscription } from '@apollo/client'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { MachinesDocument, UpdateMachineDocument, WakeMachineDocument, type MachinesSubscription } from '../gql/generated'
+import { appConfig } from '../lib/api'
 import { timeAgo } from '../lib/format'
 
 type Machine = MachinesSubscription['machines'][number]
@@ -23,7 +24,7 @@ const JOB_TYPES: { key: string; label: string; needs: string }[] = [
 
 type Role = 'off' | 'primary' | 'fallback'
 
-function MachineCard({ m, all }: { m: Machine; all: Machine[] }) {
+function MachineCard({ m, all, wol }: { m: Machine; all: Machine[]; wol: boolean }) {
   const [update, { loading }] = useMutation(UpdateMachineDocument)
   const [wake, { loading: waking }] = useMutation(WakeMachineDocument)
   const [msg, setMsg] = useState<string | null>(null)
@@ -100,7 +101,7 @@ function MachineCard({ m, all }: { m: Machine; all: Machine[] }) {
         })}
       </div>
       <div className="row">
-        {m.mac_address && m.status !== 'online' && (
+        {wol && m.mac_address && m.status !== 'online' && (
           <button className="btn small" onClick={() => void doWake()} disabled={waking}>Wake</button>
         )}
         {msg && <span className="muted small">{msg}</span>}
@@ -111,6 +112,8 @@ function MachineCard({ m, all }: { m: Machine; all: Machine[] }) {
 
 export default function Machines() {
   const { data, loading, error } = useSubscription(MachinesDocument)
+  const [wol, setWol] = useState(false)
+  useEffect(() => { appConfig().then((c) => setWol(c.wol_enabled)).catch(() => setWol(false)) }, [])
   if (error) return <p className="error">Can't reach the brain: {error.message}</p>
   if (loading && !data) return <p className="muted">Connecting…</p>
   const machines = data?.machines ?? []
@@ -122,12 +125,13 @@ export default function Machines() {
         Set who does what. "Does it" machines share the work; a "fallback" machine only steps in when every
         "does it" machine for that job is offline (after a minute, so a sleeping PC can be woken first).
         Changes reach running workers within 15 seconds. Greyed-out jobs need software that machine doesn't have.
+        {!wol && ' Wake-on-LAN is off (WOL_ENABLED in the brain\'s .env).'}
       </p>
       {unassigned.length > 0 && (
         <p className="job-error small">Nobody is assigned to: {unassigned.map((j) => j.label).join(', ')}. Those jobs will wait forever.</p>
       )}
       <div className="stack">
-        {machines.map((m) => <MachineCard key={m.id} m={m} all={machines} />)}
+        {machines.map((m) => <MachineCard key={m.id} m={m} all={machines} wol={wol} />)}
       </div>
     </section>
   )

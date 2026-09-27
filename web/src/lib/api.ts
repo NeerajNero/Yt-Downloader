@@ -74,3 +74,6 @@ export interface AiModels {
   available: { name: string; display?: string; input_tokens?: number; output_tokens?: number }[]
 }
 export const aiModels = () => fetch('/api/ai/models').then(check).then((r) => r.json() as Promise<AiModels>)
+
+export interface AppConfig { wol_enabled: boolean; gemini: boolean; library_dir: string }
+export const appConfig = () => fetch('/api/config').then(check).then((r) => r.json() as Promise<AppConfig>)

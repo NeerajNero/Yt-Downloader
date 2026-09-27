@@ -74,6 +74,7 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
       GEMINI_MODELS: ${GEMINI_MODELS:-}
+      WOL_ENABLED: ${WOL_ENABLED:-false}
       WOL_URL: http://host.docker.internal:9910
       WOL_BROADCAST: ${WOL_BROADCAST:-255.255.255.255}
     extra_hosts:
@@ -114,8 +115,10 @@ services:
       - workdata:/work
 
   # Wake-on-LAN sidecar on the host network (a bridged container can't
-  # broadcast to the LAN). The api posts MACs to it on :9910.
+  # broadcast to the LAN). The api posts MACs to it on :9910. Only started
+  # with `docker compose --profile wol up -d` (and WOL_ENABLED=true in .env).
   wol:
+    profiles: ["wol"]
     image: yt-studio-brain
     restart: unless-stopped
     network_mode: host

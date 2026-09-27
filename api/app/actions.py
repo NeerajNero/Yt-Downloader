@@ -141,6 +141,8 @@ async def enqueue_job(request: Request):
 
 
 def wake(name: str) -> tuple[bool, str]:
+    if not settings.WOL_ENABLED:
+        return False, "Wake-on-LAN is turned off. Set WOL_ENABLED=true in the brain's .env to use it."
     with cursor() as cur:
         cur.execute("select id, mac_address, status from machines where name = %s", (name,))
         m = cur.fetchone()

@@ -62,6 +62,8 @@ def auto_wake() -> list[str]:
     from .actions import wake
 
     woken: list[str] = []
+    if not settings.WOL_ENABLED:
+        return woken
     with cursor() as cur:
         cur.execute(
             """select distinct m.name
