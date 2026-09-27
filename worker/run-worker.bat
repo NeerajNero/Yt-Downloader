@@ -3,15 +3,19 @@ rem YT Studio worker launcher (Windows). Restarts the worker if it exits.
 rem Expects: C:\ytstudio\yt-studio (repo clone), C:\ytstudio\venv, C:\ytstudio\worker.toml
 rem See docs\WORKER-WINDOWS.md.
 
-if exist "C:\ytstudio\worker.toml" (
+if exist "%~dp0..\venv\Scripts\yt-worker.exe" (
+  set "REPO=%~dp0.."
+  set "VENV=%~dp0..\venv"
+  if exist "%~dp0..\worker.toml" (
+    set "YT_WORKER_CONFIG=%~dp0..\worker.toml"
+  ) else (
+    set "YT_WORKER_CONFIG=C:\ytstudio\worker.toml"
+  )
+) else (
   set "ROOT=C:\ytstudio"
   set "REPO=%ROOT%\yt-studio"
   set "VENV=%ROOT%\venv"
   set "YT_WORKER_CONFIG=%ROOT%\worker.toml"
-) else (
-  set "REPO=%~dp0.."
-  set "VENV=%REPO%\venv"
-  set "YT_WORKER_CONFIG=%REPO%\worker.toml"
 )
 
 rem CUDA runtime DLLs installed via pip (nvidia-cublas-cu12 / nvidia-cudnn-cu12)
