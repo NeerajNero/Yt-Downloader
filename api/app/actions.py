@@ -164,3 +164,39 @@ async def wake_machine(request: Request):
     if not ok:
         return _fail(msg)
     return {"ok": True, "message": msg}
+
+
+_YT_ID = re.compile(r"(?:v=|/shorts/|youtu\.be/|/embed/)([A-Za-z0-9_-]{11})")
+
+
+@router.post("/analyze_style")
+async def analyze_style(request: Request):
+    """Insert a `styles` row (dedupe on the YouTube id) and a `style` job."""
+    inp = await _input(request)
+    url = (inp.get("url") or "").strip()
+    if not url.lower().startswith(("http://", "https://")):
+        return _fail("That doesn't look like a link.")
+    m = _YT_ID.search(url)
+    yt_id = m.group(1) if m else None
+    with cursor() as cur:
+        row = None
+        if yt_id:
+            cur.execute("select id, status from styles where youtube_id = %s", (yt_id,))
+            row = cur.fetchone()
+        if row and row["status"] == "ready":
+            return {"style_id": str(row["id"]), "job_id": None, "existing": True}
+        if row:
+            sid = row["id"]
+            cur.execute("update styles set url = %s, status = 'new', error = null where id = %s", (url, sid))
+        else:
+            cur.execute("insert into styles (url, youtube_id, title) values (%s, %s, %s) returning id", (url, yt_id, url))
+            sid = cur.fetchone()["id"]
+        cur.execute("select id from jobs where type = 'style' and (payload->>'style_id') = %s and status = any(%s)",
+                    (str(sid), ACTIVE))
+        active = cur.fetchone()
+        if active:
+            return {"style_id": str(sid), "job_id": str(active["id"]), "existing": True}
+        cur.execute("insert into jobs (type, payload, priority) values ('style', %s::jsonb, 60) returning id",
+                    (json.dumps({"style_id": str(sid), "url": url}),))
+        jid = cur.fetchone()["id"]
+    return {"style_id": str(sid), "job_id": str(jid), "existing": False}

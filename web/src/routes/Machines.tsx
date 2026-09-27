@@ -13,6 +13,7 @@ const JOB_TYPES: { key: string; label: string; needs: string }[] = [
   { key: 'borders', label: 'Bars', needs: 'ffmpeg' },
   { key: 'suggest', label: 'Suggest clips', needs: 'Gemini key' },
   { key: 'postkit', label: 'Post kit', needs: 'Gemini key' },
+  { key: 'style', label: 'Style clone', needs: 'Gemini key + yt-dlp' },
   { key: 'render', label: 'Render', needs: 'ffmpeg (GPU encoder preferred)' },
   { key: 'convert', label: 'Edit copy', needs: 'ffmpeg (heavy)' },
   { key: 'clippack', label: 'Clip pack', needs: 'ffmpeg (heavy)' },

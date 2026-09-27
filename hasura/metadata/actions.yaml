@@ -35,6 +35,15 @@ actions:
         - name: x-api-secret
           value_from_env: WATCHDOG_SECRET
     comment: Send a Wake-on-LAN magic packet
+  - name: analyze_style
+    definition:
+      kind: synchronous
+      handler: '{{ACTIONS_BASE_URL}}/api/actions/analyze_style'
+      timeout: 30
+      headers:
+        - name: x-api-secret
+          value_from_env: WATCHDOG_SECRET
+    comment: Download a reference Short and break its edit down into a recipe + Resolve notes
 custom_types:
   enums: []
   input_objects: []
@@ -43,4 +52,5 @@ custom_types:
     - name: StartDownloadOutput
     - name: EnqueueOutput
     - name: WakeOutput
+    - name: AnalyzeStyleOutput
   scalars: []

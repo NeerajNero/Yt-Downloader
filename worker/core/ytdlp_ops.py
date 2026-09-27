@@ -68,7 +68,7 @@ def format_for(quality: str) -> str:
 
 
 def download(url: str, quality: str, library_dir: Path, report: Report, should_cancel: ShouldCancel,
-             cookiefile: str | None = None, ffmpeg_dir: str | None = None) -> dict:
+             cookiefile: str | None = None, ffmpeg_dir: str | None = None, mp4: bool = False) -> dict:
     """Download into `<library>/<title>/`. Returns {"info": pruned info dict,
     "filepath": Path, "folder": Path}. Raises Cancelled / RuntimeError."""
     import yt_dlp
@@ -91,9 +91,13 @@ def download(url: str, quality: str, library_dir: Path, report: Report, should_c
         if d["status"] == "started":
             report(None, "merging")
 
+    fmt = format_for(quality)
+    if mp4 and quality not in ("audio",):
+        h = int(quality) if quality.isdigit() else 1080
+        fmt = f"bv*[height<={h}][ext=mp4]+ba[ext=m4a]/b[height<={h}][ext=mp4]/bv*[height<={h}]+ba/b[height<={h}]"
     opts = {
         **_base_opts(cookiefile, ffmpeg_dir),
-        "format": format_for(quality),
+        "format": fmt,
         "outtmpl": str(Path(library_dir) / "%(title)s" / "%(title)s.%(ext)s"),
         "writeinfojson": True,
         "writethumbnail": True,
@@ -107,7 +111,7 @@ def download(url: str, quality: str, library_dir: Path, report: Report, should_c
         opts["postprocessors"] = [{"key": "FFmpegExtractAudio",
                                    "preferredcodec": "mp3", "preferredquality": "0"}]
     else:
-        opts["merge_output_format"] = "mkv"
+        opts["merge_output_format"] = "mp4" if mp4 else "mkv"
 
     report(None, "starting")
     try:

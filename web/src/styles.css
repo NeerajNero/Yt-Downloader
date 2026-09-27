@@ -292,3 +292,9 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; }
 .cap-row.on { background: var(--panel); }
 .cap-row.off { opacity: 0.45; }
 .cap-row select { padding: 3px 6px; font-size: 12px; }
+
+/* ---- Styles page --------------------------------------------------------- */
+.style-thumb { width: 72px; aspect-ratio: 9 / 16; object-fit: cover; border-radius: 6px; flex-shrink: 0; }
+.notes h4 { margin: 8px 0 4px; font-size: 13px; color: var(--muted); }
+.notes p { margin: 2px 0; }
+.notes .indent { padding-left: 16px; }

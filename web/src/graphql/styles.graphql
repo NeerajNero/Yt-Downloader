@@ -1,0 +1,41 @@
+subscription Styles {
+  styles(order_by: { created_at: desc }, limit: 40) {
+    id
+    url
+    youtube_id
+    title
+    channel
+    duration
+    width
+    height
+    ref_path
+    thumb_path
+    status
+    error
+    measured
+    report
+    recipe
+    resolve_notes
+    created_at
+    job {
+      id
+      status
+      progress
+      progress_note
+    }
+  }
+}
+
+mutation AnalyzeStyle($url: String!) {
+  analyze_style(url: $url) {
+    style_id
+    job_id
+    existing
+  }
+}
+
+mutation DeleteStyle($id: uuid!) {
+  delete_styles_by_pk(id: $id) {
+    id
+  }
+}

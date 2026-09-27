@@ -21,6 +21,13 @@ export type Scalars = {
   uuid: { input: string; output: string; }
 };
 
+export type AnalyzeStyleOutput = {
+  __typename?: 'AnalyzeStyleOutput';
+  existing: Scalars['Boolean']['output'];
+  job_id?: Maybe<Scalars['uuid']['output']>;
+  style_id: Scalars['uuid']['output'];
+};
+
 /** Boolean expression to compare columns of type "Boolean". All fields are combined with logical 'AND'. */
 export type Boolean_Comparison_Exp = {
   _eq?: InputMaybe<Scalars['Boolean']['input']>;
@@ -2098,6 +2105,8 @@ export type Machines_Updates = {
 /** mutation root */
 export type Mutation_Root = {
   __typename?: 'mutation_root';
+  /** Download a reference Short and break its edit down into a recipe + Resolve notes */
+  analyze_style?: Maybe<AnalyzeStyleOutput>;
   /** delete data from the table: "assets" */
   delete_assets?: Maybe<Assets_Mutation_Response>;
   /** delete single row from the table: "assets" */
@@ -2118,6 +2127,10 @@ export type Mutation_Root = {
   delete_recipes?: Maybe<Recipes_Mutation_Response>;
   /** delete single row from the table: "recipes" */
   delete_recipes_by_pk?: Maybe<Recipes>;
+  /** delete data from the table: "styles" */
+  delete_styles?: Maybe<Styles_Mutation_Response>;
+  /** delete single row from the table: "styles" */
+  delete_styles_by_pk?: Maybe<Styles>;
   /** delete data from the table: "videos" */
   delete_videos?: Maybe<Videos_Mutation_Response>;
   /** delete single row from the table: "videos" */
@@ -2144,6 +2157,10 @@ export type Mutation_Root = {
   insert_recipes?: Maybe<Recipes_Mutation_Response>;
   /** insert a single row into the table: "recipes" */
   insert_recipes_one?: Maybe<Recipes>;
+  /** insert data into the table: "styles" */
+  insert_styles?: Maybe<Styles_Mutation_Response>;
+  /** insert a single row into the table: "styles" */
+  insert_styles_one?: Maybe<Styles>;
   /** insert data into the table: "videos" */
   insert_videos?: Maybe<Videos_Mutation_Response>;
   /** insert a single row into the table: "videos" */
@@ -2182,6 +2199,12 @@ export type Mutation_Root = {
   update_recipes_by_pk?: Maybe<Recipes>;
   /** update multiples rows of table: "recipes" */
   update_recipes_many?: Maybe<Array<Maybe<Recipes_Mutation_Response>>>;
+  /** update data of the table: "styles" */
+  update_styles?: Maybe<Styles_Mutation_Response>;
+  /** update single row of the table: "styles" */
+  update_styles_by_pk?: Maybe<Styles>;
+  /** update multiples rows of table: "styles" */
+  update_styles_many?: Maybe<Array<Maybe<Styles_Mutation_Response>>>;
   /** update data of the table: "videos" */
   update_videos?: Maybe<Videos_Mutation_Response>;
   /** update single row of the table: "videos" */
@@ -2190,6 +2213,12 @@ export type Mutation_Root = {
   update_videos_many?: Maybe<Array<Maybe<Videos_Mutation_Response>>>;
   /** Send a Wake-on-LAN magic packet */
   wake_machine?: Maybe<WakeOutput>;
+};
+
+
+/** mutation root */
+export type Mutation_RootAnalyze_StyleArgs = {
+  url: Scalars['String']['input'];
 };
 
 
@@ -2249,6 +2278,18 @@ export type Mutation_RootDelete_RecipesArgs = {
 
 /** mutation root */
 export type Mutation_RootDelete_Recipes_By_PkArgs = {
+  id: Scalars['uuid']['input'];
+};
+
+
+/** mutation root */
+export type Mutation_RootDelete_StylesArgs = {
+  where: Styles_Bool_Exp;
+};
+
+
+/** mutation root */
+export type Mutation_RootDelete_Styles_By_PkArgs = {
   id: Scalars['uuid']['input'];
 };
 
@@ -2341,6 +2382,20 @@ export type Mutation_RootInsert_RecipesArgs = {
 export type Mutation_RootInsert_Recipes_OneArgs = {
   object: Recipes_Insert_Input;
   on_conflict?: InputMaybe<Recipes_On_Conflict>;
+};
+
+
+/** mutation root */
+export type Mutation_RootInsert_StylesArgs = {
+  objects: Array<Styles_Insert_Input>;
+  on_conflict?: InputMaybe<Styles_On_Conflict>;
+};
+
+
+/** mutation root */
+export type Mutation_RootInsert_Styles_OneArgs = {
+  object: Styles_Insert_Input;
+  on_conflict?: InputMaybe<Styles_On_Conflict>;
 };
 
 
@@ -2520,6 +2575,38 @@ export type Mutation_RootUpdate_Recipes_ManyArgs = {
 
 
 /** mutation root */
+export type Mutation_RootUpdate_StylesArgs = {
+  _append?: InputMaybe<Styles_Append_Input>;
+  _delete_at_path?: InputMaybe<Styles_Delete_At_Path_Input>;
+  _delete_elem?: InputMaybe<Styles_Delete_Elem_Input>;
+  _delete_key?: InputMaybe<Styles_Delete_Key_Input>;
+  _inc?: InputMaybe<Styles_Inc_Input>;
+  _prepend?: InputMaybe<Styles_Prepend_Input>;
+  _set?: InputMaybe<Styles_Set_Input>;
+  where: Styles_Bool_Exp;
+};
+
+
+/** mutation root */
+export type Mutation_RootUpdate_Styles_By_PkArgs = {
+  _append?: InputMaybe<Styles_Append_Input>;
+  _delete_at_path?: InputMaybe<Styles_Delete_At_Path_Input>;
+  _delete_elem?: InputMaybe<Styles_Delete_Elem_Input>;
+  _delete_key?: InputMaybe<Styles_Delete_Key_Input>;
+  _inc?: InputMaybe<Styles_Inc_Input>;
+  _prepend?: InputMaybe<Styles_Prepend_Input>;
+  _set?: InputMaybe<Styles_Set_Input>;
+  pk_columns: Styles_Pk_Columns_Input;
+};
+
+
+/** mutation root */
+export type Mutation_RootUpdate_Styles_ManyArgs = {
+  updates: Array<Styles_Updates>;
+};
+
+
+/** mutation root */
 export type Mutation_RootUpdate_VideosArgs = {
   _append?: InputMaybe<Videos_Append_Input>;
   _delete_at_path?: InputMaybe<Videos_Delete_At_Path_Input>;
@@ -2604,6 +2691,12 @@ export type Query_Root = {
   recipes_aggregate: Recipes_Aggregate;
   /** fetch data from the table: "recipes" using primary key columns */
   recipes_by_pk?: Maybe<Recipes>;
+  /** fetch data from the table: "styles" */
+  styles: Array<Styles>;
+  /** fetch aggregated fields from the table: "styles" */
+  styles_aggregate: Styles_Aggregate;
+  /** fetch data from the table: "styles" using primary key columns */
+  styles_by_pk?: Maybe<Styles>;
   /** fetch data from the table: "videos" */
   videos: Array<Videos>;
   /** fetch aggregated fields from the table: "videos" */
@@ -2724,6 +2817,29 @@ export type Query_RootRecipes_AggregateArgs = {
 
 
 export type Query_RootRecipes_By_PkArgs = {
+  id: Scalars['uuid']['input'];
+};
+
+
+export type Query_RootStylesArgs = {
+  distinct_on?: InputMaybe<Array<Styles_Select_Column>>;
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  offset?: InputMaybe<Scalars['Int']['input']>;
+  order_by?: InputMaybe<Array<Styles_Order_By>>;
+  where?: InputMaybe<Styles_Bool_Exp>;
+};
+
+
+export type Query_RootStyles_AggregateArgs = {
+  distinct_on?: InputMaybe<Array<Styles_Select_Column>>;
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  offset?: InputMaybe<Scalars['Int']['input']>;
+  order_by?: InputMaybe<Array<Styles_Order_By>>;
+  where?: InputMaybe<Styles_Bool_Exp>;
+};
+
+
+export type Query_RootStyles_By_PkArgs = {
   id: Scalars['uuid']['input'];
 };
 
@@ -3018,6 +3134,489 @@ export type Recipes_Updates = {
   where: Recipes_Bool_Exp;
 };
 
+/** columns and relationships of "styles" */
+export type Styles = {
+  __typename?: 'styles';
+  channel?: Maybe<Scalars['String']['output']>;
+  created_at: Scalars['timestamptz']['output'];
+  duration?: Maybe<Scalars['Float']['output']>;
+  error?: Maybe<Scalars['String']['output']>;
+  height?: Maybe<Scalars['Int']['output']>;
+  id: Scalars['uuid']['output'];
+  /** An object relationship */
+  job?: Maybe<Jobs>;
+  job_id?: Maybe<Scalars['uuid']['output']>;
+  measured?: Maybe<Scalars['jsonb']['output']>;
+  recipe?: Maybe<Scalars['jsonb']['output']>;
+  ref_path?: Maybe<Scalars['String']['output']>;
+  report?: Maybe<Scalars['jsonb']['output']>;
+  resolve_notes?: Maybe<Scalars['String']['output']>;
+  status: Scalars['String']['output'];
+  thumb_path?: Maybe<Scalars['String']['output']>;
+  title?: Maybe<Scalars['String']['output']>;
+  updated_at: Scalars['timestamptz']['output'];
+  url: Scalars['String']['output'];
+  width?: Maybe<Scalars['Int']['output']>;
+  youtube_id?: Maybe<Scalars['String']['output']>;
+};
+
+
+/** columns and relationships of "styles" */
+export type StylesMeasuredArgs = {
+  path?: InputMaybe<Scalars['String']['input']>;
+};
+
+
+/** columns and relationships of "styles" */
+export type StylesRecipeArgs = {
+  path?: InputMaybe<Scalars['String']['input']>;
+};
+
+
+/** columns and relationships of "styles" */
+export type StylesReportArgs = {
+  path?: InputMaybe<Scalars['String']['input']>;
+};
+
+/** aggregated selection of "styles" */
+export type Styles_Aggregate = {
+  __typename?: 'styles_aggregate';
+  aggregate?: Maybe<Styles_Aggregate_Fields>;
+  nodes: Array<Styles>;
+};
+
+/** aggregate fields of "styles" */
+export type Styles_Aggregate_Fields = {
+  __typename?: 'styles_aggregate_fields';
+  avg?: Maybe<Styles_Avg_Fields>;
+  count: Scalars['Int']['output'];
+  max?: Maybe<Styles_Max_Fields>;
+  min?: Maybe<Styles_Min_Fields>;
+  stddev?: Maybe<Styles_Stddev_Fields>;
+  stddev_pop?: Maybe<Styles_Stddev_Pop_Fields>;
+  stddev_samp?: Maybe<Styles_Stddev_Samp_Fields>;
+  sum?: Maybe<Styles_Sum_Fields>;
+  var_pop?: Maybe<Styles_Var_Pop_Fields>;
+  var_samp?: Maybe<Styles_Var_Samp_Fields>;
+  variance?: Maybe<Styles_Variance_Fields>;
+};
+
+
+/** aggregate fields of "styles" */
+export type Styles_Aggregate_FieldsCountArgs = {
+  columns?: InputMaybe<Array<Styles_Select_Column>>;
+  distinct?: InputMaybe<Scalars['Boolean']['input']>;
+};
+
+/** append existing jsonb value of filtered columns with new jsonb value */
+export type Styles_Append_Input = {
+  measured?: InputMaybe<Scalars['jsonb']['input']>;
+  recipe?: InputMaybe<Scalars['jsonb']['input']>;
+  report?: InputMaybe<Scalars['jsonb']['input']>;
+};
+
+/** aggregate avg on columns */
+export type Styles_Avg_Fields = {
+  __typename?: 'styles_avg_fields';
+  duration?: Maybe<Scalars['Float']['output']>;
+  height?: Maybe<Scalars['Float']['output']>;
+  width?: Maybe<Scalars['Float']['output']>;
+};
+
+/** Boolean expression to filter rows from the table "styles". All fields are combined with a logical 'AND'. */
+export type Styles_Bool_Exp = {
+  _and?: InputMaybe<Array<Styles_Bool_Exp>>;
+  _not?: InputMaybe<Styles_Bool_Exp>;
+  _or?: InputMaybe<Array<Styles_Bool_Exp>>;
+  channel?: InputMaybe<String_Comparison_Exp>;
+  created_at?: InputMaybe<Timestamptz_Comparison_Exp>;
+  duration?: InputMaybe<Float_Comparison_Exp>;
+  error?: InputMaybe<String_Comparison_Exp>;
+  height?: InputMaybe<Int_Comparison_Exp>;
+  id?: InputMaybe<Uuid_Comparison_Exp>;
+  job?: InputMaybe<Jobs_Bool_Exp>;
+  job_id?: InputMaybe<Uuid_Comparison_Exp>;
+  measured?: InputMaybe<Jsonb_Comparison_Exp>;
+  recipe?: InputMaybe<Jsonb_Comparison_Exp>;
+  ref_path?: InputMaybe<String_Comparison_Exp>;
+  report?: InputMaybe<Jsonb_Comparison_Exp>;
+  resolve_notes?: InputMaybe<String_Comparison_Exp>;
+  status?: InputMaybe<String_Comparison_Exp>;
+  thumb_path?: InputMaybe<String_Comparison_Exp>;
+  title?: InputMaybe<String_Comparison_Exp>;
+  updated_at?: InputMaybe<Timestamptz_Comparison_Exp>;
+  url?: InputMaybe<String_Comparison_Exp>;
+  width?: InputMaybe<Int_Comparison_Exp>;
+  youtube_id?: InputMaybe<String_Comparison_Exp>;
+};
+
+/** unique or primary key constraints on table "styles" */
+export enum Styles_Constraint {
+  /** unique or primary key constraint on columns "id" */
+  StylesPkey = 'styles_pkey',
+  /** unique or primary key constraint on columns "youtube_id" */
+  StylesYoutubeIdKey = 'styles_youtube_id_key'
+}
+
+/** delete the field or element with specified path (for JSON arrays, negative integers count from the end) */
+export type Styles_Delete_At_Path_Input = {
+  measured?: InputMaybe<Array<Scalars['String']['input']>>;
+  recipe?: InputMaybe<Array<Scalars['String']['input']>>;
+  report?: InputMaybe<Array<Scalars['String']['input']>>;
+};
+
+/** delete the array element with specified index (negative integers count from the end). throws an error if top level container is not an array */
+export type Styles_Delete_Elem_Input = {
+  measured?: InputMaybe<Scalars['Int']['input']>;
+  recipe?: InputMaybe<Scalars['Int']['input']>;
+  report?: InputMaybe<Scalars['Int']['input']>;
+};
+
+/** delete key/value pair or string element. key/value pairs are matched based on their key value */
+export type Styles_Delete_Key_Input = {
+  measured?: InputMaybe<Scalars['String']['input']>;
+  recipe?: InputMaybe<Scalars['String']['input']>;
+  report?: InputMaybe<Scalars['String']['input']>;
+};
+
+/** input type for incrementing numeric columns in table "styles" */
+export type Styles_Inc_Input = {
+  duration?: InputMaybe<Scalars['Float']['input']>;
+  height?: InputMaybe<Scalars['Int']['input']>;
+  width?: InputMaybe<Scalars['Int']['input']>;
+};
+
+/** input type for inserting data into table "styles" */
+export type Styles_Insert_Input = {
+  channel?: InputMaybe<Scalars['String']['input']>;
+  created_at?: InputMaybe<Scalars['timestamptz']['input']>;
+  duration?: InputMaybe<Scalars['Float']['input']>;
+  error?: InputMaybe<Scalars['String']['input']>;
+  height?: InputMaybe<Scalars['Int']['input']>;
+  id?: InputMaybe<Scalars['uuid']['input']>;
+  job?: InputMaybe<Jobs_Obj_Rel_Insert_Input>;
+  job_id?: InputMaybe<Scalars['uuid']['input']>;
+  measured?: InputMaybe<Scalars['jsonb']['input']>;
+  recipe?: InputMaybe<Scalars['jsonb']['input']>;
+  ref_path?: InputMaybe<Scalars['String']['input']>;
+  report?: InputMaybe<Scalars['jsonb']['input']>;
+  resolve_notes?: InputMaybe<Scalars['String']['input']>;
+  status?: InputMaybe<Scalars['String']['input']>;
+  thumb_path?: InputMaybe<Scalars['String']['input']>;
+  title?: InputMaybe<Scalars['String']['input']>;
+  updated_at?: InputMaybe<Scalars['timestamptz']['input']>;
+  url?: InputMaybe<Scalars['String']['input']>;
+  width?: InputMaybe<Scalars['Int']['input']>;
+  youtube_id?: InputMaybe<Scalars['String']['input']>;
+};
+
+/** aggregate max on columns */
+export type Styles_Max_Fields = {
+  __typename?: 'styles_max_fields';
+  channel?: Maybe<Scalars['String']['output']>;
+  created_at?: Maybe<Scalars['timestamptz']['output']>;
+  duration?: Maybe<Scalars['Float']['output']>;
+  error?: Maybe<Scalars['String']['output']>;
+  height?: Maybe<Scalars['Int']['output']>;
+  id?: Maybe<Scalars['uuid']['output']>;
+  job_id?: Maybe<Scalars['uuid']['output']>;
+  ref_path?: Maybe<Scalars['String']['output']>;
+  resolve_notes?: Maybe<Scalars['String']['output']>;
+  status?: Maybe<Scalars['String']['output']>;
+  thumb_path?: Maybe<Scalars['String']['output']>;
+  title?: Maybe<Scalars['String']['output']>;
+  updated_at?: Maybe<Scalars['timestamptz']['output']>;
+  url?: Maybe<Scalars['String']['output']>;
+  width?: Maybe<Scalars['Int']['output']>;
+  youtube_id?: Maybe<Scalars['String']['output']>;
+};
+
+/** aggregate min on columns */
+export type Styles_Min_Fields = {
+  __typename?: 'styles_min_fields';
+  channel?: Maybe<Scalars['String']['output']>;
+  created_at?: Maybe<Scalars['timestamptz']['output']>;
+  duration?: Maybe<Scalars['Float']['output']>;
+  error?: Maybe<Scalars['String']['output']>;
+  height?: Maybe<Scalars['Int']['output']>;
+  id?: Maybe<Scalars['uuid']['output']>;
+  job_id?: Maybe<Scalars['uuid']['output']>;
+  ref_path?: Maybe<Scalars['String']['output']>;
+  resolve_notes?: Maybe<Scalars['String']['output']>;
+  status?: Maybe<Scalars['String']['output']>;
+  thumb_path?: Maybe<Scalars['String']['output']>;
+  title?: Maybe<Scalars['String']['output']>;
+  updated_at?: Maybe<Scalars['timestamptz']['output']>;
+  url?: Maybe<Scalars['String']['output']>;
+  width?: Maybe<Scalars['Int']['output']>;
+  youtube_id?: Maybe<Scalars['String']['output']>;
+};
+
+/** response of any mutation on the table "styles" */
+export type Styles_Mutation_Response = {
+  __typename?: 'styles_mutation_response';
+  /** number of rows affected by the mutation */
+  affected_rows: Scalars['Int']['output'];
+  /** data from the rows affected by the mutation */
+  returning: Array<Styles>;
+};
+
+/** on_conflict condition type for table "styles" */
+export type Styles_On_Conflict = {
+  constraint: Styles_Constraint;
+  update_columns?: Array<Styles_Update_Column>;
+  where?: InputMaybe<Styles_Bool_Exp>;
+};
+
+/** Ordering options when selecting data from "styles". */
+export type Styles_Order_By = {
+  channel?: InputMaybe<Order_By>;
+  created_at?: InputMaybe<Order_By>;
+  duration?: InputMaybe<Order_By>;
+  error?: InputMaybe<Order_By>;
+  height?: InputMaybe<Order_By>;
+  id?: InputMaybe<Order_By>;
+  job?: InputMaybe<Jobs_Order_By>;
+  job_id?: InputMaybe<Order_By>;
+  measured?: InputMaybe<Order_By>;
+  recipe?: InputMaybe<Order_By>;
+  ref_path?: InputMaybe<Order_By>;
+  report?: InputMaybe<Order_By>;
+  resolve_notes?: InputMaybe<Order_By>;
+  status?: InputMaybe<Order_By>;
+  thumb_path?: InputMaybe<Order_By>;
+  title?: InputMaybe<Order_By>;
+  updated_at?: InputMaybe<Order_By>;
+  url?: InputMaybe<Order_By>;
+  width?: InputMaybe<Order_By>;
+  youtube_id?: InputMaybe<Order_By>;
+};
+
+/** primary key columns input for table: styles */
+export type Styles_Pk_Columns_Input = {
+  id: Scalars['uuid']['input'];
+};
+
+/** prepend existing jsonb value of filtered columns with new jsonb value */
+export type Styles_Prepend_Input = {
+  measured?: InputMaybe<Scalars['jsonb']['input']>;
+  recipe?: InputMaybe<Scalars['jsonb']['input']>;
+  report?: InputMaybe<Scalars['jsonb']['input']>;
+};
+
+/** select columns of table "styles" */
+export enum Styles_Select_Column {
+  /** column name */
+  Channel = 'channel',
+  /** column name */
+  CreatedAt = 'created_at',
+  /** column name */
+  Duration = 'duration',
+  /** column name */
+  Error = 'error',
+  /** column name */
+  Height = 'height',
+  /** column name */
+  Id = 'id',
+  /** column name */
+  JobId = 'job_id',
+  /** column name */
+  Measured = 'measured',
+  /** column name */
+  Recipe = 'recipe',
+  /** column name */
+  RefPath = 'ref_path',
+  /** column name */
+  Report = 'report',
+  /** column name */
+  ResolveNotes = 'resolve_notes',
+  /** column name */
+  Status = 'status',
+  /** column name */
+  ThumbPath = 'thumb_path',
+  /** column name */
+  Title = 'title',
+  /** column name */
+  UpdatedAt = 'updated_at',
+  /** column name */
+  Url = 'url',
+  /** column name */
+  Width = 'width',
+  /** column name */
+  YoutubeId = 'youtube_id'
+}
+
+/** input type for updating data in table "styles" */
+export type Styles_Set_Input = {
+  channel?: InputMaybe<Scalars['String']['input']>;
+  created_at?: InputMaybe<Scalars['timestamptz']['input']>;
+  duration?: InputMaybe<Scalars['Float']['input']>;
+  error?: InputMaybe<Scalars['String']['input']>;
+  height?: InputMaybe<Scalars['Int']['input']>;
+  id?: InputMaybe<Scalars['uuid']['input']>;
+  job_id?: InputMaybe<Scalars['uuid']['input']>;
+  measured?: InputMaybe<Scalars['jsonb']['input']>;
+  recipe?: InputMaybe<Scalars['jsonb']['input']>;
+  ref_path?: InputMaybe<Scalars['String']['input']>;
+  report?: InputMaybe<Scalars['jsonb']['input']>;
+  resolve_notes?: InputMaybe<Scalars['String']['input']>;
+  status?: InputMaybe<Scalars['String']['input']>;
+  thumb_path?: InputMaybe<Scalars['String']['input']>;
+  title?: InputMaybe<Scalars['String']['input']>;
+  updated_at?: InputMaybe<Scalars['timestamptz']['input']>;
+  url?: InputMaybe<Scalars['String']['input']>;
+  width?: InputMaybe<Scalars['Int']['input']>;
+  youtube_id?: InputMaybe<Scalars['String']['input']>;
+};
+
+/** aggregate stddev on columns */
+export type Styles_Stddev_Fields = {
+  __typename?: 'styles_stddev_fields';
+  duration?: Maybe<Scalars['Float']['output']>;
+  height?: Maybe<Scalars['Float']['output']>;
+  width?: Maybe<Scalars['Float']['output']>;
+};
+
+/** aggregate stddev_pop on columns */
+export type Styles_Stddev_Pop_Fields = {
+  __typename?: 'styles_stddev_pop_fields';
+  duration?: Maybe<Scalars['Float']['output']>;
+  height?: Maybe<Scalars['Float']['output']>;
+  width?: Maybe<Scalars['Float']['output']>;
+};
+
+/** aggregate stddev_samp on columns */
+export type Styles_Stddev_Samp_Fields = {
+  __typename?: 'styles_stddev_samp_fields';
+  duration?: Maybe<Scalars['Float']['output']>;
+  height?: Maybe<Scalars['Float']['output']>;
+  width?: Maybe<Scalars['Float']['output']>;
+};
+
+/** Streaming cursor of the table "styles" */
+export type Styles_Stream_Cursor_Input = {
+  /** Stream column input with initial value */
+  initial_value: Styles_Stream_Cursor_Value_Input;
+  /** cursor ordering */
+  ordering?: InputMaybe<Cursor_Ordering>;
+};
+
+/** Initial value of the column from where the streaming should start */
+export type Styles_Stream_Cursor_Value_Input = {
+  channel?: InputMaybe<Scalars['String']['input']>;
+  created_at?: InputMaybe<Scalars['timestamptz']['input']>;
+  duration?: InputMaybe<Scalars['Float']['input']>;
+  error?: InputMaybe<Scalars['String']['input']>;
+  height?: InputMaybe<Scalars['Int']['input']>;
+  id?: InputMaybe<Scalars['uuid']['input']>;
+  job_id?: InputMaybe<Scalars['uuid']['input']>;
+  measured?: InputMaybe<Scalars['jsonb']['input']>;
+  recipe?: InputMaybe<Scalars['jsonb']['input']>;
+  ref_path?: InputMaybe<Scalars['String']['input']>;
+  report?: InputMaybe<Scalars['jsonb']['input']>;
+  resolve_notes?: InputMaybe<Scalars['String']['input']>;
+  status?: InputMaybe<Scalars['String']['input']>;
+  thumb_path?: InputMaybe<Scalars['String']['input']>;
+  title?: InputMaybe<Scalars['String']['input']>;
+  updated_at?: InputMaybe<Scalars['timestamptz']['input']>;
+  url?: InputMaybe<Scalars['String']['input']>;
+  width?: InputMaybe<Scalars['Int']['input']>;
+  youtube_id?: InputMaybe<Scalars['String']['input']>;
+};
+
+/** aggregate sum on columns */
+export type Styles_Sum_Fields = {
+  __typename?: 'styles_sum_fields';
+  duration?: Maybe<Scalars['Float']['output']>;
+  height?: Maybe<Scalars['Int']['output']>;
+  width?: Maybe<Scalars['Int']['output']>;
+};
+
+/** update columns of table "styles" */
+export enum Styles_Update_Column {
+  /** column name */
+  Channel = 'channel',
+  /** column name */
+  CreatedAt = 'created_at',
+  /** column name */
+  Duration = 'duration',
+  /** column name */
+  Error = 'error',
+  /** column name */
+  Height = 'height',
+  /** column name */
+  Id = 'id',
+  /** column name */
+  JobId = 'job_id',
+  /** column name */
+  Measured = 'measured',
+  /** column name */
+  Recipe = 'recipe',
+  /** column name */
+  RefPath = 'ref_path',
+  /** column name */
+  Report = 'report',
+  /** column name */
+  ResolveNotes = 'resolve_notes',
+  /** column name */
+  Status = 'status',
+  /** column name */
+  ThumbPath = 'thumb_path',
+  /** column name */
+  Title = 'title',
+  /** column name */
+  UpdatedAt = 'updated_at',
+  /** column name */
+  Url = 'url',
+  /** column name */
+  Width = 'width',
+  /** column name */
+  YoutubeId = 'youtube_id'
+}
+
+export type Styles_Updates = {
+  /** append existing jsonb value of filtered columns with new jsonb value */
+  _append?: InputMaybe<Styles_Append_Input>;
+  /** delete the field or element with specified path (for JSON arrays, negative integers count from the end) */
+  _delete_at_path?: InputMaybe<Styles_Delete_At_Path_Input>;
+  /** delete the array element with specified index (negative integers count from the end). throws an error if top level container is not an array */
+  _delete_elem?: InputMaybe<Styles_Delete_Elem_Input>;
+  /** delete key/value pair or string element. key/value pairs are matched based on their key value */
+  _delete_key?: InputMaybe<Styles_Delete_Key_Input>;
+  /** increments the numeric columns with given value of the filtered values */
+  _inc?: InputMaybe<Styles_Inc_Input>;
+  /** prepend existing jsonb value of filtered columns with new jsonb value */
+  _prepend?: InputMaybe<Styles_Prepend_Input>;
+  /** sets the columns of the filtered rows to the given values */
+  _set?: InputMaybe<Styles_Set_Input>;
+  /** filter the rows which have to be updated */
+  where: Styles_Bool_Exp;
+};
+
+/** aggregate var_pop on columns */
+export type Styles_Var_Pop_Fields = {
+  __typename?: 'styles_var_pop_fields';
+  duration?: Maybe<Scalars['Float']['output']>;
+  height?: Maybe<Scalars['Float']['output']>;
+  width?: Maybe<Scalars['Float']['output']>;
+};
+
+/** aggregate var_samp on columns */
+export type Styles_Var_Samp_Fields = {
+  __typename?: 'styles_var_samp_fields';
+  duration?: Maybe<Scalars['Float']['output']>;
+  height?: Maybe<Scalars['Float']['output']>;
+  width?: Maybe<Scalars['Float']['output']>;
+};
+
+/** aggregate variance on columns */
+export type Styles_Variance_Fields = {
+  __typename?: 'styles_variance_fields';
+  duration?: Maybe<Scalars['Float']['output']>;
+  height?: Maybe<Scalars['Float']['output']>;
+  width?: Maybe<Scalars['Float']['output']>;
+};
+
 export type Subscription_Root = {
   __typename?: 'subscription_root';
   /** An array relationship */
@@ -3060,6 +3659,14 @@ export type Subscription_Root = {
   recipes_by_pk?: Maybe<Recipes>;
   /** fetch data from the table in a streaming manner: "recipes" */
   recipes_stream: Array<Recipes>;
+  /** fetch data from the table: "styles" */
+  styles: Array<Styles>;
+  /** fetch aggregated fields from the table: "styles" */
+  styles_aggregate: Styles_Aggregate;
+  /** fetch data from the table: "styles" using primary key columns */
+  styles_by_pk?: Maybe<Styles>;
+  /** fetch data from the table in a streaming manner: "styles" */
+  styles_stream: Array<Styles>;
   /** fetch data from the table: "videos" */
   videos: Array<Videos>;
   /** fetch aggregated fields from the table: "videos" */
@@ -3218,6 +3825,36 @@ export type Subscription_RootRecipes_StreamArgs = {
   batch_size: Scalars['Int']['input'];
   cursor: Array<InputMaybe<Recipes_Stream_Cursor_Input>>;
   where?: InputMaybe<Recipes_Bool_Exp>;
+};
+
+
+export type Subscription_RootStylesArgs = {
+  distinct_on?: InputMaybe<Array<Styles_Select_Column>>;
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  offset?: InputMaybe<Scalars['Int']['input']>;
+  order_by?: InputMaybe<Array<Styles_Order_By>>;
+  where?: InputMaybe<Styles_Bool_Exp>;
+};
+
+
+export type Subscription_RootStyles_AggregateArgs = {
+  distinct_on?: InputMaybe<Array<Styles_Select_Column>>;
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  offset?: InputMaybe<Scalars['Int']['input']>;
+  order_by?: InputMaybe<Array<Styles_Order_By>>;
+  where?: InputMaybe<Styles_Bool_Exp>;
+};
+
+
+export type Subscription_RootStyles_By_PkArgs = {
+  id: Scalars['uuid']['input'];
+};
+
+
+export type Subscription_RootStyles_StreamArgs = {
+  batch_size: Scalars['Int']['input'];
+  cursor: Array<InputMaybe<Styles_Stream_Cursor_Input>>;
+  where?: InputMaybe<Styles_Bool_Exp>;
 };
 
 
@@ -3952,6 +4589,25 @@ export type ReviewCountSubscriptionVariables = Exact<{ [key: string]: never; }>;
 
 export type ReviewCountSubscription = { __typename?: 'subscription_root', clips_aggregate: { __typename?: 'clips_aggregate', aggregate?: { __typename?: 'clips_aggregate_fields', count: number } | null } };
 
+export type StylesSubscriptionVariables = Exact<{ [key: string]: never; }>;
+
+
+export type StylesSubscription = { __typename?: 'subscription_root', styles: Array<{ __typename?: 'styles', id: string, url: string, youtube_id?: string | null, title?: string | null, channel?: string | null, duration?: number | null, width?: number | null, height?: number | null, ref_path?: string | null, thumb_path?: string | null, status: string, error?: string | null, measured?: unknown | null, report?: unknown | null, recipe?: unknown | null, resolve_notes?: string | null, created_at: string, job?: { __typename?: 'jobs', id: string, status: string, progress?: number | null, progress_note?: string | null } | null }> };
+
+export type AnalyzeStyleMutationVariables = Exact<{
+  url: Scalars['String']['input'];
+}>;
+
+
+export type AnalyzeStyleMutation = { __typename?: 'mutation_root', analyze_style?: { __typename?: 'AnalyzeStyleOutput', style_id: string, job_id?: string | null, existing: boolean } | null };
+
+export type DeleteStyleMutationVariables = Exact<{
+  id: Scalars['uuid']['input'];
+}>;
+
+
+export type DeleteStyleMutation = { __typename?: 'mutation_root', delete_styles_by_pk?: { __typename?: 'styles', id: string } | null };
+
 export type LibrarySubscriptionVariables = Exact<{ [key: string]: never; }>;
 
 
@@ -4023,6 +4679,9 @@ export const UpdateRecipeDocument = {"kind":"Document","definitions":[{"kind":"O
 export const DeleteRecipeDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"DeleteRecipe"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"id"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"uuid"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"delete_recipes_by_pk"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"id"},"value":{"kind":"Variable","name":{"kind":"Name","value":"id"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}}]}}]}}]} as unknown as DocumentNode<DeleteRecipeMutation, DeleteRecipeMutationVariables>;
 export const ReviewClipsDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"subscription","name":{"kind":"Name","value":"ReviewClips"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"clips"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"where"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"status"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"_in"},"value":{"kind":"ListValue","values":[{"kind":"StringValue","value":"rendered","block":false},{"kind":"StringValue","value":"approved","block":false}]}}]}},{"kind":"ObjectField","name":{"kind":"Name","value":"output_path"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"_is_null"},"value":{"kind":"BooleanValue","value":false}}]}}]}},{"kind":"Argument","name":{"kind":"Name","value":"order_by"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"updated_at"},"value":{"kind":"EnumValue","value":"desc"}}]}},{"kind":"Argument","name":{"kind":"Name","value":"limit"},"value":{"kind":"IntValue","value":"60"}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"start_s"}},{"kind":"Field","name":{"kind":"Name","value":"end_s"}},{"kind":"Field","name":{"kind":"Name","value":"title"}},{"kind":"Field","name":{"kind":"Name","value":"hook"}},{"kind":"Field","name":{"kind":"Name","value":"reason"}},{"kind":"Field","name":{"kind":"Name","value":"origin"}},{"kind":"Field","name":{"kind":"Name","value":"status"}},{"kind":"Field","name":{"kind":"Name","value":"output_path"}},{"kind":"Field","name":{"kind":"Name","value":"render_settings"}},{"kind":"Field","name":{"kind":"Name","value":"updated_at"}},{"kind":"Field","name":{"kind":"Name","value":"recipe"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"}}]}},{"kind":"Field","name":{"kind":"Name","value":"video"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"title"}},{"kind":"Field","name":{"kind":"Name","value":"note"}},{"kind":"Field","name":{"kind":"Name","value":"assets"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"where"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"kind"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"_eq"},"value":{"kind":"StringValue","value":"postkit","block":false}}]}}]}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"data"}}]}}]}}]}}]}}]} as unknown as DocumentNode<ReviewClipsSubscription, ReviewClipsSubscriptionVariables>;
 export const ReviewCountDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"subscription","name":{"kind":"Name","value":"ReviewCount"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"clips_aggregate"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"where"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"status"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"_eq"},"value":{"kind":"StringValue","value":"rendered","block":false}}]}},{"kind":"ObjectField","name":{"kind":"Name","value":"output_path"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"_is_null"},"value":{"kind":"BooleanValue","value":false}}]}}]}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"aggregate"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"count"}}]}}]}}]}}]} as unknown as DocumentNode<ReviewCountSubscription, ReviewCountSubscriptionVariables>;
+export const StylesDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"subscription","name":{"kind":"Name","value":"Styles"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"styles"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"order_by"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"created_at"},"value":{"kind":"EnumValue","value":"desc"}}]}},{"kind":"Argument","name":{"kind":"Name","value":"limit"},"value":{"kind":"IntValue","value":"40"}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"url"}},{"kind":"Field","name":{"kind":"Name","value":"youtube_id"}},{"kind":"Field","name":{"kind":"Name","value":"title"}},{"kind":"Field","name":{"kind":"Name","value":"channel"}},{"kind":"Field","name":{"kind":"Name","value":"duration"}},{"kind":"Field","name":{"kind":"Name","value":"width"}},{"kind":"Field","name":{"kind":"Name","value":"height"}},{"kind":"Field","name":{"kind":"Name","value":"ref_path"}},{"kind":"Field","name":{"kind":"Name","value":"thumb_path"}},{"kind":"Field","name":{"kind":"Name","value":"status"}},{"kind":"Field","name":{"kind":"Name","value":"error"}},{"kind":"Field","name":{"kind":"Name","value":"measured"}},{"kind":"Field","name":{"kind":"Name","value":"report"}},{"kind":"Field","name":{"kind":"Name","value":"recipe"}},{"kind":"Field","name":{"kind":"Name","value":"resolve_notes"}},{"kind":"Field","name":{"kind":"Name","value":"created_at"}},{"kind":"Field","name":{"kind":"Name","value":"job"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"status"}},{"kind":"Field","name":{"kind":"Name","value":"progress"}},{"kind":"Field","name":{"kind":"Name","value":"progress_note"}}]}}]}}]}}]} as unknown as DocumentNode<StylesSubscription, StylesSubscriptionVariables>;
+export const AnalyzeStyleDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"AnalyzeStyle"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"url"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"analyze_style"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"url"},"value":{"kind":"Variable","name":{"kind":"Name","value":"url"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"style_id"}},{"kind":"Field","name":{"kind":"Name","value":"job_id"}},{"kind":"Field","name":{"kind":"Name","value":"existing"}}]}}]}}]} as unknown as DocumentNode<AnalyzeStyleMutation, AnalyzeStyleMutationVariables>;
+export const DeleteStyleDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"DeleteStyle"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"id"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"uuid"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"delete_styles_by_pk"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"id"},"value":{"kind":"Variable","name":{"kind":"Name","value":"id"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}}]}}]}}]} as unknown as DocumentNode<DeleteStyleMutation, DeleteStyleMutationVariables>;
 export const LibraryDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"subscription","name":{"kind":"Name","value":"Library"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"videos"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"order_by"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"created_at"},"value":{"kind":"EnumValue","value":"desc"}}]}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"title"}},{"kind":"Field","name":{"kind":"Name","value":"channel"}},{"kind":"Field","name":{"kind":"Name","value":"duration"}},{"kind":"Field","name":{"kind":"Name","value":"width"}},{"kind":"Field","name":{"kind":"Name","value":"height"}},{"kind":"Field","name":{"kind":"Name","value":"vcodec"}},{"kind":"Field","name":{"kind":"Name","value":"status"}},{"kind":"Field","name":{"kind":"Name","value":"pipeline"}},{"kind":"Field","name":{"kind":"Name","value":"note"}},{"kind":"Field","name":{"kind":"Name","value":"storage_path"}},{"kind":"Field","name":{"kind":"Name","value":"thumb_path"}},{"kind":"Field","name":{"kind":"Name","value":"size_bytes"}},{"kind":"Field","name":{"kind":"Name","value":"created_at"}},{"kind":"Field","name":{"kind":"Name","value":"assets"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"kind"}},{"kind":"Field","name":{"kind":"Name","value":"data"}}]}},{"kind":"Field","name":{"kind":"Name","value":"clips_aggregate"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"aggregate"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"count"}}]}}]}},{"kind":"Field","alias":{"kind":"Name","value":"rendered"},"name":{"kind":"Name","value":"clips_aggregate"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"where"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"status"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"_in"},"value":{"kind":"ListValue","values":[{"kind":"StringValue","value":"rendered","block":false},{"kind":"StringValue","value":"approved","block":false},{"kind":"StringValue","value":"posted","block":false}]}}]}}]}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"aggregate"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"count"}}]}}]}},{"kind":"Field","name":{"kind":"Name","value":"jobs"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"where"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"status"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"_in"},"value":{"kind":"ListValue","values":[{"kind":"StringValue","value":"queued","block":false},{"kind":"StringValue","value":"claimed","block":false},{"kind":"StringValue","value":"running","block":false},{"kind":"StringValue","value":"cancel_requested","block":false}]}}]}}]}},{"kind":"Argument","name":{"kind":"Name","value":"order_by"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"created_at"},"value":{"kind":"EnumValue","value":"desc"}}]}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"type"}},{"kind":"Field","name":{"kind":"Name","value":"status"}},{"kind":"Field","name":{"kind":"Name","value":"progress"}},{"kind":"Field","name":{"kind":"Name","value":"progress_note"}}]}}]}}]}}]} as unknown as DocumentNode<LibrarySubscription, LibrarySubscriptionVariables>;
 export const VideoDetailDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"subscription","name":{"kind":"Name","value":"VideoDetail"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"id"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"uuid"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"videos_by_pk"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"id"},"value":{"kind":"Variable","name":{"kind":"Name","value":"id"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"title"}},{"kind":"Field","name":{"kind":"Name","value":"channel"}},{"kind":"Field","name":{"kind":"Name","value":"duration"}},{"kind":"Field","name":{"kind":"Name","value":"width"}},{"kind":"Field","name":{"kind":"Name","value":"height"}},{"kind":"Field","name":{"kind":"Name","value":"vcodec"}},{"kind":"Field","name":{"kind":"Name","value":"status"}},{"kind":"Field","name":{"kind":"Name","value":"pipeline"}},{"kind":"Field","name":{"kind":"Name","value":"note"}},{"kind":"Field","name":{"kind":"Name","value":"url"}},{"kind":"Field","name":{"kind":"Name","value":"storage_path"}},{"kind":"Field","name":{"kind":"Name","value":"thumb_path"}},{"kind":"Field","name":{"kind":"Name","value":"size_bytes"}},{"kind":"Field","name":{"kind":"Name","value":"created_at"}},{"kind":"Field","name":{"kind":"Name","value":"assets"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"kind"}},{"kind":"Field","name":{"kind":"Name","value":"path"}},{"kind":"Field","name":{"kind":"Name","value":"data"}},{"kind":"Field","name":{"kind":"Name","value":"created_at"}}]}},{"kind":"Field","name":{"kind":"Name","value":"clips"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"order_by"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"created_at"},"value":{"kind":"EnumValue","value":"asc"}}]}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"start_s"}},{"kind":"Field","name":{"kind":"Name","value":"end_s"}},{"kind":"Field","name":{"kind":"Name","value":"title"}},{"kind":"Field","name":{"kind":"Name","value":"hook"}},{"kind":"Field","name":{"kind":"Name","value":"reason"}},{"kind":"Field","name":{"kind":"Name","value":"origin"}},{"kind":"Field","name":{"kind":"Name","value":"status"}},{"kind":"Field","name":{"kind":"Name","value":"output_path"}},{"kind":"Field","name":{"kind":"Name","value":"render_settings"}},{"kind":"Field","name":{"kind":"Name","value":"created_at"}}]}},{"kind":"Field","name":{"kind":"Name","value":"jobs"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"order_by"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"created_at"},"value":{"kind":"EnumValue","value":"desc"}}]}},{"kind":"Argument","name":{"kind":"Name","value":"limit"},"value":{"kind":"IntValue","value":"30"}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"type"}},{"kind":"Field","name":{"kind":"Name","value":"status"}},{"kind":"Field","name":{"kind":"Name","value":"progress"}},{"kind":"Field","name":{"kind":"Name","value":"progress_note"}},{"kind":"Field","name":{"kind":"Name","value":"error"}},{"kind":"Field","name":{"kind":"Name","value":"clip_id"}},{"kind":"Field","name":{"kind":"Name","value":"created_at"}}]}}]}}]}}]} as unknown as DocumentNode<VideoDetailSubscription, VideoDetailSubscriptionVariables>;
 export const UpdateVideoDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"UpdateVideo"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"id"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"uuid"}}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"note"}},"type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"pipeline"}},"type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"update_videos_by_pk"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"pk_columns"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"id"},"value":{"kind":"Variable","name":{"kind":"Name","value":"id"}}}]}},{"kind":"Argument","name":{"kind":"Name","value":"_set"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"note"},"value":{"kind":"Variable","name":{"kind":"Name","value":"note"}}},{"kind":"ObjectField","name":{"kind":"Name","value":"pipeline"},"value":{"kind":"Variable","name":{"kind":"Name","value":"pipeline"}}}]}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"note"}},{"kind":"Field","name":{"kind":"Name","value":"pipeline"}}]}}]}}]} as unknown as DocumentNode<UpdateVideoMutation, UpdateVideoMutationVariables>;

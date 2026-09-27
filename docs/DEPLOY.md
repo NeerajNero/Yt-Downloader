@@ -107,6 +107,7 @@ Server-side files that are not in git:
 | Music beds + sound effects | `$LIBRARY_DIR/.music/` (or upload from the video page) |
 | Watermark / logo PNGs | `$LIBRARY_DIR/.overlays/` (or upload from the video page) |
 | Audio extracts cache | `$LIBRARY_DIR/.cache/audio/` (safe to delete) |
+| Reference Shorts for style clone | `$LIBRARY_DIR/.refs/<youtube id>/` (safe to delete) |
 
 **Wake-on-LAN**: the `wol` service runs on the host network and sends magic
 packets on the api's behalf. Put the gaming PC's MAC address into
