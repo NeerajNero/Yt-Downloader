@@ -142,3 +142,97 @@ def test_recipe_validation():
     assert r["auto_trim"] is True and r["watermark"]["position"] == "top_right" and "start" not in r
     with pytest.raises(ValueError):
         validate_recipe({"zoom_markers": [{"at": -1}]})
+
+
+def test_sequence_layout_and_graph():
+    s = render.RenderSettings(segments=[{"start": 1, "end": 4}, {"start": 8, "end": 12, "speed": 2},
+                                        {"start": 14, "end": 18, "speed": 0.5, "zoom_markers": [{"at": 1}]}],
+                              transition={"type": "fade", "duration": 0.4}, style="crop")
+    s.validate()
+    layout, total, d = render.sequence_layout(s.segments, s.transition)
+    assert [round(L["len"], 2) for L in layout] == [3.0, 2.0, 8.0]
+    assert [round(L["offset"], 2) for L in layout] == [0.0, 2.6, 4.2] and round(total, 2) == 12.2 and d == 0.4
+    inputs, graph, v, a = render.sequence_graph(s, layout, d, 30.0, 1080, 1920, "none")
+    assert inputs.count("{SRC}") == 3 and inputs[:4] == ["-ss", "1.000", "-to", "4.000"]
+    assert "[1:v]setpts=(PTS-STARTPTS)/2.0000,fps=30.0000,crop=" in graph
+    assert "[1:a]asetpts=PTS-STARTPTS,atempo=2.0000" in graph and "atempo=0.5000" in graph
+    assert "zoompan=z='1+(0.1500*between(in_time,1.000,1.500)" in graph
+    assert "xfade=transition=fade:duration=0.400:offset=2.600[vx1]" in graph
+    assert "[vx1][v2]xfade=transition=fade:duration=0.400:offset=4.200[vseq]" in graph
+    assert "acrossfade=d=0.400" in graph and (v, a) == ("vseq", "aseq")
+
+
+def test_sequence_cut_uses_concat_and_short_shots_clamp_transition():
+    s = render.RenderSettings(segments=[{"start": 0, "end": 1}, {"start": 5, "end": 9}], transition={"type": "cut"})
+    layout, total, d = render.sequence_layout(s.segments, s.transition)
+    assert d == 0.0 and total == 5.0
+    _, graph, _, _ = render.sequence_graph(s, layout, d, 30.0, 1080, 1920, "none")
+    assert "concat=n=2:v=1:a=1[vseq][aseq]" in graph
+    _, _, d2 = render.sequence_layout(s.segments, {"type": "fade", "duration": 2.0})
+    assert d2 == 0.5  # half of the 1 s shot
+
+
+def test_sequence_validation_and_naming():
+    with pytest.raises(ValueError, match="Segment 2"):
+        render.RenderSettings(segments=[{"start": 0, "end": 2}, {"start": 5, "end": 4}]).validate()
+    with pytest.raises(ValueError, match="transition"):
+        render.RenderSettings(segments=[{"start": 0, "end": 2}], transition={"type": "morph"}).validate()
+    with pytest.raises(ValueError):
+        render.RenderSettings().validate()
+    s = render.RenderSettings(segments=[{"start": 3, "end": 5}, {"start": 9, "end": 12}], transition={"type": "wipeleft"})
+    assert render.output_name("X", s, False) == "X_9x16_seq2_3s-12s_wipeleft_blur.mp4"
+    assert s.range_start == 3 and s.range_end == 12
+    p = validate_payload("render", {"segments": [{"start": 0, "end": 3}], "transition": {"type": "zoomin"}})
+    assert p["start"] is None and p["segments"][0]["speed"] == 1.0
+    with pytest.raises(ValueError, match="start and end"):
+        validate_payload("render", {"style": "crop"})
+
+
+def test_remap_transcript_and_manual_captions():
+    layout, _, _ = render.sequence_layout([{"start": 0, "end": 5}, {"start": 10, "end": 14, "speed": 2}], {"type": "cut"})
+    tr = {"segments": [{"start": 0, "end": 20, "text": "", "words": [
+        {"w": "a", "s": 1.0, "e": 1.5}, {"w": "gap", "s": 7.0, "e": 7.5}, {"w": "b", "s": 12.0, "e": 13.0}]}]}
+    out = render.remap_transcript(tr, layout)
+    assert [w["w"] for w in out["segments"][0]["words"]] == ["a", "b"]
+    assert out["segments"][0]["words"][1] == {"w": "b", "s": 6.0, "e": 6.5}
+    man = render.remap_manual({"speed": 2, "items": [{"text": "x", "start": 11, "duration": 2}, {"text": "y", "start": 8, "duration": 1}]}, layout)
+    assert man["items"] == [{"text": "x", "start": 5.5, "duration": 1.0}]
+
+
+def test_gemini_retries_then_falls_through_models(monkeypatch):
+    import io
+    import urllib.error
+    calls: list[str] = []
+    notes: list[str] = []
+
+    def fake_urlopen(req, timeout=0):
+        model = req.full_url.split("/models/")[1].split(":")[0]
+        calls.append(model)
+        if model == "gemini-2.5-flash":
+            raise urllib.error.HTTPError(req.full_url, 503, "busy", {}, io.BytesIO(b'{"error":{"message":"high demand"}}'))
+        if model == "gemini-2.5-flash-lite":
+            raise urllib.error.HTTPError(req.full_url, 404, "nope", {}, io.BytesIO(b'{"error":{"message":"not found"}}'))
+        body = json.dumps({"candidates": [{"content": {"parts": [{"text": json.dumps({"ok": 1})}]}}]}).encode()
+        class R(io.BytesIO):
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+        return R(body)
+
+    monkeypatch.setattr(gemini.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(gemini.time, "sleep", lambda s: None)
+    monkeypatch.setattr(gemini, "RETRY_DELAYS", (0, 0))
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    monkeypatch.delenv("GEMINI_MODELS", raising=False)
+    monkeypatch.delenv("GEMINI_MODEL", raising=False)
+    out = gemini.generate([{"text": "hi"}], schema={"type": "OBJECT"}, on_retry=notes.append)
+    assert out == {"ok": 1} and gemini.last_used_model == "gemini-2.0-flash"
+    assert calls == ["gemini-2.5-flash"] * 3 + ["gemini-2.5-flash-lite", "gemini-2.0-flash"]
+    assert any("busy (503)" in n for n in notes) and any("trying the next model" in n for n in notes)
+
+
+def test_gemini_model_chain_env(monkeypatch):
+    monkeypatch.setenv("GEMINI_MODELS", "gemini-2.5-pro, gemini-2.5-flash")
+    assert gemini.model_chain() == ["gemini-2.5-pro", "gemini-2.5-flash"]
+    monkeypatch.delenv("GEMINI_MODELS")
+    monkeypatch.setenv("GEMINI_MODEL", "gemini-2.0-flash")
+    assert gemini.model_chain()[0] == "gemini-2.0-flash" and "gemini-2.5-flash" in gemini.model_chain()

@@ -6,6 +6,7 @@ import ClipsList from '../components/video/ClipsList'
 import ExportControls from '../components/video/ExportControls'
 import Player from '../components/video/Player'
 import PostKit from '../components/video/PostKit'
+import Montage, { type Plan } from '../components/video/Montage'
 import RecipeExtras from '../components/video/RecipeExtras'
 import Progress from '../components/Progress'
 import {
@@ -41,6 +42,7 @@ export default function VideoPage() {
   const [transcript, setTranscript] = useState<Transcript | null>(null)
   const [scenes, setScenes] = useState<Scenes | null>(null)
   const [manual, setManual] = useState<ManualCaptions | null>(null)
+  const [clipPack, setClipPack] = useState<{ file: string; start: number; end: number }[] | null>(null)
   const [clipMax, setClipMax] = useState(3)
   const [clipScope, setClipScope] = useState<'whole' | 'range'>('whole')
   const [msg, setMsg] = useState<string | null>(null)
@@ -54,6 +56,9 @@ export default function VideoPage() {
   const captionsAsset = asset('captions')
   const editCopy = asset('edit_copy')
   const postkit = asset('postkit')
+  const clipPackAsset = asset('clip_pack')
+  const planAsset = asset('plan')
+  const plan = (planAsset?.data ?? null) as Plan | null
   const borders = (asset('borders')?.data ?? null) as { trim_x: number; trim_y: number } | null
 
   // Pull sidecar JSON when the asset row appears or changes.
@@ -69,6 +74,10 @@ export default function VideoPage() {
     if (captionsAsset?.path) fetchJson<ManualCaptions>(captionsAsset.path).then(setManual).catch(() => setManual(null))
     else setManual(null)
   }, [captionsAsset?.path, captionsAsset?.created_at])
+  useEffect(() => {
+    if (clipPackAsset?.path) fetchJson<{ clips: { file: string; start: number; end: number }[] }>(clipPackAsset.path).then((m) => setClipPack(m.clips)).catch(() => setClipPack(null))
+    else setClipPack(null)
+  }, [clipPackAsset?.path, clipPackAsset?.created_at])
 
   // "Tweak" from the review screen: /video/:id?clip=<id> loads that clip's range + settings.
   const wantClip = params.get('clip')
@@ -119,6 +128,14 @@ export default function VideoPage() {
     if (recipeId) payload.recipe_id = recipeId
     void run('render', payload, clipId ?? tweakClip ?? undefined, 'Render queued — progress shows in Jobs.')
     if (!clipId) setTweakClip(null)
+  }
+
+  const renderSequence = (segments: { start: number; end: number; speed: number; zoom_markers: unknown[] }[], transition: { type: string; duration: number }) => {
+    const fg = settings.style === 'blur' ? settings.fg_crop : 0
+    const payload: Record<string, unknown> = { ...settings, fg_crop: fg, segments, transition }
+    if (!payload.watermark) delete payload.watermark
+    if (recipeId) payload.recipe_id = recipeId
+    void run('render', payload, undefined, 'Montage render queued — progress shows in Jobs.')
   }
 
   const useClip = (c: Clip) => {
@@ -230,6 +247,7 @@ export default function VideoPage() {
           {btn('suggest', 'Suggest clips', 'Analyzing', { count: 5 }, { disabled: !transcriptAsset || !scenesAsset, title: transcriptAsset && scenesAsset ? 'Gemini picks the best moments' : 'Needs transcript + scenes first' })}
           <button className="btn small accent" onClick={() => void autoShorts()} disabled={Boolean(active('suggest')) || video.status !== 'ready'}>Auto Shorts</button>
           {btn('postkit', postkit ? 'Rewrite post kit' : 'Post kit', 'Writing', {}, { disabled: !transcriptAsset })}
+          {btn('plan', plan ? 'Re-plan the edit' : 'Plan an edit', 'Planning', {}, { disabled: !scenesAsset, title: scenesAsset ? 'AI picks the shots, order, speed and look — loads into Montage' : 'Needs scene detection first', accent: !plan })}
           {!editCopy && btn('convert', 'Edit copy', 'Converting')}
           {btn('tighten', 'Remove silences', 'Tightening')}
         </div>
@@ -278,6 +296,16 @@ export default function VideoPage() {
           </button>
           {asset('clip_pack') && <span className="chip ok">{(asset('clip_pack')!.data as { count?: number })?.count ?? ''} clips ready</span>}
         </div>
+      </section>
+
+      <section className="panel stack">
+        <div className="panel-head"><h2>Montage</h2><span className="muted small">shots → one clip with transitions</span></div>
+        <Montage video={video} plan={plan} scenes={scenes?.scenes ?? null} clipPack={clipPack}
+                 onApplyPlanLook={(pl) => setSettings((st) => ({ ...st, captions: pl.captions, caption_style: pl.caption_style as RenderSettings['caption_style'],
+                                                                   caption_pos: pl.caption_pos as RenderSettings['caption_pos'], grade: pl.grade as RenderSettings['grade'], vivid_amount: pl.vivid }))}
+                 rangeStart={parseTime(start)} rangeEnd={parseTime(end)}
+                 seek={(t) => { if (videoRef.current) { videoRef.current.currentTime = t; void videoRef.current.play() } }}
+                 onRender={renderSequence} disabled={video.status !== 'ready'} />
       </section>
 
       <section className="panel">

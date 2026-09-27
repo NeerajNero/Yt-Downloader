@@ -73,6 +73,7 @@ services:
       LIBRARY_DIR: /library
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
+      GEMINI_MODELS: ${GEMINI_MODELS:-}
       WOL_URL: http://host.docker.internal:9910
       WOL_BROADCAST: ${WOL_BROADCAST:-255.255.255.255}
     extra_hosts:
@@ -107,6 +108,7 @@ services:
       YT_WORKER_OS: ubuntu-server
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
+      GEMINI_MODELS: ${GEMINI_MODELS:-}
     volumes:
       - ${LIBRARY_DIR:-./downloads}:/library
       - workdata:/work

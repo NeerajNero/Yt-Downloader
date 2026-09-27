@@ -109,6 +109,16 @@ Server-side files that are not in git:
 | Audio extracts cache | `$LIBRARY_DIR/.cache/audio/` (safe to delete) |
 | Reference Shorts for style clone | `$LIBRARY_DIR/.refs/<youtube id>/` (safe to delete) |
 
+**Gemini**: `GEMINI_API_KEY` in `.env` enables suggest / post kit / style clone /
+edit plan on the brain. When a model returns 503 (high demand) or 429, calls
+retry with backoff and then fall through `GEMINI_MODELS` (comma-separated, default
+`gemini-2.5-flash,gemini-2.5-flash-lite,gemini-2.0-flash`). Check More → AI models
+in the PWA for what your key can call, or on the server:
+
+```sh
+curl -s "https://generativelanguage.googleapis.com/v1beta/models?key=$GEMINI_API_KEY" | grep '"name"'
+```
+
 **Wake-on-LAN**: the `wol` service runs on the host network and sends magic
 packets on the api's behalf. Put the gaming PC's MAC address into
 `machines.mac_address` (Hasura console → machines, or `psql`). The watchdog

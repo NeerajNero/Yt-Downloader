@@ -47,7 +47,7 @@ def handle(ctx: JobContext) -> dict:
         # 3. Gemini
         ctx.report(None, "asking gemini to watch it")
         report = core.analyze(ref_local, info.get("title") or row.get("title") or url, measured,
-                              ctx.tools, scratch, ctx.should_cancel)
+                              ctx.tools, scratch, ctx.should_cancel, on_retry=lambda n: ctx.report(None, n))
         recipe = core.to_recipe(report, measured)
         notes = core.resolve_markdown(report, measured)
         report["chips"] = core.chips(report, measured)
@@ -69,4 +69,4 @@ def handle(ctx: JobContext) -> dict:
         raise
     finally:
         ctx.storage.cleanup(ctx.id)
-    return {"style_id": style_id, "chips": report["chips"], "cuts": measured["cuts"]}
+    return {"style_id": style_id, "chips": report["chips"], "cuts": measured["cuts"], "model": report.get("model")}

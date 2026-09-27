@@ -92,6 +92,22 @@ async def overlays_upload(request: Request, filename: str = Query(...)):
     return {"ok": True, "name": safe}
 
 
+@router.get("/ai/models")
+def ai_models():
+    """Configured Gemini fallback chain + what the server's key can actually call."""
+    from worker.core import gemini
+    chain = gemini.model_chain()
+    if not gemini.api_key():
+        return {"configured": chain, "key": False, "available": [], "error": "GEMINI_API_KEY is not set on the brain."}
+    try:
+        available = gemini.list_models()
+    except Exception as e:  # noqa: BLE001
+        return {"configured": chain, "key": True, "available": [], "error": str(e)[:300]}
+    names = {m["name"] for m in available}
+    return {"configured": chain, "key": True, "available": available,
+            "missing": [m for m in chain if m not in names]}
+
+
 @router.get("/music")
 def music_list():
     d = settings.LIBRARY_DIR / ".music"

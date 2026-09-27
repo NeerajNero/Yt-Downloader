@@ -14,6 +14,7 @@ const JOB_TYPES: { key: string; label: string; needs: string }[] = [
   { key: 'suggest', label: 'Suggest clips', needs: 'Gemini key' },
   { key: 'postkit', label: 'Post kit', needs: 'Gemini key' },
   { key: 'style', label: 'Style clone', needs: 'Gemini key + yt-dlp' },
+  { key: 'plan', label: 'Edit plan', needs: 'Gemini key' },
   { key: 'render', label: 'Render', needs: 'ffmpeg (GPU encoder preferred)' },
   { key: 'convert', label: 'Edit copy', needs: 'ffmpeg (heavy)' },
   { key: 'clippack', label: 'Clip pack', needs: 'ffmpeg (heavy)' },
