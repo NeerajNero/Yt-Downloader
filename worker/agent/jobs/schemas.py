@@ -56,13 +56,42 @@ class ZoomMarker(BaseModel):
     zoom: float = Field(1.15, ge=1.0, le=3.0)
 
 
-class RenderPayload(BaseModel):
-    """v1 ExportBody minus `path` (the job's video_id / clip_id say what to render),
-    plus the Phase 3 recipe extras."""
-    model_config = ConfigDict(extra="forbid")
-
+class Segment(BaseModel):
+    """One shot of a sequence render. Times in source seconds; zoom markers
+    are relative to the shot's own (retimed) start."""
     start: float = Field(ge=0)
     end: float
+    speed: float = Field(1.0, ge=0.25, le=4.0)
+    zoom_markers: list[ZoomMarker] = Field(default_factory=list, max_length=20)
+
+    @model_validator(mode="after")
+    def _range(self):
+        if self.end <= self.start:
+            raise ValueError("End time must be after start time.")
+        return self
+
+
+TRANSITION_TYPES = Literal["cut", "fade", "fadeblack", "fadewhite", "dissolve", "wipeleft", "wiperight",
+                           "wipeup", "wipedown", "slideleft", "slideright", "slideup", "slidedown",
+                           "smoothleft", "smoothright", "zoomin", "circleopen", "circleclose", "radial",
+                           "pixelize", "hblur", "squeezeh", "squeezev"]
+
+
+class Transition(BaseModel):
+    type: TRANSITION_TYPES = "cut"
+    duration: float = Field(0.35, ge=0.1, le=2.0)
+
+
+class RenderPayload(BaseModel):
+    """v1 ExportBody minus `path` (the job's video_id / clip_id say what to render),
+    plus the Phase 3 recipe extras. Either start/end (one range) or `segments`
+    (a sequence with transitions, per-shot speed and punch-ins)."""
+    model_config = ConfigDict(extra="forbid")
+
+    start: float | None = Field(None, ge=0)
+    end: float | None = None
+    segments: list[Segment] = Field(default_factory=list, max_length=60)
+    transition: Transition = Field(default_factory=Transition)
     style: Literal["crop", "blur"] = "blur"
     vivid_amount: int = Field(0, ge=0, le=100)
     trim_x: float = Field(0.0, ge=0, le=40)
@@ -91,6 +120,10 @@ class RenderPayload(BaseModel):
 
     @model_validator(mode="after")
     def _range(self):
+        if self.segments:
+            return self
+        if self.start is None or self.end is None:
+            raise ValueError("Give a start and end, or a list of segments.")
         if self.end <= self.start:
             raise ValueError("End time must be after start time.")
         return self
@@ -101,8 +134,8 @@ class RecipeSettings(RenderPayload):
     `auto_trim` / `captions_if_speech` are auto-apply hints, not ffmpeg settings."""
     model_config = ConfigDict(extra="forbid")
 
-    start: float = 0.0
-    end: float = 1.0
+    start: float | None = None
+    end: float | None = None
     auto_trim: bool = False              # fill trim_x/trim_y from the borders asset
     captions_if_speech: bool = False     # only burn captions when the transcript has ≥20 words
 
@@ -143,6 +176,12 @@ class StylePayload(BaseModel):
     url: str | None = None
 
 
+class PlanPayload(BaseModel):
+    target_length: float = Field(30.0, ge=8, le=180)
+    max_shots: int = Field(8, ge=2, le=12)
+    style_id: str | None = None      # plan "in the style of" an analysed Short
+
+
 PAYLOADS: dict[str, type[BaseModel]] = {
     "noop": NoopPayload,
     "transcribe": TranscribePayload,
@@ -156,11 +195,12 @@ PAYLOADS: dict[str, type[BaseModel]] = {
     "suggest": SuggestPayload,
     "postkit": PostkitPayload,
     "style": StylePayload,
+    "plan": PlanPayload,
 }
 
 # Job types that need a video_id.
 NEEDS_VIDEO = {"transcribe", "scenes", "borders", "convert", "render", "clippack",
-               "tighten", "suggest", "postkit"}
+               "tighten", "suggest", "postkit", "plan"}
 
 
 def _explain(e: ValidationError) -> str:
@@ -188,6 +228,6 @@ def validate_payload(job_type: str, payload: dict | None) -> dict:
 def validate_recipe(settings: dict | None) -> dict:
     """Recipe settings as stored in `recipes.settings`; raises ValueError."""
     try:
-        return RecipeSettings.model_validate(settings or {}).model_dump(exclude={"start", "end", "recipe_id"})
+        return RecipeSettings.model_validate(settings or {}).model_dump(exclude={"start", "end", "recipe_id", "segments"})
     except ValidationError as e:
         raise ValueError(_explain(e)) from e

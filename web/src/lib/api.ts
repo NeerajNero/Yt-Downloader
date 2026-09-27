@@ -68,3 +68,9 @@ export const uploadOverlay = (file: File) =>
 
 export const timelineUrl = (videoId: string, status: 'all' | 'rendered' | 'approved') =>
   `/api/files/${videoId}/timeline.fcpxml?status=${status}`
+
+export interface AiModels {
+  configured: string[]; key: boolean; error?: string; missing?: string[]
+  available: { name: string; display?: string; input_tokens?: number; output_tokens?: number }[]
+}
+export const aiModels = () => fetch('/api/ai/models').then(check).then((r) => r.json() as Promise<AiModels>)

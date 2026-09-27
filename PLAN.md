@@ -439,7 +439,28 @@ cuts, zooms, colour, audio, overlays, motion, Resolve steps). `worker/core/style
 Action; Styles page under More (Save as recipe / Breakdown / Resolve steps / Watch). Honest limits:
 punch-in timestamps and SFX placement can't be inferred into a recipe — the notes say so.
 
-### Phase 4 — Idea engine  ← NEXT
+### Phase 3.6 — Sequence render + montage builder + AI edit plan ✅ built 2026-09-27 (watch folder pending)
+1. ✅ **Sequence rendering**: the render payload takes `segments: [{start, end, speed, zoom_markers}]` +
+   `transition: {type, duration}` instead of one range. Each shot is its own seeked input (no full decode),
+   retimed (`setpts` / `atempo`), framed + graded like a single render, punched, then joined with
+   `xfade` + `acrossfade` (or `concat` for hard cuts). Captions are remapped from source time to
+   sequence time (`remap_transcript`), and zoom / captions / rotation / watermark / music / sfx apply to
+   the composite. 23 transitions exposed (`render.TRANSITIONS`). `run_sequence` in `worker/core/render.py`.
+2. ✅ Montage builder on the video page (`components/video/Montage.tsx`): shots from scene cuts / clip
+   pack / suggested clips / the current Export range → include, reorder, speed, punch, tap-to-preview →
+   transition + length → Render montage (uses the Export panel's look). Builder state persists per video
+   in localStorage.
+3. ✅ AI edit plan (`plan` job, `worker/core/plan.py`): transcript + scenes + keyframes (+ the video's
+   note, + optionally a Style's breakdown via `style_id`) → ordered shots with speed/punch, transition,
+   caption style/pos, grade, vivid, music vibe, sfx ideas, Resolve notes → `plan` asset (data inline) →
+   "AI plan" source in the montage builder (also sets the Export look). Runs automatically in the
+   prepare/shorts pipelines once transcript + scenes exist. "Plan an edit" button on the video page.
+3b. ✅ Gemini resilience: retry with backoff on 429/5xx, then fall through `GEMINI_MODELS` (default
+   2.5-flash → 2.5-flash-lite → 2.0-flash); models unavailable to the key are skipped; progress notes show
+   retries; More → AI models lists the chain and what the key can call (`GET /api/ai/models`).
+4. Watch folder on the gaming PC worker for OBS recordings (auto-import).
+
+### Phase 4 — Idea engine  ← NEXT after 3.6
 1. `ideas` table. Fetchers in `api/app/ideas/`: YouTube Data API (trending gaming videos, keyword
    searches), source-channel RSS (`/feeds/videos.xml?channel_id=`, no quota), own-channel stats
    (YouTube Analytics API, OAuth).

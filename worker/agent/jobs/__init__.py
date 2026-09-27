@@ -25,6 +25,7 @@ SIDECAR_SUFFIX = {
     "captions": ".captions.json",
     "suggestions": ".suggestions.json",
     "postkit": ".postkit.json",
+    "plan": ".plan.json",
 }
 
 
@@ -115,7 +116,7 @@ Handler = Callable[[JobContext], dict[str, Any]]
 _MODULES = {
     "noop": "noop", "transcribe": "transcribe", "download": "download", "scenes": "scenes",
     "borders": "borders", "convert": "convert", "render": "render", "clippack": "clippack",
-    "tighten": "tighten", "suggest": "suggest", "postkit": "postkit", "style": "style",
+    "tighten": "tighten", "suggest": "suggest", "postkit": "postkit", "style": "style", "plan": "plan",
 }
 
 

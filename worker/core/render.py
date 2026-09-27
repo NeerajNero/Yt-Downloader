@@ -159,11 +159,11 @@ _ROTATE_FILTER = {
 
 def export_filter(style, vivid_amount, trim_x=0.0, trim_y=0.0, fg_crop=0.0,
                   width=1080, height=1920, rotate="none", look="none",
-                  look_sharp=50, grade="none"):
+                  look_sharp=50, grade="none", in_label="0:v", pre_chain=""):
     rot = _ROTATE_FILTER.get(rotate)
     pre = _pre_crop(trim_x, trim_y)
-    # Source-prep chain applied first: rotate, then border trim.
-    prep = ",".join(p for p in (rot, pre) if p)
+    # Source-prep chain applied first: (segment timing), rotate, then border trim.
+    prep = ",".join(p for p in (pre_chain, rot, pre) if p)
     # Grade chain: vivid boost, then colour grade, then the stylized look.
     grade_parts = []
     if vivid_amount:
@@ -188,7 +188,7 @@ def export_filter(style, vivid_amount, trim_x=0.0, trim_y=0.0, fg_crop=0.0,
         fg += (f"scale={width}:{height}:force_original_aspect_ratio=decrease"
                ":force_divisible_by=2")
         fg += grade_chain
-        head = f"[0:v]{prep},split=2" if prep else "[0:v]split=2"
+        head = f"[{in_label}]{prep},split=2" if prep else f"[{in_label}]split=2"
         return (
             f"{head}[bgin][fgin];"
             f"[bgin]scale={width}:{height}:force_original_aspect_ratio=increase,"
@@ -204,11 +204,26 @@ def export_filter(style, vivid_amount, trim_x=0.0, trim_y=0.0, fg_crop=0.0,
     return vf
 
 
+# xfade transitions we expose (ffmpeg names), keyed by the friendly payload name.
+TRANSITIONS = {
+    "cut": None,
+    "fade": "fade", "fadeblack": "fadeblack", "fadewhite": "fadewhite", "dissolve": "dissolve",
+    "wipeleft": "wipeleft", "wiperight": "wiperight", "wipeup": "wipeup", "wipedown": "wipedown",
+    "slideleft": "slideleft", "slideright": "slideright", "slideup": "slideup", "slidedown": "slidedown",
+    "smoothleft": "smoothleft", "smoothright": "smoothright",
+    "zoomin": "zoomin", "circleopen": "circleopen", "circleclose": "circleclose", "radial": "radial",
+    "pixelize": "pixelize", "hblur": "hblur", "squeezeh": "squeezeh", "squeezev": "squeezev",
+}
+
+
 @dataclass
 class RenderSettings:
-    """The v1 ExportBody shape (minus `path`); also the render job payload."""
-    start: float
-    end: float
+    """The v1 ExportBody shape (minus `path`); also the render job payload.
+    Either a single range (start/end) or a `segments` list (sequence render)."""
+    start: float | None = None
+    end: float | None = None
+    segments: list = field(default_factory=list)     # [{"start","end","speed","zoom_markers"}]
+    transition: dict = field(default_factory=dict)   # {"type": "fade", "duration": 0.35}
     style: str = "blur"
     vivid_amount: int = 0
     trim_x: float = 0.0
@@ -236,11 +251,38 @@ class RenderSettings:
     zoom_markers: list = field(default_factory=list) # [{"at", "duration", "zoom"}]
     extra: dict = field(default_factory=dict)
 
+    @property
+    def is_sequence(self) -> bool:
+        return bool(self.segments)
+
+    @property
+    def range_start(self) -> float:
+        return float(self.segments[0]["start"]) if self.segments else float(self.start or 0)
+
+    @property
+    def range_end(self) -> float:
+        return float(self.segments[-1]["end"]) if self.segments else float(self.end or 0)
+
     def validate(self) -> None:
         if self.style not in STYLES:
             raise ValueError("Style must be 'crop' or 'blur'.")
-        if self.start < 0 or self.end <= self.start:
-            raise ValueError("End time must be after start time.")
+        if self.segments:
+            for i, seg in enumerate(self.segments, 1):
+                a, b = float(seg.get("start", -1)), float(seg.get("end", -1))
+                if a < 0 or b <= a:
+                    raise ValueError(f"Segment {i}: end time must be after start time.")
+                sp = float(seg.get("speed", 1.0) or 1.0)
+                if not (0.25 <= sp <= 4.0):
+                    raise ValueError(f"Segment {i}: speed must be between 0.25 and 4.")
+            t = (self.transition or {}).get("type", "cut")
+            if t not in TRANSITIONS:
+                raise ValueError("Unknown transition: " + str(t))
+            d = float((self.transition or {}).get("duration", 0.35) or 0.35)
+            if not (0.1 <= d <= 2.0):
+                raise ValueError("Transition duration must be between 0.1 and 2 seconds.")
+        else:
+            if self.start is None or self.end is None or self.start < 0 or self.end <= self.start:
+                raise ValueError("End time must be after start time.")
         if not (0 <= self.trim_x <= 40 and 0 <= self.trim_y <= 40):
             raise ValueError("Trim must be between 0 and 40 percent.")
         if not (0 <= self.fg_crop <= 40):
@@ -308,6 +350,9 @@ def output_name(stem: str, s: RenderSettings, has_music: bool) -> str:
     if s.zoom_markers:
         suffix += f"_punch{len(s.zoom_markers)}"
     aspect = "16x9" if s.orientation == "landscape" else "9x16"
+    if s.segments:
+        t = (s.transition or {}).get("type", "cut")
+        return f"{stem}_{aspect}_seq{len(s.segments)}_{int(s.range_start)}s-{int(s.range_end)}s_{t}_{s.style}{suffix}.mp4"
     return f"{stem}_{aspect}_{int(s.start)}s-{int(s.end)}s_{s.style}{suffix}.mp4"
 
 
@@ -323,6 +368,10 @@ def run_export(src: Path, out_path: Path, s: RenderSettings, tools: Tools, encod
     src = Path(src)
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    if s.is_sequence:
+        return run_sequence(src, out_path, s, tools, encoder, report, should_cancel,
+                            transcript=transcript, manual_captions=manual_captions, music_path=music_path,
+                            watermark_path=watermark_path, sfx_paths=sfx_paths)
     start, end = float(s.start), float(s.end)
     amount = int(s.vivid_amount)
 
@@ -437,6 +486,234 @@ def run_export(src: Path, out_path: Path, s: RenderSettings, tools: Tools, encod
     ]
     try:
         tools.run_progress(cmd, end - start, report, should_cancel, note="rendering")
+        return out_path
+    except BaseException:
+        out_path.unlink(missing_ok=True)
+        raise
+    finally:
+        if ass_file:
+            Path(ass_file).unlink(missing_ok=True)
+
+
+# ---------------------------------------------------------------- sequences
+
+def _atempo_chain(speed: float) -> str:
+    """atempo only accepts 0.5–2.0 per instance; chain for the rest."""
+    parts = []
+    sp = speed
+    while sp > 2.0:
+        parts.append("atempo=2.0"); sp /= 2.0
+    while sp < 0.5:
+        parts.append("atempo=0.5"); sp /= 0.5
+    parts.append(f"atempo={sp:.4f}")
+    return ",".join(parts)
+
+
+def sequence_layout(segments: list[dict], transition: dict) -> tuple[list[dict], float, float]:
+    """Output-time layout: for each segment its speed, output length and start
+    offset in the assembled clip (transitions overlap by `d`). Returns
+    (layout, total_len, d)."""
+    kind = (transition or {}).get("type", "cut")
+    d = float((transition or {}).get("duration", 0.35) or 0.35) if TRANSITIONS.get(kind) else 0.0
+    lens = []
+    for seg in segments:
+        sp = float(seg.get("speed", 1.0) or 1.0)
+        lens.append((float(seg["end"]) - float(seg["start"])) / sp)
+    if d and len(segments) > 1:
+        d = min(d, min(lens) / 2.0)   # a transition can't be longer than half the shortest shot
+    layout, offset = [], 0.0
+    for seg, ln in zip(segments, lens):
+        layout.append({"start": float(seg["start"]), "end": float(seg["end"]),
+                       "speed": float(seg.get("speed", 1.0) or 1.0), "len": ln, "offset": offset,
+                       "zoom_markers": list(seg.get("zoom_markers") or [])})
+        offset += ln - d
+    total = offset + d if d else offset
+    return layout, total, d
+
+
+def remap_transcript(transcript: dict, layout: list[dict]) -> dict:
+    """Move transcript word times from source time into sequence time
+    (per-segment offset + speed), dropping words outside every segment."""
+    segs_out = []
+    for seg in transcript.get("segments", []):
+        words_out = []
+        for w in seg.get("words") or []:
+            for L in layout:
+                if L["start"] <= w["s"] < L["end"]:
+                    ns = L["offset"] + (w["s"] - L["start"]) / L["speed"]
+                    ne = L["offset"] + (min(w["e"], L["end"]) - L["start"]) / L["speed"]
+                    words_out.append({"w": w["w"], "s": round(ns, 2), "e": round(max(ne, ns + 0.05), 2)})
+                    break
+        if words_out:
+            segs_out.append({"start": words_out[0]["s"], "end": words_out[-1]["e"],
+                             "text": " ".join(x["w"] for x in words_out), "words": words_out})
+    return {**transcript, "segments": segs_out}
+
+
+def remap_manual(manual: dict, layout: list[dict]) -> dict:
+    items = []
+    for it in manual.get("items", []):
+        st = float(it["start"])
+        for L in layout:
+            if L["start"] <= st < L["end"]:
+                items.append({"text": it["text"], "start": round(L["offset"] + (st - L["start"]) / L["speed"], 2),
+                              "duration": round(float(it.get("duration", 3)) / L["speed"], 2)})
+                break
+    return {**manual, "items": items}
+
+
+def sequence_graph(s: RenderSettings, layout: list[dict], d: float, fps: float, build_w: int, build_h: int,
+                   source_rotate: str) -> tuple[list[str], str, str, str]:
+    """Build (per-input args, filter graph up to [vseq]/[aseq], vlabel, alabel)
+    for the segments: seek each range as its own input, retime, frame, punch,
+    then xfade/acrossfade (or concat for hard cuts)."""
+    inputs: list[str] = []
+    parts: list[str] = []
+    n = len(layout)
+    for k, L in enumerate(layout):
+        inputs += ["-ss", f"{L['start']:.3f}", "-to", f"{L['end']:.3f}", "-i", "{SRC}"]
+        pre = f"setpts=(PTS-STARTPTS)/{L['speed']:.4f},fps={fps:.4f}"
+        filt = export_filter(s.style, int(s.vivid_amount), s.trim_x, s.trim_y, s.fg_crop, build_w, build_h,
+                             source_rotate, s.look, s.look_sharp, s.grade, in_label=f"{k}:v", pre_chain=pre)
+        chain = filt if s.style == "blur" else f"[{k}:v]{filt}"
+        if L["zoom_markers"]:
+            chain += "," + _punch_filter(build_w, build_h, fps, L["len"], L["zoom_markers"])
+        parts.append(f"{chain},format=yuv420p,settb=AVTB[v{k}]")
+        a = f"[{k}:a]asetpts=PTS-STARTPTS"
+        if abs(L["speed"] - 1.0) > 1e-3:
+            a += "," + _atempo_chain(L["speed"])
+        parts.append(f"{a},aformat=sample_rates=48000:channel_layouts=stereo,asettb=AVTB[a{k}]")
+
+    kind = TRANSITIONS.get((s.transition or {}).get("type", "cut"))
+    if n == 1:
+        parts.append("[v0]null[vseq];[a0]anull[aseq]")
+    elif not kind:
+        parts.append("".join(f"[v{k}][a{k}]" for k in range(n)) + f"concat=n={n}:v=1:a=1[vseq][aseq]")
+    else:
+        vprev, aprev = "v0", "a0"
+        for k in range(1, n):
+            off = layout[k]["offset"]
+            vout = "vseq" if k == n - 1 else f"vx{k}"
+            aout = "aseq" if k == n - 1 else f"ax{k}"
+            parts.append(f"[{vprev}][v{k}]xfade=transition={kind}:duration={d:.3f}:offset={off:.3f}[{vout}]")
+            parts.append(f"[{aprev}][a{k}]acrossfade=d={d:.3f}:c1=tri:c2=tri[{aout}]")
+            vprev, aprev = vout, aout
+    return inputs, ";".join(parts), "vseq", "aseq"
+
+
+def run_sequence(src: Path, out_path: Path, s: RenderSettings, tools: Tools, encoder: str,
+                 report: Report, should_cancel: ShouldCancel,
+                 transcript: dict | None = None, manual_captions: dict | None = None,
+                 music_path: Path | None = None, watermark_path: Path | None = None,
+                 sfx_paths: list[tuple[Path, float, float]] | None = None) -> Path:
+    """Assemble several ranges of the source into one clip with transitions,
+    per-segment speed and punch-ins, then the usual captions / zoom / rotation /
+    watermark / music / sfx on the composite."""
+    layout, total, d = sequence_layout(s.segments, s.transition)
+    fps = tools.probe_fps(src)
+    final_w, final_h = _dims(s.resolution, s.orientation)
+    match_rotate = bool(s.rotate_captions) and s.rotate != "none"
+    if match_rotate:
+        if s.rotate in ("right", "left"):
+            build_w, build_h = final_h, final_w
+            build_orient = "landscape" if s.orientation == "portrait" else "portrait"
+        else:
+            build_w, build_h = final_w, final_h
+            build_orient = s.orientation
+        source_rotate, composite_rotate = "none", s.rotate
+    else:
+        build_w, build_h = final_w, final_h
+        build_orient = s.orientation
+        source_rotate, composite_rotate = s.rotate, "none"
+
+    seg_inputs, graph, vlab, alab = sequence_graph(s, layout, d, fps, build_w, build_h, source_rotate)
+    inputs = [x.replace("{SRC}", str(src)) for x in seg_inputs]
+    next_input = len(layout)
+
+    # composite video chain
+    comp = []
+    if s.zoom_markers:
+        comp.append(_punch_filter(build_w, build_h, fps, total, s.zoom_markers,
+                                  base_target=1.12 if s.zoom == "in" else None))
+    elif s.zoom == "in":
+        comp.append(_zoom_filter(build_w, build_h, fps, total))
+
+    ass_file = None
+    if s.captions:
+        if not tools.has_subtitles_filter():
+            raise RuntimeError("This ffmpeg build can't burn captions (no libass).")
+        fd, ass_file = tempfile.mkstemp(suffix=".ass")
+        os.close(fd)
+        if s.caption_source == "manual":
+            if not manual_captions:
+                raise RuntimeError("No manual captions yet — add them in the caption editor.")
+            n = write_manual_captions_ass(remap_manual(manual_captions, layout), 0.0, total, ass_file,
+                                          position=s.caption_pos, style=s.caption_style, orientation=build_orient)
+        else:
+            if not transcript:
+                raise RuntimeError("No transcript yet — run Transcribe first.")
+            n = write_captions_ass(remap_transcript(transcript, layout), 0.0, total, ass_file,
+                                   position=s.caption_pos, style=s.caption_style, orientation=build_orient)
+        if n > 0:
+            comp.append(subtitles_filter_path(ass_file))
+    if composite_rotate != "none":
+        comp.append(_ROTATE_FILTER[composite_rotate])
+
+    vgraph = f"[{vlab}]" + (",".join(comp) if comp else "null")
+    if watermark_path and Path(watermark_path).is_file() and s.watermark:
+        vgraph += "[vbase];"
+        frag, _ = _watermark_chain(final_w, final_h, s.watermark, "vbase", next_input)
+        inputs += ["-i", str(watermark_path)]
+        next_input += 1
+        vgraph += frag.replace("[vwm]", "[v]")
+    else:
+        vgraph += "[v]"
+
+    # composite audio: sequence audio (+ music bed) (+ sfx)
+    loudnorm = "loudnorm=I=-14:TP=-1.5:LRA=11"
+    use_music = bool(music_path and Path(music_path).is_file())
+    sfx_paths = [(p, at, g) for p, at, g in (sfx_paths or []) if Path(p).is_file()]
+    aparts: list[str] = []
+    mix_inputs = [f"[{alab}]"]
+    if use_music:
+        gain = round(max(0.0, min(s.music_gain, 100.0)) / 100.0 * 1.2, 3)
+        inputs += ["-stream_loop", "-1", "-i", str(music_path)]
+        aparts.append(f"[{next_input}:a]volume={gain}[mus]")
+        next_input += 1
+        if s.duck:
+            aparts.append(f"[mus][{alab}]sidechaincompress=threshold=0.02:ratio=8:attack=15:release=350[duckmus]")
+            mix_inputs.append("[duckmus]")
+        else:
+            mix_inputs.append("[mus]")
+    for i, (p, at, g) in enumerate(sfx_paths):
+        inputs += ["-i", str(p)]
+        ms = int(max(0.0, at) * 1000)
+        vol = round(max(0.0, min(g, 100.0)) / 100.0 * 1.5, 3)
+        aparts.append(f"[{next_input}:a]adelay={ms}|{ms},volume={vol}[sfx{i}]")
+        mix_inputs.append(f"[sfx{i}]")
+        next_input += 1
+    if len(mix_inputs) > 1:
+        norm = ":normalize=0" if sfx_paths else ""
+        # the sequence audio is consumed twice when ducking (sidechain + mix): split it
+        if use_music and s.duck:
+            aparts.insert(0, f"[{alab}]asplit=2[aseqA][aseqB]")
+            aparts = [x.replace(f"[mus][{alab}]", "[mus][aseqA]") for x in aparts]
+            mix_inputs[0] = "[aseqB]"
+        aparts.append("".join(mix_inputs) + f"amix=inputs={len(mix_inputs)}:duration=first:dropout_transition=0{norm}[amix]")
+        aparts.append(f"[amix]{loudnorm}[a]" if s.loudness else "[amix]anull[a]")
+    else:
+        aparts.append(f"[{alab}]{loudnorm}[a]" if s.loudness else f"[{alab}]anull[a]")
+
+    full = graph + ";" + vgraph + ";" + ";".join(aparts)
+    cmd = [
+        tools.ffmpeg, "-y", *inputs,
+        "-filter_complex", full, "-map", "[v]", "-map", "[a]",
+        *encoders.video_args(encoder, "final"), *encoders.AUDIO_ARGS, *encoders.MP4_ARGS,
+        "-progress", "pipe:1", "-nostats", "-loglevel", "error",
+        str(out_path),
+    ]
+    try:
+        tools.run_progress(cmd, total, report, should_cancel, note=f"rendering {len(layout)} shots")
         return out_path
     except BaseException:
         out_path.unlink(missing_ok=True)

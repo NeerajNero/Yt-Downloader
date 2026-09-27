@@ -4,7 +4,7 @@ videos.status -> 'ready'  (download finished / file uploaded)
     pipeline prepare|shorts : transcribe + scenes (+ borders for shorts)
 jobs.status   -> 'done'
     transcribe            : postkit (prepare|shorts)
-    transcribe|scenes     : suggest once both assets exist (prepare|shorts)
+    transcribe|scenes     : suggest + plan once both assets exist (prepare|shorts)
     suggest               : render every proposed AI clip with the v1 Auto Shorts
                             defaults (shorts only)
 Every insert is guarded against duplicates so retries are harmless.
@@ -68,6 +68,7 @@ def on_video_ready(video: dict) -> list[str]:
         if "transcript" in have and "scenes" in have:
             made.append(_enqueue(cur, "suggest", video["id"]))
             made.append(_enqueue(cur, "postkit", video["id"]))
+            made.append(_enqueue(cur, "plan", video["id"]))
     return [m for m in made if m]
 
 
@@ -145,6 +146,7 @@ def on_job_done(job: dict) -> list[str]:
                         (vid, newest))
             if not cur.fetchone():
                 made.append(_enqueue(cur, "suggest", vid, parent_job_id=job["id"]))
+                made.append(_enqueue(cur, "plan", vid, parent_job_id=job["id"]))
 
         if job["type"] == "suggest" and pipeline == "shorts":
             made.extend(auto_render(cur, vid, have, parent_job_id=job["id"]))

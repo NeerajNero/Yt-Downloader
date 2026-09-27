@@ -65,13 +65,13 @@ def handle(ctx: JobContext) -> dict:
         ctx.db.execute(
             "update clips set status = 'rendered', output_path = %s, render_settings = %s::jsonb, "
             "start_s = %s, end_s = %s, recipe_id = coalesce(%s::uuid, recipe_id) where id = %s",
-            (rel, json.dumps(p), settings.start, settings.end, recipe_id, clip_id),
+            (rel, json.dumps(p), settings.range_start, settings.range_end, recipe_id, clip_id),
         )
     else:
         row = ctx.db.fetch_one(
             """insert into clips (video_id, start_s, end_s, origin, status, output_path, render_settings, job_id, recipe_id)
                values (%s, %s, %s, %s, 'rendered', %s, %s::jsonb, %s, %s::uuid) returning id""",
-            (vid, settings.start, settings.end, "recipe" if recipe_id else "manual", rel, json.dumps(p), ctx.id, recipe_id),
+            (vid, settings.range_start, settings.range_end, "recipe" if recipe_id else "manual", rel, json.dumps(p), ctx.id, recipe_id),
         )
         clip_id = str(row["id"])
     return {"output_path": rel, "clip_id": str(clip_id), "encoder": ctx.encoder}

@@ -20,7 +20,8 @@ def handle(ctx: JobContext) -> dict:
     src = ctx.source_file(video)
     ctx.report(None, "asking gemini")
     data = gemini.suggest_clips(src, video["title"], video.get("duration"), transcript, scenes,
-                                ctx.tools, ctx.should_cancel, count=ctx.payload["count"])
+                                ctx.tools, ctx.should_cancel, count=ctx.payload["count"],
+                                on_retry=lambda n: ctx.report(None, n))
     data["src"] = video["storage_path"]
     rel = ctx.storage.put_json(ctx.sidecar_rel(video, "suggestions"), data)
     ctx.upsert_asset(vid, "suggestions", rel, {"clips": len(data["clips"]), "model": data["model"]})

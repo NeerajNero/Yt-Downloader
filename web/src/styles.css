@@ -298,3 +298,10 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; }
 .notes h4 { margin: 8px 0 4px; font-size: 13px; color: var(--muted); }
 .notes p { margin: 2px 0; }
 .notes .indent { padding-left: 16px; }
+
+/* ---- Montage builder ----------------------------------------------------- */
+.shot-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 4px 6px; border-radius: 6px; background: var(--panel); }
+.shot-row.off { opacity: 0.5; }
+.shot-row input[type="checkbox"] { accent-color: var(--accent); }
+.shot-row select { padding: 3px 6px; font-size: 12px; }
+.shot-time { background: none; border: 0; color: var(--accent); font-size: 12px; cursor: pointer; padding: 2px 4px; }

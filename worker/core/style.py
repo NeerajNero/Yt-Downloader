@@ -125,7 +125,7 @@ def _video_part(ref: Path, tools: Tools, scratch: Path) -> dict:
 
 
 def analyze(ref: Path, title: str, measured: dict, tools: Tools, scratch: Path,
-            should_cancel: ShouldCancel) -> dict:
+            should_cancel: ShouldCancel, on_retry=None) -> dict:
     """Ask Gemini to break the edit down, grounded by the measured facts."""
     if should_cancel():
         raise Cancelled()
@@ -142,7 +142,9 @@ Be concrete and honest — say "none" when an element is absent. Then give DaVin
 recreate the parts a simple renderer cannot (text animations, speed ramps, transitions, sound design),
 with exact values where you can (font size relative to frame, zoom %, EQ/compressor settings, LUFS)."""
     parts = [{"text": prompt}, _video_part(ref, tools, scratch)]
-    return gemini.generate(parts, schema=STYLE_SCHEMA, timeout=300)
+    out = gemini.generate(parts, schema=STYLE_SCHEMA, timeout=300, on_retry=on_retry)
+    out["model"] = gemini.last_used_model
+    return out
 
 
 _CAPTION_STYLES = {"karaoke", "typewriter", "pop", "minimal"}

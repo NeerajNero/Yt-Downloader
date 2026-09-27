@@ -6,18 +6,29 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import os
 import subprocess
 import tempfile
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+
+log = logging.getLogger("gemini")
 
 from .errors import Cancelled
 from .ffmpeg import ShouldCancel, Tools
 
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+MODELS_URL = "https://generativelanguage.googleapis.com/v1beta/models?pageSize=200"
 DEFAULT_MODEL = "gemini-2.5-flash"
+# Fallback chain when a model is saturated (503) or rate-limited (429):
+# GEMINI_MODELS="a,b,c" overrides; GEMINI_MODEL alone puts that model first.
+DEFAULT_CHAIN = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"]
+RETRY_DELAYS = (2, 6, 15)            # per model, seconds, before moving to the next
+RETRY_STATUSES = {429, 500, 502, 503, 504}
+last_used_model: str | None = None   # which model answered the last call (for job results)
 
 MAX_KEYFRAMES = 16
 MAX_TRANSCRIPT_CHARS = 16000
@@ -60,10 +71,53 @@ def api_key() -> str | None:
 
 
 def model_name() -> str:
-    return os.environ.get("GEMINI_MODEL", DEFAULT_MODEL)
+    return model_chain()[0]
 
 
-def generate(parts, schema=None, timeout=180):
+def model_chain() -> list[str]:
+    raw = os.environ.get("GEMINI_MODELS")
+    if raw:
+        chain = [m.strip() for m in raw.split(",") if m.strip()]
+        if chain:
+            return chain
+    single = os.environ.get("GEMINI_MODEL")
+    if single:
+        return [single] + [m for m in DEFAULT_CHAIN if m != single]
+    return list(DEFAULT_CHAIN)
+
+
+def list_models(key: str | None = None, timeout: int = 30) -> list[dict]:
+    """Models this key can call with generateContent (name, display name, limits)."""
+    key = key or api_key()
+    if not key:
+        raise RuntimeError("No Gemini API key.")
+    req = urllib.request.Request(MODELS_URL, headers={"x-goog-api-key": key})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        data = json.load(resp)
+    out = []
+    for m in data.get("models", []):
+        if "generateContent" not in (m.get("supportedGenerationMethods") or []):
+            continue
+        out.append({"name": m.get("name", "").removeprefix("models/"), "display": m.get("displayName"),
+                    "input_tokens": m.get("inputTokenLimit"), "output_tokens": m.get("outputTokenLimit")})
+    return out
+
+
+def _short_error(body: str) -> str:
+    try:
+        msg = json.loads(body).get("error", {}).get("message")
+        if msg:
+            return msg[:200]
+    except ValueError:
+        pass
+    return body[:200]
+
+
+def generate(parts, schema=None, timeout=180, on_retry=None):
+    """One structured call with resilience: retry each model on 429/5xx with
+    backoff, then fall through GEMINI_MODELS. `on_retry(note)` gets a
+    one-line status for job progress. Raises RuntimeError with the last error."""
+    global last_used_model
     key = api_key()
     if not key:
         raise RuntimeError("No Gemini API key — set GEMINI_API_KEY on this worker.")
@@ -71,22 +125,53 @@ def generate(parts, schema=None, timeout=180):
     if schema:
         body["generationConfig"] = {"response_mime_type": "application/json",
                                     "response_schema": schema}
-    req = urllib.request.Request(
-        GEMINI_URL.format(model=model_name()),
-        data=json.dumps(body).encode(),
-        headers={"Content-Type": "application/json", "x-goog-api-key": key},
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            data = json.load(resp)
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode(errors="replace")[:400]
-        raise RuntimeError(f"Gemini API error {exc.code}: {detail}")
-    try:
-        text = data["candidates"][0]["content"]["parts"][0]["text"]
-    except (KeyError, IndexError):
-        raise RuntimeError(f"Gemini returned no content: {json.dumps(data)[:300]}")
-    return json.loads(text) if schema else text
+    payload = json.dumps(body).encode()
+    errors: list[str] = []
+    for model in model_chain():
+        for attempt, delay in enumerate((*RETRY_DELAYS, None)):
+            req = urllib.request.Request(GEMINI_URL.format(model=model), data=payload,
+                                         headers={"Content-Type": "application/json", "x-goog-api-key": key})
+            try:
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    data = json.load(resp)
+                break
+            except urllib.error.HTTPError as exc:
+                detail = _short_error(exc.read().decode(errors="replace"))
+                errors.append(f"{model}: {exc.code} {detail}")
+                if exc.code in RETRY_STATUSES and delay is not None:
+                    note = f"{model} busy ({exc.code}), retrying in {delay}s"
+                    log.warning(note)
+                    if on_retry:
+                        on_retry(note)
+                    time.sleep(delay)
+                    continue
+                if exc.code in RETRY_STATUSES or exc.code in (400, 404, 403):
+                    # saturated after retries, or this model isn't available to the key → next model
+                    if on_retry:
+                        on_retry(f"{model} unavailable ({exc.code}), trying the next model")
+                    data = None
+                    break
+                raise RuntimeError(f"Gemini API error {exc.code} ({model}): {detail}")
+            except (urllib.error.URLError, TimeoutError, OSError) as exc:
+                errors.append(f"{model}: {exc}")
+                if delay is not None:
+                    if on_retry:
+                        on_retry(f"{model} unreachable, retrying in {delay}s")
+                    time.sleep(delay)
+                    continue
+                data = None
+                break
+        else:
+            data = None
+        if data is None:
+            continue
+        try:
+            text = data["candidates"][0]["content"]["parts"][0]["text"]
+        except (KeyError, IndexError):
+            raise RuntimeError(f"Gemini returned no content ({model}): {json.dumps(data)[:300]}")
+        last_used_model = model
+        return json.loads(text) if schema else text
+    raise RuntimeError("Gemini is unavailable on every configured model — " + " | ".join(errors[-3:]))
 
 
 def _extract_keyframes(src, times, tmpdir, tools: Tools):
@@ -128,7 +213,7 @@ def compact_transcript(transcript):
 
 
 def suggest_clips(src: Path, title: str, duration: float | None, transcript: dict, scenes: dict,
-                  tools: Tools, should_cancel: ShouldCancel, count: int = 5) -> dict:
+                  tools: Tools, should_cancel: ShouldCancel, count: int = 5, on_retry=None) -> dict:
     """Transcript + scenes + keyframes -> Gemini -> {"model", "clips": [...]}."""
     duration = duration or scenes.get("duration") or transcript.get("duration")
     times = _pick_keyframe_times(scenes["scenes"], duration)
@@ -158,7 +243,7 @@ Return exactly {count} clips ranked best first."""
             parts.append({"inline_data": {"mime_type": "image/jpeg", "data": b64}})
         if should_cancel():
             raise Cancelled()
-        result = generate(parts, schema=CLIP_SCHEMA)
+        result = generate(parts, schema=CLIP_SCHEMA, on_retry=on_retry)
 
     clips = []
     for c in result.get("clips", []):
@@ -168,10 +253,10 @@ Return exactly {count} clips ranked best first."""
             continue
         clips.append({"start": round(start, 1), "end": round(end, 1),
                       "title": c["title"], "hook": c["hook"], "reason": c["reason"]})
-    return {"src": None, "model": model_name(), "clips": clips}
+    return {"src": None, "model": last_used_model or model_name(), "clips": clips}
 
 
-def post_kit(title: str, transcript: dict) -> dict:
+def post_kit(title: str, transcript: dict, on_retry=None) -> dict:
     text = compact_transcript(transcript) or "(no speech — judge from the title)"
     prompt = f"""You are a social media manager for short-form video (YouTube Shorts, TikTok, Reels).
 
@@ -183,7 +268,7 @@ Write:
 - title: a punchy, specific title under 80 characters (no ALL CAPS, no clickbait lies)
 - description: 1-2 natural sentences summarizing the hook
 - hashtags: 8-12 relevant, specific hashtags (lowercase, no # symbol, no spaces)"""
-    result = generate([{"text": prompt}], schema=POSTKIT_SCHEMA)
+    result = generate([{"text": prompt}], schema=POSTKIT_SCHEMA, on_retry=on_retry)
     return {
         "src": None,
         "title": result.get("title", ""),

@@ -13,7 +13,7 @@ def handle(ctx: JobContext) -> dict:
     if transcript is None:
         raise ValueError("No transcript yet — run Transcribe first.")
     ctx.report(None, "writing post kit")
-    data = gemini.post_kit(video["title"], transcript)
+    data = gemini.post_kit(video["title"], transcript, on_retry=lambda n: ctx.report(None, n))
     data["src"] = video["storage_path"]
     rel = ctx.storage.put_json(ctx.sidecar_rel(video, "postkit"), data)
     ctx.upsert_asset(vid, "postkit", rel, {k: data[k] for k in ("title", "description", "hashtags")})
