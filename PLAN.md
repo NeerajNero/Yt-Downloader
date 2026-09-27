@@ -459,6 +459,12 @@ punch-in timestamps and SFX placement can't be inferred into a recipe — the no
    2.5-flash → 2.5-flash-lite → 2.0-flash); models unavailable to the key are skipped; progress notes show
    retries; More → AI models lists the chain and what the key can call (`GET /api/ai/models`).
 4. Watch folder on the gaming PC worker for OBS recordings (auto-import).
+5. ✅ Video page redesign (2026-09-27): four modes under the player — **Prepare** (checklist with plain
+   names + "Prepare everything"), **Clips** (AI picks / plan / do-everything + clips list), **Edit**
+   (recipe bar; collapsible groups What / Format / Look / Captions / Sound / Brand with live summaries and
+   ⓘ help; What = one range or Montage; sticky Render bar), **Tools** (cut into shots, silences, Resolve
+   timeline, remove). Timeline strip with scene ticks, draggable in/out handles, montage shot bars.
+   Mode lives in `?tab=`; first-visit guide banner. `components/video/sections/*`, `components/ui/*`.
 
 ### Phase 4 — Idea engine  ← NEXT after 3.6
 1. `ideas` table. Fetchers in `api/app/ideas/`: YouTube Data API (trending gaming videos, keyword
