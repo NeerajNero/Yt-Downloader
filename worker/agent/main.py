@@ -22,6 +22,7 @@ import time
 import traceback
 from typing import Any
 
+from worker.agent.capabilities import detect_supported
 from worker.agent.config import WorkerConfig, load_config
 from worker.agent.db import Db
 from worker.agent.jobs import JobContext, get_handler
@@ -31,29 +32,52 @@ from worker.core.ffmpeg import Tools
 
 log = logging.getLogger("worker")
 
+# A job is ours if its type is a primary capability, or a fallback capability
+# whose primaries are all offline (a machine that was just woken counts as
+# online for a few minutes) and the job has waited at least FALLBACK_GRACE.
+FALLBACK_GRACE = "60 seconds"
 CLAIM_SQL = """
 update jobs
    set status = 'claimed', claimed_by = %(me)s, claimed_at = now(),
        heartbeat_at = now(), attempts = attempts + 1,
        progress = null, progress_note = null, error = null
  where id = (
-   select id from jobs
-    where status = 'queued' and run_after <= now() and type = any(%(types)s)
-    order by priority, created_at
+   select j.id from jobs j
+    where j.status = 'queued' and j.run_after <= now()
+      and (
+        j.type = any(%(types)s)
+        or (
+          j.type = any(%(fallback)s)
+          and j.created_at < now() - %(grace)s::interval
+          and not exists (
+            select 1 from machines m
+             where m.id <> %(me)s and not m.paused and j.type = any(m.capabilities)
+               and (m.status = 'online'
+                    or (m.status = 'waking' and m.woken_at > now() - interval '3 minutes'))
+          )
+        )
+      )
+    order by j.priority, j.created_at
     limit 1
     for update skip locked
  )
 returning *
 """
 
+# Config capabilities only seed the row; afterwards the Machines page owns
+# `capabilities`. `supported` is refreshed every start.
 REGISTER_SQL = """
-insert into machines (name, capabilities, os, status, last_seen_at)
-values (%(name)s, %(caps)s, %(os)s, 'online', now())
+insert into machines (name, capabilities, fallback, supported, os, status, last_seen_at)
+values (%(name)s, %(caps)s, %(fallback)s, %(supported)s, %(os)s, 'online', now())
 on conflict (name) do update
-   set capabilities = excluded.capabilities,
+   set capabilities = case when cardinality(machines.capabilities) = 0 and cardinality(machines.fallback) = 0
+                           then excluded.capabilities else machines.capabilities end,
+       fallback = case when cardinality(machines.capabilities) = 0 and cardinality(machines.fallback) = 0
+                       then excluded.fallback else machines.fallback end,
+       supported = excluded.supported,
        os = coalesce(excluded.os, machines.os),
        status = 'online', last_seen_at = now()
-returning id
+returning id, capabilities, fallback, paused
 """
 
 
@@ -64,6 +88,10 @@ class Worker:
         self.storage = Storage(cfg.brain_url, cfg.api_secret, cfg.work_dir, cfg.library_dir)
         self.tools = Tools(cfg.ffmpeg_path)
         self.machine_id: str | None = None
+        self.supported: list[str] = []
+        self.assigned: list[str] = []      # from the machines row, refreshed each heartbeat
+        self.fallback: list[str] = []
+        self.paused = False
         self.stopping = threading.Event()
         # current job bookkeeping (shared with the heartbeat thread)
         self._lock = threading.Lock()
@@ -74,15 +102,44 @@ class Worker:
     # ---- lifecycle --------------------------------------------------------
 
     def register(self) -> None:
+        self.supported = detect_supported(self.cfg)
         row = self.db.fetch_one(REGISTER_SQL, {
             "name": self.cfg.name,
             "caps": self.cfg.capabilities,
+            "fallback": self.cfg.fallback,
+            "supported": self.supported,
             "os": self.cfg.os_name or f"{platform.system().lower()}-{platform.release()}",
         })
         self.machine_id = str(row["id"])
-        log.info("registered as %s (%s) capabilities=%s library=%s encoder=%s", self.cfg.name,
-                 self.machine_id, ",".join(self.cfg.capabilities),
+        self._apply_assignment(row)
+        log.info("registered as %s (%s) library=%s encoder=%s", self.cfg.name, self.machine_id,
                  self.cfg.library_dir or "http", self.cfg.encoder)
+        log.info("can run: %s", ",".join(self.supported))
+        self._log_assignment()
+
+    def _apply_assignment(self, row: dict[str, Any]) -> None:
+        assigned = list(row.get("capabilities") or [])
+        fallback = list(row.get("fallback") or [])
+        paused = bool(row.get("paused"))
+        changed = (assigned, fallback, paused) != (self.assigned, self.fallback, self.paused)
+        self.assigned, self.fallback, self.paused = assigned, fallback, paused
+        if changed:
+            self._log_assignment()
+
+    def _log_assignment(self) -> None:
+        skipped = [c for c in self.assigned + self.fallback if c not in self.supported]
+        log.info("assigned (Machines page): %s%s%s%s", ",".join(self.job_types) or "nothing",
+                 f" — fallback for: {','.join(self.fallback_types)}" if self.fallback_types else "",
+                 f" — not installed here: {','.join(skipped)}" if skipped else "",
+                 " — PAUSED" if self.paused else "")
+
+    @property
+    def job_types(self) -> list[str]:
+        return [c for c in self.assigned if c in self.supported]
+
+    @property
+    def fallback_types(self) -> list[str]:
+        return [c for c in self.fallback if c in self.supported and c not in self.assigned]
 
     def run_forever(self) -> None:
         self.register()
@@ -124,8 +181,11 @@ class Worker:
     # ---- queue ------------------------------------------------------------
 
     def claim(self) -> dict[str, Any] | None:
+        if self.paused or not (self.job_types or self.fallback_types):
+            return None
         try:
-            return self.db.fetch_one(CLAIM_SQL, {"me": self.machine_id, "types": self.cfg.job_types})
+            return self.db.fetch_one(CLAIM_SQL, {"me": self.machine_id, "types": self.job_types,
+                                                 "fallback": self.fallback_types, "grace": FALLBACK_GRACE})
         except Exception as e:  # noqa: BLE001 — keep polling through DB outages
             log.warning("claim failed: %s", e)
             self.stopping.wait(self.cfg.poll_interval)
@@ -212,8 +272,11 @@ class Worker:
         interval = self.cfg.heartbeat_interval
         while not self.stopping.wait(interval):
             try:
-                self.db.execute("update machines set last_seen_at = now(), status = 'online' where id = %s",
-                                (self.machine_id,))
+                row = self.db.fetch_one(
+                    "update machines set last_seen_at = now(), status = 'online' where id = %s "
+                    "returning capabilities, fallback, paused", (self.machine_id,))
+                if row:
+                    self._apply_assignment(row)
                 with self._lock:
                     job_id = self._job_id
                 if job_id:

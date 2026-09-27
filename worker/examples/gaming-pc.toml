@@ -4,6 +4,9 @@
 name = "gaming-pc"
 os = "windows-11"
 capabilities = ["render", "download", "convert", "clippack", "tighten"]
+# Jobs this machine takes only while their usual machine is offline (needs
+# faster-whisper installed for transcribe: pip install -e ".\yt-studio\worker[download,transcribe]").
+fallback = ["transcribe", "scenes", "borders", "suggest", "postkit"]
 database_url = "postgres://ytstudio:POSTGRES_PASSWORD@100.x.y.z:5433/ytstudio?sslmode=disable"  # port = POSTGRES_PORT in the brain's .env
 brain_url = "http://100.x.y.z:8085"                    # port = WEB_PORT in the brain's .env
 api_secret = "HASURA_ADMIN_SECRET"
@@ -11,3 +14,8 @@ ffmpeg_path = "C:/ffmpeg/bin/ffmpeg.exe"   # Gyan full build (has h264_amf + lib
 encoder = "h264_amf"                       # AMD hardware H.264; "libx264" for max quality (slow)
 work_dir = "D:/ytstudio/work"              # source cache + scratch; a 5 GB 4K source is fetched once
 # cookies_file = "C:/ytstudio/cookies.txt" # YouTube session for age-gated downloads (optional)
+
+[whisper]                     # used only when this PC covers transcribe as a fallback
+model = "small"
+device = "cpu"                # faster-whisper can't use AMD GPUs
+compute_type = "int8"

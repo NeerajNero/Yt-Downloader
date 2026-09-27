@@ -150,6 +150,51 @@ def test_register_upserts_machine_online(db, worker):
     assert m["status"] == "offline"
 
 
+def test_assignment_from_db_wins_and_pause_stops_claims(db, worker, job_type):
+    enqueue(db, job_type)
+    # The Machines page reassigns: config caps are ignored once the row is set.
+    db.execute("update machines set capabilities = '{}', paused = true where id = %s", (worker.machine_id,))
+    worker._apply_assignment(db.fetch_one("select capabilities, fallback, paused from machines where id = %s", (worker.machine_id,)))
+    assert worker.claim() is None
+    db.execute("update machines set capabilities = %s, paused = false where id = %s", ([job_type], worker.machine_id))
+    worker._apply_assignment(db.fetch_one("select capabilities, fallback, paused from machines where id = %s", (worker.machine_id,)))
+    assert worker.claim() is not None
+    # Re-registering (worker restart) must not clobber the page's assignment.
+    db.execute("update machines set capabilities = '{noop}' where id = %s", (worker.machine_id,))
+    worker.register()
+    assert worker.assigned == ["noop"]
+
+
 def test_real_registry_has_transcribe_and_noop():
     assert real_get_handler("noop")
     assert real_get_handler("transcribe")
+
+
+def test_fallback_claims_only_when_primary_offline_and_after_grace(db, worker, job_type):
+    from dataclasses import replace
+    from worker.agent.main import Worker
+    primary = worker  # has job_type as a primary capability, currently online
+    fb = Worker(replace(worker.cfg, name=worker.cfg.name + "-fb", capabilities=[], fallback=[job_type]))
+    fb.register()
+    fb.supported = [job_type]
+    try:
+        row = enqueue(db, job_type)
+        # primary online → fallback must not touch it, even after the grace period
+        db.execute("update jobs set created_at = now() - interval '10 minutes' where id = %s", (row["id"],))
+        assert fb.claim() is None
+        # primary offline, fresh job → still waits for the grace period
+        db.execute("update machines set status = 'offline' where id = %s", (primary.machine_id,))
+        db.execute("update jobs set created_at = now() where id = %s", (row["id"],))
+        assert fb.claim() is None
+        # primary offline, job older than the grace → fallback takes it
+        db.execute("update jobs set created_at = now() - interval '10 minutes' where id = %s", (row["id"],))
+        got = fb.claim()
+        assert got is not None and str(got["claimed_by"]) == fb.machine_id
+        # a primary that was just woken blocks the fallback too
+        row2 = enqueue(db, job_type)
+        db.execute("update jobs set created_at = now() - interval '10 minutes' where id = %s", (row2["id"],))
+        db.execute("update machines set status = 'waking', woken_at = now() where id = %s", (primary.machine_id,))
+        assert fb.claim() is None
+    finally:
+        db.execute("delete from jobs where claimed_by = %s", (fb.machine_id,))
+        db.execute("delete from machines where id = %s", (fb.machine_id,))

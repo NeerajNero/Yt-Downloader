@@ -24,6 +24,7 @@ class WorkerConfig:
     database_url: str
     brain_url: str
     api_secret: str = ""
+    fallback: list[str] = field(default_factory=list)   # first-time seed only, like capabilities
     ffmpeg_path: str = "ffmpeg"
     encoder: str = "libx264"
     work_dir: Path = field(default_factory=lambda: Path("work"))
@@ -53,8 +54,9 @@ def _find_path(explicit: str | None) -> Path | None:
 def _from_env() -> dict:
     p = "YT_WORKER_"
     raw = {k[len(p):].lower(): v for k, v in os.environ.items() if k.startswith(p)}
-    if "capabilities" in raw:
-        raw["capabilities"] = [c.strip() for c in raw["capabilities"].split(",") if c.strip()]
+    for key in ("capabilities", "fallback"):
+        if key in raw:
+            raw[key] = [c.strip() for c in raw[key].split(",") if c.strip()]
     whisper = {k[len("whisper_"):]: v for k, v in raw.items() if k.startswith("whisper_")}
     if whisper:
         raw["whisper"] = whisper
@@ -100,6 +102,7 @@ def _build(raw: dict, base: Path, path: Path | None) -> WorkerConfig:
     return WorkerConfig(
         name=raw["name"],
         capabilities=list(raw["capabilities"]),
+        fallback=list(raw.get("fallback") or []),
         database_url=raw["database_url"],
         brain_url=str(raw["brain_url"]).rstrip("/"),
         api_secret=raw.get("api_secret", ""),

@@ -417,6 +417,12 @@ job completes after worker restart. Cancel works from the phone.
 4. DaVinci Resolve timeline export — FCPXML from a clip list (start/end/source), downloadable from the
    video page (`/api/files/{video_id}/timeline.fcpxml`); relink the source on import.
 
+Also (2026-09-27): **job assignment moved to the Machines page** — `machines.capabilities` is edited
+in the PWA (config only seeds it), `machines.supported` is what the worker detected it can run,
+`machines.paused` stops claiming; `machines.fallback` = job types taken only while every primary machine
+for them is offline (60 s grace; a just-woken machine counts as online for 3 min); workers re-read the row
+on every heartbeat.
+
 Built as: `recipes` table (seeded with the v1 preset + an `auto-shorts-default`), recipe extras in the
 render payload (`watermark`, `sfx[]`, `zoom_markers[]` — one extra zoompan pass, overlay input, adelay+amix),
 auto-apply in the suggest-done event (one clips row per segment × recipe), Review tab with swipeable cards
