@@ -1,19 +1,20 @@
 import { useMutation, useSubscription } from '@apollo/client'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import CaptionEditor from '../components/video/CaptionEditor'
 import ClipsList from '../components/video/ClipsList'
 import ExportControls from '../components/video/ExportControls'
 import Player from '../components/video/Player'
 import PostKit from '../components/video/PostKit'
+import RecipeExtras from '../components/video/RecipeExtras'
 import Progress from '../components/Progress'
 import {
   DeleteVideoDocument, EnqueueDocument, UpdateVideoDocument, VideoDetailDocument,
   type VideoDetailSubscription,
 } from '../gql/generated'
-import { fetchJson, fileUrl, type ManualCaptions, type Scenes, type Transcript } from '../lib/api'
+import { fetchJson, fileUrl, timelineUrl, type ManualCaptions, type Scenes, type Transcript } from '../lib/api'
 import { bytes, duration, parseTime, resolution } from '../lib/format'
-import { DEFAULT_SETTINGS, type RenderSettings } from '../lib/settings'
+import { DEFAULT_SETTINGS, fromStored, type RenderSettings } from '../lib/settings'
 
 type Video = NonNullable<VideoDetailSubscription['videos_by_pk']>
 type Clip = Video['clips'][number]
@@ -21,6 +22,7 @@ const ACTIVE = new Set(['queued', 'claimed', 'running', 'cancel_requested'])
 
 export default function VideoPage() {
   const { id = '' } = useParams()
+  const [params, setParams] = useSearchParams()
   const nav = useNavigate()
   const { data, loading, error } = useSubscription(VideoDetailDocument, { variables: { id } })
   const [enqueue] = useMutation(EnqueueDocument)
@@ -33,6 +35,8 @@ export default function VideoPage() {
   const [start, setStart] = useState('0:00')
   const [end, setEnd] = useState('0:15')
   const [settings, setSettings] = useState<RenderSettings>(DEFAULT_SETTINGS)
+  const [recipeId, setRecipeId] = useState<string | null>(null)
+  const [tweakClip, setTweakClip] = useState<string | null>(null)
   const [previewCaps, setPreviewCaps] = useState(false)
   const [transcript, setTranscript] = useState<Transcript | null>(null)
   const [scenes, setScenes] = useState<Scenes | null>(null)
@@ -66,6 +70,20 @@ export default function VideoPage() {
     else setManual(null)
   }, [captionsAsset?.path, captionsAsset?.created_at])
 
+  // "Tweak" from the review screen: /video/:id?clip=<id> loads that clip's range + settings.
+  const wantClip = params.get('clip')
+  useEffect(() => {
+    if (!wantClip || !video) return
+    const c = video.clips.find((x) => x.id === wantClip)
+    if (!c) return
+    setStart(duration(c.start_s)); setEnd(duration(c.end_s))
+    if (c.render_settings) setSettings(fromStored(c.render_settings))
+    setRecipeId((c.render_settings as { recipe_id?: string } | null)?.recipe_id ?? null)
+    setTweakClip(c.id)
+    setMsg(`Tweaking "${c.title ?? 'clip'}" — Export re-renders it.`)
+    params.delete('clip'); setParams(params, { replace: true })
+  }, [wantClip, video?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const activeJobs = useMemo(() => (video?.jobs ?? []).filter((j) => ACTIVE.has(j.status)), [video?.jobs])
   const active = (type: string) => activeJobs.find((j) => j.type === type)
   const lastError = (video?.jobs ?? []).find((j) => j.status === 'error')
@@ -96,7 +114,11 @@ export default function VideoPage() {
     if (st == null || en == null) return setErr('Times must look like 1:23 or plain seconds.')
     if (en <= st) return setErr('End time must be after start time.')
     const fg = settings.style === 'blur' ? settings.fg_crop : 0
-    void run('render', { ...settings, fg_crop: fg, start: st, end: en }, clipId, 'Render queued — progress shows in Jobs.')
+    const payload: Record<string, unknown> = { ...settings, fg_crop: fg, start: st, end: en }
+    if (!payload.watermark) delete payload.watermark
+    if (recipeId) payload.recipe_id = recipeId
+    void run('render', payload, clipId ?? tweakClip ?? undefined, 'Render queued — progress shows in Jobs.')
+    if (!clipId) setTweakClip(null)
   }
 
   const useClip = (c: Clip) => {
@@ -236,7 +258,10 @@ export default function VideoPage() {
                         hasTranscript={Boolean(transcriptAsset)} hasManual={Boolean(manual?.items.length)}
                         borders={borders} onDetectBars={() => void run('borders')} detectingBars={Boolean(active('borders'))}
                         previewCaps={previewCaps} onPreviewCaps={setPreviewCaps}
-                        onExport={() => doExport()} disabled={video.status !== 'ready'} />
+                        onExport={() => doExport()} disabled={video.status !== 'ready'}
+                        recipeId={recipeId} onRecipe={setRecipeId} />
+        <RecipeExtras settings={settings} onChange={setSettings} currentTime={() => videoRef.current?.currentTime ?? 0}
+                      clipStart={parseTime(start) ?? 0} />
         <CaptionEditor videoId={video.id} manual={manual} currentTime={() => videoRef.current?.currentTime ?? 0}
                        onSaved={() => setSettings((s) => ({ ...s, caption_source: 'manual' }))} />
         <div className="row wrap">
@@ -256,8 +281,13 @@ export default function VideoPage() {
       </section>
 
       <section className="panel">
-        <div className="row" style={{ justifyContent: 'space-between' }}>
-          {video.url ? <a className="muted small" href={video.url} target="_blank" rel="noreferrer">Source page</a> : <span />}
+        <div className="row wrap" style={{ justifyContent: 'space-between' }}>
+          <div className="row wrap">
+            {video.url && <a className="muted small" href={video.url} target="_blank" rel="noreferrer">Source page</a>}
+            {video.clips.length > 0 && (
+              <a className="btn small" href={timelineUrl(video.id, 'all')} download title="FCPXML timeline of the clips for DaVinci Resolve (relink the source on import)">Resolve timeline</a>
+            )}
+          </div>
           <button className="btn small" onClick={() => void remove()}>Remove from library</button>
         </div>
       </section>

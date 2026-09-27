@@ -120,3 +120,25 @@ def test_post_kit_with_mocked_gemini():
 def test_transcribe_has_speech_threshold():
     from worker.core.transcribe import has_speech, word_count
     assert word_count(TRANSCRIPT) == 5 and not has_speech(TRANSCRIPT) and has_speech(TRANSCRIPT, min_words=5)
+
+
+def test_punch_filter_and_watermark_chain():
+    f = render._punch_filter(1080, 1920, 30, 8.0, [{"at": 2, "duration": 0.5, "zoom": 1.2}], base_target=None)
+    assert f.startswith("zoompan=z='1+(0.2000*between(in_time,2.000,2.500)")
+    frag, label = render._watermark_chain(1080, 1920, {"position": "top_left", "scale": 0.1, "opacity": 0.5}, "vbase", 3)
+    assert label == "vwm" and "[3:v]format=rgba,scale=108:-1,colorchannelmixer=aa=0.500[wm]" in frag
+    assert "overlay=32:32" in frag
+
+
+def test_output_name_recipe_extras():
+    s = render.RenderSettings(start=0, end=5, watermark={"file": "l.png"}, sfx=[{"file": "a.mp3"}],
+                              zoom_markers=[{"at": 1}, {"at": 2}])
+    assert render.output_name("X", s, True).endswith("_music_wm_sfx_punch2.mp4")
+
+
+def test_recipe_validation():
+    from worker.agent.jobs.schemas import validate_recipe
+    r = validate_recipe({"style": "crop", "auto_trim": True, "watermark": {"file": "l.png", "scale": 0.2}})
+    assert r["auto_trim"] is True and r["watermark"]["position"] == "top_right" and "start" not in r
+    with pytest.raises(ValueError):
+        validate_recipe({"zoom_markers": [{"at": -1}]})

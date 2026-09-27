@@ -28,14 +28,13 @@ generations side by side while v2 is being built:
 | Run a worker on the Mac (dev) | `cp worker/examples/mac-dev.toml worker/worker.toml && cd worker && ../venv/bin/yt-worker` |
 | Run the tests | `venv/bin/python -m pytest worker/tests api/tests` (needs the compose stack) |
 
-**Status:** Phases 0–2 are built and verified locally. v2 now does everything v1
-did, from the phone: paste a link (with a note and a "while I'm away" pipeline),
-download on the brain, transcribe on the laptop, scenes / edit copy / clip pack /
-silence removal on the brain, Gemini clip suggestions and post kits, and captioned
-9:16 / 16:9 renders on the gaming PC with h264_amf — plus Wake-on-LAN for the PC
-and an event chain that runs the whole thing unattended. Next: deploy, run the
-phone test on the real machines, retire `server/` + `ui/`, then Phase 3 (recipes).
-Task lists are in PLAN.md §4.
+**Status:** Phases 0–3 are built and verified locally. v2 does everything v1 did,
+from the phone, plus: an ideas inbox (link + note + "while I'm away" pipeline),
+recipes (saved export setups with watermark, SFX layers and punch-in zoom markers)
+that auto-apply to every AI-suggested clip, a Review tab with swipeable rendered
+clips (approve / reject / tweak), and a DaVinci Resolve timeline export. Next:
+deploy + phone test on the real machines, retire `server/` + `ui/`, then Phase 4
+(idea engine). Task lists are in PLAN.md §4.
 
 ---
 

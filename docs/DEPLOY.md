@@ -88,7 +88,8 @@ Server-side files that are not in git:
 | What | Where |
 |---|---|
 | YouTube cookies (age-gated downloads) | `$LIBRARY_DIR/.config/cookies.txt` |
-| Music beds for renders | `$LIBRARY_DIR/.music/` (or upload from the video page) |
+| Music beds + sound effects | `$LIBRARY_DIR/.music/` (or upload from the video page) |
+| Watermark / logo PNGs | `$LIBRARY_DIR/.overlays/` (or upload from the video page) |
 | Audio extracts cache | `$LIBRARY_DIR/.cache/audio/` (safe to delete) |
 
 **Wake-on-LAN**: the `wol` service runs on the host network and sends magic

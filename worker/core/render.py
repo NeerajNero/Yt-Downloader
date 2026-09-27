@@ -82,6 +82,50 @@ def _zoom_filter(width, height, fps, duration, target=1.12):
     )
 
 
+def _punch_filter(width, height, fps, duration, markers, base_target=None):
+    """Punch-in zoom markers (recipe feature): at each marker's time (clip-
+    relative seconds) the frame snaps to `zoom` for `duration` seconds with a
+    60 ms ease-in, then snaps back. Optionally rides on top of the slow
+    Ken-Burns ramp (`base_target`). One zoompan pass, time-driven (in_time)."""
+    terms = []
+    for m in markers:
+        at = max(0.0, float(m["at"]))
+        dur = max(0.1, float(m.get("duration", 0.5)))
+        z = max(1.0, min(float(m.get("zoom", 1.15)), 3.0))
+        terms.append(f"({z - 1:.4f}*between(in_time,{at:.3f},{at + dur:.3f})"
+                     f"*min(1,(in_time-{at:.3f})/0.06))")
+    base = f"1+{base_target - 1:.4f}*min(1,in_time/{max(duration or 1, 0.1):.3f})" if base_target else "1"
+    expr = base + ("+" + "+".join(terms) if terms else "")
+    return (
+        f"zoompan=z='{expr}':d=1:"
+        f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
+        f"fps={fps:.4f}:s={width}x{height}"
+    )
+
+
+WATERMARK_POSITIONS = {
+    "top_left": "{m}:{m}",
+    "top_right": "W-w-{m}:{m}",
+    "bottom_left": "{m}:H-h-{m}",
+    "bottom_right": "W-w-{m}:H-h-{m}",
+    "top_center": "(W-w)/2:{m}",
+    "bottom_center": "(W-w)/2:H-h-{m}",
+}
+
+
+def _watermark_chain(width, height, wm: dict, in_label: str, wm_input: int) -> tuple[str, str]:
+    """Overlay an image (logo/handle) on the framed video. Returns
+    (graph_fragment, out_label). Scale is a fraction of the frame width."""
+    scale = max(0.03, min(float(wm.get("scale", 0.15)), 0.6))
+    opacity = max(0.05, min(float(wm.get("opacity", 0.85)), 1.0))
+    margin = int(max(0, float(wm.get("margin", 0.03))) * min(width, height))
+    pos = WATERMARK_POSITIONS.get(wm.get("position", "top_right"), WATERMARK_POSITIONS["top_right"]).format(m=margin)
+    frag = (f"[{wm_input}:v]format=rgba,scale={int(width * scale)}:-1,"
+            f"colorchannelmixer=aa={opacity:.3f}[wm];"
+            f"[{in_label}][wm]overlay={pos}:format=auto[vwm]")
+    return frag, "vwm"
+
+
 def _pre_crop(trim_x, trim_y):
     """Symmetric border trim before styling; even dimensions for yuv420."""
     if not trim_x and not trim_y:
@@ -186,6 +230,10 @@ class RenderSettings:
     music: str = ""            # music track file name (resolved by the adapter)
     music_gain: int = 60
     duck: bool = True
+    # Recipe-only extras (Phase 3). All optional; files are resolved by the adapter.
+    watermark: dict | None = None      # {"file", "position", "scale", "opacity", "margin"}
+    sfx: list = field(default_factory=list)          # [{"file", "at", "gain"}] clip-relative seconds
+    zoom_markers: list = field(default_factory=list) # [{"at", "duration", "zoom"}]
     extra: dict = field(default_factory=dict)
 
     def validate(self) -> None:
@@ -253,6 +301,12 @@ def output_name(stem: str, s: RenderSettings, has_music: bool) -> str:
         suffix += "_norm"
     if has_music:
         suffix += "_music"
+    if s.watermark:
+        suffix += "_wm"
+    if s.sfx:
+        suffix += "_sfx"
+    if s.zoom_markers:
+        suffix += f"_punch{len(s.zoom_markers)}"
     aspect = "16x9" if s.orientation == "landscape" else "9x16"
     return f"{stem}_{aspect}_{int(s.start)}s-{int(s.end)}s_{s.style}{suffix}.mp4"
 
@@ -260,9 +314,11 @@ def output_name(stem: str, s: RenderSettings, has_music: bool) -> str:
 def run_export(src: Path, out_path: Path, s: RenderSettings, tools: Tools, encoder: str,
                report: Report, should_cancel: ShouldCancel,
                transcript: dict | None = None, manual_captions: dict | None = None,
-               music_path: Path | None = None) -> Path:
+               music_path: Path | None = None, watermark_path: Path | None = None,
+               sfx_paths: list[tuple[Path, float, float]] | None = None) -> Path:
     """Render one clip (portrait 9:16 or landscape 16:9) to `out_path`.
-    Raises Cancelled / RuntimeError. Returns out_path."""
+    `sfx_paths` = [(file, at_seconds, gain_0_100)]. Raises Cancelled /
+    RuntimeError. Returns out_path."""
     s.validate()
     src = Path(src)
     out_path = Path(out_path)
@@ -291,7 +347,10 @@ def run_export(src: Path, out_path: Path, s: RenderSettings, tools: Tools, encod
     filt = export_filter(s.style, amount, s.trim_x, s.trim_y, s.fg_crop,
                          build_w, build_h, source_rotate, s.look, s.look_sharp, s.grade)
     # Zoom the framed video before captions/rotation so captions don't zoom.
-    if s.zoom == "in":
+    if s.zoom_markers:
+        filt += "," + _punch_filter(build_w, build_h, tools.probe_fps(src), end - start, s.zoom_markers,
+                                    base_target=1.12 if s.zoom == "in" else None)
+    elif s.zoom == "in":
         filt += "," + _zoom_filter(build_w, build_h, tools.probe_fps(src), end - start)
 
     ass_file = None
@@ -322,32 +381,53 @@ def run_export(src: Path, out_path: Path, s: RenderSettings, tools: Tools, encod
 
     loudnorm = "loudnorm=I=-14:TP=-1.5:LRA=11"
     inputs = ["-ss", str(start), "-to", str(end), "-i", str(src)]
+    next_input = 1
 
-    if music_path and Path(music_path).is_file():
-        # Mix a looped music bed under the original audio; optionally duck the
-        # music under speech via sidechain compression. Everything becomes one
-        # -filter_complex so we can map video [v] + mixed audio [a].
-        vlabel = (f"[0:v]{filt}[v]" if s.style != "blur" else f"{filt}[v]")
+    # ---- video graph: always a filter_complex ending in [v] ----------------
+    vgraph = filt if s.style == "blur" else f"[0:v]{filt}"
+    if watermark_path and Path(watermark_path).is_file() and s.watermark:
+        vgraph += "[vbase];"
+        frag, vlabel = _watermark_chain(final_w, final_h, s.watermark, "vbase", next_input)
+        inputs += ["-i", str(watermark_path)]
+        next_input += 1
+        vgraph += frag.replace("[vwm]", "[v]")
+    else:
+        vgraph += "[v]"
+
+    # ---- audio graph: source (+ ducked music bed) (+ sfx layers) -----------
+    use_music = bool(music_path and Path(music_path).is_file())
+    sfx_paths = [(p, at, g) for p, at, g in (sfx_paths or []) if Path(p).is_file()]
+    aparts: list[str] = []
+    mix_inputs = ["[0:a]"]
+    if use_music:
         gain = round(max(0.0, min(s.music_gain, 100.0)) / 100.0 * 1.2, 3)
-        if s.duck:
-            amix = (
-                f"[1:a]volume={gain}[mus];"
-                "[mus][0:a]sidechaincompress=threshold=0.02:ratio=8:"
-                "attack=15:release=350[duckmus];"
-                "[0:a][duckmus]amix=inputs=2:duration=first:dropout_transition=0[amix]"
-            )
-        else:
-            amix = (
-                f"[1:a]volume={gain}[mus];"
-                "[0:a][mus]amix=inputs=2:duration=first:dropout_transition=0[amix]"
-            )
-        atail = f";[amix]{loudnorm}[a]" if s.loudness else ";[amix]anull[a]"
-        graph = f"{vlabel};{amix}{atail}"
         inputs += ["-stream_loop", "-1", "-i", str(music_path)]
+        aparts.append(f"[{next_input}:a]volume={gain}[mus]")
+        next_input += 1
+        if s.duck:
+            # Duck the music under speech via sidechain compression.
+            aparts.append("[mus][0:a]sidechaincompress=threshold=0.02:ratio=8:attack=15:release=350[duckmus]")
+            mix_inputs.append("[duckmus]")
+        else:
+            mix_inputs.append("[mus]")
+    for i, (p, at, g) in enumerate(sfx_paths):
+        inputs += ["-i", str(p)]
+        ms = int(max(0.0, at) * 1000)
+        vol = round(max(0.0, min(g, 100.0)) / 100.0 * 1.5, 3)
+        aparts.append(f"[{next_input}:a]adelay={ms}|{ms},volume={vol}[sfx{i}]")
+        mix_inputs.append(f"[sfx{i}]")
+        next_input += 1
+
+    if len(mix_inputs) > 1:
+        # v1's music mix used amix's default normalisation (2 inputs); with sfx
+        # layers on top we keep the source at full level instead.
+        norm = ":normalize=0" if sfx_paths else ""
+        aparts.append("".join(mix_inputs) + f"amix=inputs={len(mix_inputs)}:duration=first:dropout_transition=0{norm}[amix]")
+        aparts.append(f"[amix]{loudnorm}[a]" if s.loudness else "[amix]anull[a]")
+        graph = vgraph + ";" + ";".join(aparts)
         av_args = ["-filter_complex", graph, "-map", "[v]", "-map", "[a]"]
     else:
-        filter_args = ["-filter_complex", filt] if s.style == "blur" else ["-vf", filt]
-        av_args = [*filter_args] + (["-af", loudnorm] if s.loudness else [])
+        av_args = ["-filter_complex", vgraph, "-map", "[v]", "-map", "0:a?"] + (["-af", loudnorm] if s.loudness else [])
 
     cmd = [
         tools.ffmpeg, "-y", *inputs, *av_args,

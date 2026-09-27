@@ -71,6 +71,56 @@ def on_video_ready(video: dict) -> list[str]:
     return [m for m in made if m]
 
 
+DEFAULT_SHORTS = {"style": "blur", "orientation": "portrait", "resolution": "1080",
+                  "captions": True, "auto_trim": True, "captions_if_speech": True}
+
+
+def _recipe_payload(recipe: dict, clip: dict, have: dict) -> dict:
+    """Turn a recipe's settings into a render payload for one clip, applying
+    the auto-apply hints (bars from the borders asset, captions only with speech)."""
+    settings = dict(recipe.get("settings") or {})
+    auto_trim = settings.pop("auto_trim", False)
+    if_speech = settings.pop("captions_if_speech", False)
+    if auto_trim and not settings.get("trim_x") and not settings.get("trim_y"):
+        borders = (have.get("borders") or {}).get("data") or {}
+        settings["trim_x"] = borders.get("trim_x", 0.0)
+        settings["trim_y"] = borders.get("trim_y", 0.0)
+    if settings.get("captions") and settings.get("caption_source", "auto") == "auto":
+        words = ((have.get("transcript") or {}).get("data") or {}).get("words") or 0
+        if "transcript" not in have or (if_speech and words < MIN_WORDS_FOR_CAPTIONS):
+            settings["captions"] = False
+    settings.pop("start", None); settings.pop("end", None)
+    payload = {**settings, "start": clip["start_s"], "end": clip["end_s"]}
+    if recipe.get("id"):
+        payload["recipe_id"] = str(recipe["id"])
+    return payload
+
+
+def auto_render(cur, vid, have: dict, parent_job_id=None) -> list[str | None]:
+    """Render every proposed AI clip once per auto_apply recipe (or with the
+    Auto Shorts defaults when no recipe is flagged). Extra recipes get their
+    own clips rows so each render has a home."""
+    cur.execute("select id, name, settings from recipes where auto_apply order by created_at")
+    recipes = cur.fetchall() or [{"id": None, "name": "default", "settings": DEFAULT_SHORTS}]
+    cur.execute("select id, video_id, start_s, end_s, title, hook, reason from clips "
+                "where video_id = %s and origin = 'ai_suggest' and status = 'proposed' order by created_at", (vid,))
+    made = []
+    for clip in cur.fetchall():
+        for i, recipe in enumerate(recipes):
+            target = clip
+            if i > 0:  # clone the segment for the 2nd+ recipe
+                cur.execute(
+                    "insert into clips (video_id, start_s, end_s, title, hook, reason, origin, status, recipe_id) "
+                    "values (%s, %s, %s, %s, %s, %s, 'ai_suggest', 'proposed', %s) returning id, start_s, end_s",
+                    (vid, clip["start_s"], clip["end_s"], clip["title"], clip["hook"], clip["reason"], recipe["id"]))
+                target = cur.fetchone()
+            elif recipe["id"]:
+                cur.execute("update clips set recipe_id = %s where id = %s", (recipe["id"], clip["id"]))
+            made.append(_enqueue(cur, "render", vid, _recipe_payload(recipe, target, have),
+                                 clip_id=target["id"], parent_job_id=parent_job_id))
+    return made
+
+
 def on_job_done(job: dict) -> list[str]:
     made = []
     vid = job.get("video_id")
@@ -97,17 +147,7 @@ def on_job_done(job: dict) -> list[str]:
                 made.append(_enqueue(cur, "suggest", vid, parent_job_id=job["id"]))
 
         if job["type"] == "suggest" and pipeline == "shorts":
-            borders = (have.get("borders") or {}).get("data") or {}
-            words = ((have.get("transcript") or {}).get("data") or {}).get("words") or 0
-            cur.execute("select id, start_s, end_s from clips where video_id = %s and origin = 'ai_suggest' "
-                        "and status = 'proposed' order by created_at", (vid,))
-            for clip in cur.fetchall():
-                payload = {
-                    "start": clip["start_s"], "end": clip["end_s"], "style": "blur",
-                    "trim_x": borders.get("trim_x", 0.0), "trim_y": borders.get("trim_y", 0.0),
-                    "captions": words >= MIN_WORDS_FOR_CAPTIONS,
-                }
-                made.append(_enqueue(cur, "render", vid, payload, clip_id=clip["id"], parent_job_id=job["id"]))
+            made.extend(auto_render(cur, vid, have, parent_job_id=job["id"]))
     return [m for m in made if m]
 
 
