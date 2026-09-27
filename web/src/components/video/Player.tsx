@@ -1,11 +1,8 @@
 import { forwardRef, useMemo } from 'react'
 import type { ManualCaptions, Transcript } from '../../lib/api'
-import { duration } from '../../lib/format'
 
 interface Props {
   src: string | null
-  scenes: number[]
-  videoDuration: number
   nowTime: number
   onTime: (t: number) => void
   onError: () => void
@@ -32,13 +29,9 @@ function buildLines(transcript: Transcript | null) {
 }
 
 const Player = forwardRef<HTMLVideoElement, Props>(function Player(
-  { src, scenes, videoDuration, nowTime, onTime, onError, captions, transcript, manual }, ref,
+  { src, nowTime, onTime, onError, captions, transcript, manual }, ref,
 ) {
   const lines = useMemo(() => buildLines(transcript), [transcript])
-  const seek = (t: number) => {
-    const el = (ref as React.RefObject<HTMLVideoElement>).current
-    if (el) el.currentTime = t
-  }
 
   let overlay: React.ReactNode = null
   if (captions.enabled) {
@@ -70,18 +63,6 @@ const Player = forwardRef<HTMLVideoElement, Props>(function Player(
         {overlay && (
           <div className={`cap-preview cap-preview-${captions.pos} capstyle-${captions.style}`}>{overlay}</div>
         )}
-      </div>
-      <div className="marker-strip" aria-hidden="true" onClick={(e) => {
-        const r = e.currentTarget.getBoundingClientRect()
-        if (videoDuration) seek(((e.clientX - r.left) / r.width) * videoDuration)
-      }}>
-        {videoDuration > 0 && (
-          <div className="marker-head" style={{ left: `${Math.min(100, (nowTime / videoDuration) * 100)}%` }} />
-        )}
-        {videoDuration > 0 && scenes.map((t) => (
-          <button key={t} type="button" className="marker" style={{ left: `${(t / videoDuration) * 100}%` }}
-                  title={duration(t)} onClick={(e) => { e.stopPropagation(); seek(t) }} />
-        ))}
       </div>
     </div>
   )

@@ -305,3 +305,39 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; }
 .shot-row input[type="checkbox"] { accent-color: var(--accent); }
 .shot-row select { padding: 3px 6px; font-size: 12px; }
 .shot-time { background: none; border: 0; color: var(--accent); font-size: 12px; cursor: pointer; padding: 2px 4px; }
+
+/* ---- Video page redesign: segmented modes, steps, groups, timeline ------- */
+.segmented { display: flex; background: var(--panel2); border: 1px solid var(--border); border-radius: 10px; padding: 3px; gap: 3px; }
+.segmented button { flex: 1; background: none; border: 0; color: var(--muted); font: inherit; font-size: 13px; padding: 7px 4px; border-radius: 8px; cursor: pointer; }
+.segmented button.active { background: var(--panel); color: var(--text); font-weight: 600; }
+.seg-badge { margin-left: 4px; font-size: 11px; color: var(--accent); }
+.guide { display: flex; gap: 8px; align-items: center; justify-content: space-between; background: var(--panel2); border: 1px solid var(--accent); border-radius: 8px; padding: 8px 10px; }
+
+.step { display: flex; gap: 10px; align-items: center; background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
+.step.done { border-color: color-mix(in srgb, var(--ok) 40%, var(--border)); }
+.step-mark { width: 20px; text-align: center; color: var(--muted); }
+.step.done .step-mark { color: var(--ok); }
+
+.group { border: 1px solid var(--border); border-radius: 8px; background: var(--panel2); }
+.group-head { width: 100%; display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: center; background: none; border: 0; color: var(--text); font: inherit; padding: 10px 12px; cursor: pointer; text-align: left; }
+.group-title { font-weight: 600; }
+.group-summary { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.group-chevron { color: var(--muted); }
+.group-body { padding: 0 12px 12px; }
+.info-btn { background: none; border: 0; color: var(--accent); font-size: 14px; cursor: pointer; padding: 0 4px; }
+.choice-pill { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border); border-radius: 999px; padding: 4px 12px; font-size: 13px; cursor: pointer; }
+.choice-pill.active { border-color: var(--accent); color: var(--accent); }
+.choice-pill input { display: none; }
+.accent-text { color: var(--accent); }
+
+.render-bar { position: sticky; bottom: calc(64px + env(safe-area-inset-bottom)); display: flex; gap: 10px; align-items: center; background: var(--panel); border: 1px solid var(--accent); border-radius: 10px; padding: 8px 12px; box-shadow: 0 6px 20px rgba(0,0,0,0.4); z-index: 5; }
+
+.timeline { position: relative; height: 26px; background: var(--border); border-radius: 6px; cursor: pointer; touch-action: none; overflow: hidden; }
+.tl-tick { position: absolute; top: 0; bottom: 0; width: 1px; background: rgba(255,255,255,0.35); }
+.tl-range { position: absolute; top: 0; bottom: 0; background: rgba(242,163,60,0.35); border-left: 2px solid var(--accent); border-right: 2px solid var(--accent); }
+.tl-handle { position: absolute; top: -4px; bottom: -4px; width: 18px; cursor: ew-resize; }
+.tl-handle.left { left: -9px; } .tl-handle.right { right: -9px; }
+.tl-handle::after { content: ''; position: absolute; left: 6px; top: 6px; bottom: 6px; width: 6px; border-radius: 3px; background: var(--accent); }
+.tl-shot { position: absolute; top: 6px; bottom: 6px; background: rgba(63,178,127,0.45); border-radius: 3px; }
+.tl-shot.active { background: var(--ok); }
+.tl-head { position: absolute; top: 0; bottom: 0; width: 2px; background: #fff; pointer-events: none; }

@@ -47,6 +47,7 @@ interface Props {
   rangeEnd: number | null
   seek: (t: number) => void
   onRender: (segments: { start: number; end: number; speed: number; zoom_markers: ZoomMarker[] }[], transition: Transition) => void
+  onShotsChange?: (shots: { start: number; end: number; active?: boolean }[] | null) => void
   disabled: boolean
 }
 
@@ -55,7 +56,7 @@ let counter = 0
 const mk = (start: number, end: number, label?: string): Shot =>
   ({ id: `${Date.now().toString(36)}-${counter++}`, start: Math.round(start * 100) / 100, end: Math.round(end * 100) / 100, include: true, speed: 1, punch: false, label })
 
-export default function Montage({ video, plan, onApplyPlanLook, scenes, clipPack, rangeStart, rangeEnd, seek, onRender, disabled }: Props) {
+export default function Montage({ video, plan, onApplyPlanLook, scenes, clipPack, rangeStart, rangeEnd, seek, onRender, onShotsChange, disabled }: Props) {
   const [shots, setShots] = useState<Shot[]>([])
   const [transition, setTransition] = useState<Transition>({ type: 'fade', duration: 0.35 })
   const [msg, setMsg] = useState<string | null>(null)
@@ -73,7 +74,8 @@ export default function Montage({ video, plan, onApplyPlanLook, scenes, clipPack
   }, [video.id])
   useEffect(() => {
     try { localStorage.setItem(key(video.id), JSON.stringify({ shots, transition })) } catch { /* ignore */ }
-  }, [shots, transition, video.id])
+    onShotsChange?.(shots.length ? shots.filter((x) => x.include).map((x) => ({ start: x.start, end: x.end })) : null)
+  }, [shots, transition, video.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const replace = (next: Shot[], what: string) => {
     if (shots.length && !window.confirm(`Replace the current ${shots.length} shots with ${what}?`)) return
@@ -192,7 +194,7 @@ export default function Montage({ video, plan, onApplyPlanLook, scenes, clipPack
         <span className="mono muted small">{included.length} shots · {duration(total)} out</span>
         <button className="btn accent" onClick={render} disabled={disabled || !included.length}>Render montage</button>
       </div>
-      <p className="muted small">Uses the Export settings above (style, captions, grade, music, watermark). Tap a shot's time to preview it in the player.</p>
+      <p className="muted small">Format, Look, Captions, Sound and Brand below apply to the whole montage. Tap a shot's time to preview it.</p>
       {msg && <p className="muted small">{msg}</p>}
     </div>
   )
