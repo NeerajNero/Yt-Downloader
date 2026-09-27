@@ -1,6 +1,6 @@
 import { useMutation } from '@apollo/client'
 import { useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { ProbeUrlDocument, StartDownloadDocument, type ProbeUrlMutation } from '../gql/generated'
 import { uploadVideo } from '../lib/api'
 import { duration } from '../lib/format'
@@ -142,6 +142,7 @@ export default function Ingest() {
       {upload && <div className="bar"><div className="bar-fill" style={{ width: `${upload.pct}%` }} /></div>}
       {error && <p className="job-error">{error}</p>}
       {notice && <p className="muted small">{notice}</p>}
+      <p className="muted small">Like someone else's edit? <Link to="/styles">Analyze a Short</Link> and turn it into a recipe.</p>
     </section>
   )
 }

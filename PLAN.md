@@ -430,6 +430,15 @@ auto-apply in the suggest-done event (one clips row per segment × recipe), Revi
 
 **Test:** new download → recipe renders automatically overnight → morning phone review → approved file + title/hashtags ready to post.
 
+### Phase 3.5 — Style clone ✅ built 2026-09-27 (Gemini path needs the key on the server)
+Paste a Short → `style` job: yt-dlp fetches a ≤480p mp4 into `<library>/.refs/<id>/`, ffmpeg measures
+(dims, cut cadence, median shot, LUFS, black bars), Gemini watches the video inline (`inline_data`
+video/mp4, ≤14 MB, re-encoded to 360p if larger) and returns a structured breakdown (captions, framing,
+cuts, zooms, colour, audio, overlays, motion, Resolve steps). `worker/core/style.py` maps it to a
+`RecipeSettings` (`to_recipe`) and writes markdown Resolve notes. `styles` table; `analyze_style`
+Action; Styles page under More (Save as recipe / Breakdown / Resolve steps / Watch). Honest limits:
+punch-in timestamps and SFX placement can't be inferred into a recipe — the notes say so.
+
 ### Phase 4 — Idea engine  ← NEXT
 1. `ideas` table. Fetchers in `api/app/ideas/`: YouTube Data API (trending gaming videos, keyword
    searches), source-channel RSS (`/feeds/videos.xml?channel_id=`, no quota), own-channel stats

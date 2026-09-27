@@ -7,6 +7,7 @@ import Machines from './routes/Machines'
 import More from './routes/More'
 import Recipes from './routes/Recipes'
 import Review from './routes/Review'
+import Styles from './routes/Styles'
 import Video from './routes/Video'
 
 export default function App() {
@@ -29,6 +30,7 @@ export default function App() {
             <Route path="/machines" element={<Machines />} />
             <Route path="/recipes" element={<Recipes />} />
             <Route path="/review" element={<Review />} />
+            <Route path="/styles" element={<Styles />} />
             <Route path="/more" element={<More />} />
           </Routes>
         </main>

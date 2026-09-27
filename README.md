@@ -32,7 +32,9 @@ generations side by side while v2 is being built:
 from the phone, plus: an ideas inbox (link + note + "while I'm away" pipeline),
 recipes (saved export setups with watermark, SFX layers and punch-in zoom markers)
 that auto-apply to every AI-suggested clip, a Review tab with swipeable rendered
-clips (approve / reject / tweak), and a DaVinci Resolve timeline export. Next:
+clips (approve / reject / tweak), a DaVinci Resolve timeline export, and **style
+clone**: paste a Short you like and get its edit broken down into a recipe plus
+Resolve steps for the parts a renderer can't do. Next:
 deploy + phone test on the real machines, retire `server/` + `ui/`, then Phase 4
 (idea engine). Task lists are in PLAN.md §4.
 
