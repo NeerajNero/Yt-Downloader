@@ -21,6 +21,19 @@ export type Scalars = {
   uuid: { input: string; output: string; }
 };
 
+/** Boolean expression to compare columns of type "Boolean". All fields are combined with logical 'AND'. */
+export type Boolean_Comparison_Exp = {
+  _eq?: InputMaybe<Scalars['Boolean']['input']>;
+  _gt?: InputMaybe<Scalars['Boolean']['input']>;
+  _gte?: InputMaybe<Scalars['Boolean']['input']>;
+  _in?: InputMaybe<Array<Scalars['Boolean']['input']>>;
+  _is_null?: InputMaybe<Scalars['Boolean']['input']>;
+  _lt?: InputMaybe<Scalars['Boolean']['input']>;
+  _lte?: InputMaybe<Scalars['Boolean']['input']>;
+  _neq?: InputMaybe<Scalars['Boolean']['input']>;
+  _nin?: InputMaybe<Array<Scalars['Boolean']['input']>>;
+};
+
 export type EnqueueOutput = {
   __typename?: 'EnqueueOutput';
   job_id: Scalars['uuid']['output'];
@@ -448,6 +461,9 @@ export type Clips = {
   origin: Scalars['String']['output'];
   output_path?: Maybe<Scalars['String']['output']>;
   reason?: Maybe<Scalars['String']['output']>;
+  /** An object relationship */
+  recipe?: Maybe<Recipes>;
+  recipe_id?: Maybe<Scalars['uuid']['output']>;
   render_settings?: Maybe<Scalars['jsonb']['output']>;
   start_s: Scalars['Float']['output'];
   status: Scalars['String']['output'];
@@ -581,6 +597,8 @@ export type Clips_Bool_Exp = {
   origin?: InputMaybe<String_Comparison_Exp>;
   output_path?: InputMaybe<String_Comparison_Exp>;
   reason?: InputMaybe<String_Comparison_Exp>;
+  recipe?: InputMaybe<Recipes_Bool_Exp>;
+  recipe_id?: InputMaybe<Uuid_Comparison_Exp>;
   render_settings?: InputMaybe<Jsonb_Comparison_Exp>;
   start_s?: InputMaybe<Float_Comparison_Exp>;
   status?: InputMaybe<String_Comparison_Exp>;
@@ -629,6 +647,8 @@ export type Clips_Insert_Input = {
   origin?: InputMaybe<Scalars['String']['input']>;
   output_path?: InputMaybe<Scalars['String']['input']>;
   reason?: InputMaybe<Scalars['String']['input']>;
+  recipe?: InputMaybe<Recipes_Obj_Rel_Insert_Input>;
+  recipe_id?: InputMaybe<Scalars['uuid']['input']>;
   render_settings?: InputMaybe<Scalars['jsonb']['input']>;
   start_s?: InputMaybe<Scalars['Float']['input']>;
   status?: InputMaybe<Scalars['String']['input']>;
@@ -649,6 +669,7 @@ export type Clips_Max_Fields = {
   origin?: Maybe<Scalars['String']['output']>;
   output_path?: Maybe<Scalars['String']['output']>;
   reason?: Maybe<Scalars['String']['output']>;
+  recipe_id?: Maybe<Scalars['uuid']['output']>;
   start_s?: Maybe<Scalars['Float']['output']>;
   status?: Maybe<Scalars['String']['output']>;
   title?: Maybe<Scalars['String']['output']>;
@@ -666,6 +687,7 @@ export type Clips_Max_Order_By = {
   origin?: InputMaybe<Order_By>;
   output_path?: InputMaybe<Order_By>;
   reason?: InputMaybe<Order_By>;
+  recipe_id?: InputMaybe<Order_By>;
   start_s?: InputMaybe<Order_By>;
   status?: InputMaybe<Order_By>;
   title?: InputMaybe<Order_By>;
@@ -684,6 +706,7 @@ export type Clips_Min_Fields = {
   origin?: Maybe<Scalars['String']['output']>;
   output_path?: Maybe<Scalars['String']['output']>;
   reason?: Maybe<Scalars['String']['output']>;
+  recipe_id?: Maybe<Scalars['uuid']['output']>;
   start_s?: Maybe<Scalars['Float']['output']>;
   status?: Maybe<Scalars['String']['output']>;
   title?: Maybe<Scalars['String']['output']>;
@@ -701,6 +724,7 @@ export type Clips_Min_Order_By = {
   origin?: InputMaybe<Order_By>;
   output_path?: InputMaybe<Order_By>;
   reason?: InputMaybe<Order_By>;
+  recipe_id?: InputMaybe<Order_By>;
   start_s?: InputMaybe<Order_By>;
   status?: InputMaybe<Order_By>;
   title?: InputMaybe<Order_By>;
@@ -743,6 +767,8 @@ export type Clips_Order_By = {
   origin?: InputMaybe<Order_By>;
   output_path?: InputMaybe<Order_By>;
   reason?: InputMaybe<Order_By>;
+  recipe?: InputMaybe<Recipes_Order_By>;
+  recipe_id?: InputMaybe<Order_By>;
   render_settings?: InputMaybe<Order_By>;
   start_s?: InputMaybe<Order_By>;
   status?: InputMaybe<Order_By>;
@@ -781,6 +807,8 @@ export enum Clips_Select_Column {
   /** column name */
   Reason = 'reason',
   /** column name */
+  RecipeId = 'recipe_id',
+  /** column name */
   RenderSettings = 'render_settings',
   /** column name */
   StartS = 'start_s',
@@ -804,6 +832,7 @@ export type Clips_Set_Input = {
   origin?: InputMaybe<Scalars['String']['input']>;
   output_path?: InputMaybe<Scalars['String']['input']>;
   reason?: InputMaybe<Scalars['String']['input']>;
+  recipe_id?: InputMaybe<Scalars['uuid']['input']>;
   render_settings?: InputMaybe<Scalars['jsonb']['input']>;
   start_s?: InputMaybe<Scalars['Float']['input']>;
   status?: InputMaybe<Scalars['String']['input']>;
@@ -869,6 +898,7 @@ export type Clips_Stream_Cursor_Value_Input = {
   origin?: InputMaybe<Scalars['String']['input']>;
   output_path?: InputMaybe<Scalars['String']['input']>;
   reason?: InputMaybe<Scalars['String']['input']>;
+  recipe_id?: InputMaybe<Scalars['uuid']['input']>;
   render_settings?: InputMaybe<Scalars['jsonb']['input']>;
   start_s?: InputMaybe<Scalars['Float']['input']>;
   status?: InputMaybe<Scalars['String']['input']>;
@@ -908,6 +938,8 @@ export enum Clips_Update_Column {
   OutputPath = 'output_path',
   /** column name */
   Reason = 'reason',
+  /** column name */
+  RecipeId = 'recipe_id',
   /** column name */
   RenderSettings = 'render_settings',
   /** column name */
@@ -2048,6 +2080,10 @@ export type Mutation_Root = {
   delete_machines?: Maybe<Machines_Mutation_Response>;
   /** delete single row from the table: "machines" */
   delete_machines_by_pk?: Maybe<Machines>;
+  /** delete data from the table: "recipes" */
+  delete_recipes?: Maybe<Recipes_Mutation_Response>;
+  /** delete single row from the table: "recipes" */
+  delete_recipes_by_pk?: Maybe<Recipes>;
   /** delete data from the table: "videos" */
   delete_videos?: Maybe<Videos_Mutation_Response>;
   /** delete single row from the table: "videos" */
@@ -2070,6 +2106,10 @@ export type Mutation_Root = {
   insert_machines?: Maybe<Machines_Mutation_Response>;
   /** insert a single row into the table: "machines" */
   insert_machines_one?: Maybe<Machines>;
+  /** insert data into the table: "recipes" */
+  insert_recipes?: Maybe<Recipes_Mutation_Response>;
+  /** insert a single row into the table: "recipes" */
+  insert_recipes_one?: Maybe<Recipes>;
   /** insert data into the table: "videos" */
   insert_videos?: Maybe<Videos_Mutation_Response>;
   /** insert a single row into the table: "videos" */
@@ -2102,6 +2142,12 @@ export type Mutation_Root = {
   update_machines_by_pk?: Maybe<Machines>;
   /** update multiples rows of table: "machines" */
   update_machines_many?: Maybe<Array<Maybe<Machines_Mutation_Response>>>;
+  /** update data of the table: "recipes" */
+  update_recipes?: Maybe<Recipes_Mutation_Response>;
+  /** update single row of the table: "recipes" */
+  update_recipes_by_pk?: Maybe<Recipes>;
+  /** update multiples rows of table: "recipes" */
+  update_recipes_many?: Maybe<Array<Maybe<Recipes_Mutation_Response>>>;
   /** update data of the table: "videos" */
   update_videos?: Maybe<Videos_Mutation_Response>;
   /** update single row of the table: "videos" */
@@ -2157,6 +2203,18 @@ export type Mutation_RootDelete_MachinesArgs = {
 
 /** mutation root */
 export type Mutation_RootDelete_Machines_By_PkArgs = {
+  id: Scalars['uuid']['input'];
+};
+
+
+/** mutation root */
+export type Mutation_RootDelete_RecipesArgs = {
+  where: Recipes_Bool_Exp;
+};
+
+
+/** mutation root */
+export type Mutation_RootDelete_Recipes_By_PkArgs = {
   id: Scalars['uuid']['input'];
 };
 
@@ -2235,6 +2293,20 @@ export type Mutation_RootInsert_MachinesArgs = {
 export type Mutation_RootInsert_Machines_OneArgs = {
   object: Machines_Insert_Input;
   on_conflict?: InputMaybe<Machines_On_Conflict>;
+};
+
+
+/** mutation root */
+export type Mutation_RootInsert_RecipesArgs = {
+  objects: Array<Recipes_Insert_Input>;
+  on_conflict?: InputMaybe<Recipes_On_Conflict>;
+};
+
+
+/** mutation root */
+export type Mutation_RootInsert_Recipes_OneArgs = {
+  object: Recipes_Insert_Input;
+  on_conflict?: InputMaybe<Recipes_On_Conflict>;
 };
 
 
@@ -2384,6 +2456,36 @@ export type Mutation_RootUpdate_Machines_ManyArgs = {
 
 
 /** mutation root */
+export type Mutation_RootUpdate_RecipesArgs = {
+  _append?: InputMaybe<Recipes_Append_Input>;
+  _delete_at_path?: InputMaybe<Recipes_Delete_At_Path_Input>;
+  _delete_elem?: InputMaybe<Recipes_Delete_Elem_Input>;
+  _delete_key?: InputMaybe<Recipes_Delete_Key_Input>;
+  _prepend?: InputMaybe<Recipes_Prepend_Input>;
+  _set?: InputMaybe<Recipes_Set_Input>;
+  where: Recipes_Bool_Exp;
+};
+
+
+/** mutation root */
+export type Mutation_RootUpdate_Recipes_By_PkArgs = {
+  _append?: InputMaybe<Recipes_Append_Input>;
+  _delete_at_path?: InputMaybe<Recipes_Delete_At_Path_Input>;
+  _delete_elem?: InputMaybe<Recipes_Delete_Elem_Input>;
+  _delete_key?: InputMaybe<Recipes_Delete_Key_Input>;
+  _prepend?: InputMaybe<Recipes_Prepend_Input>;
+  _set?: InputMaybe<Recipes_Set_Input>;
+  pk_columns: Recipes_Pk_Columns_Input;
+};
+
+
+/** mutation root */
+export type Mutation_RootUpdate_Recipes_ManyArgs = {
+  updates: Array<Recipes_Updates>;
+};
+
+
+/** mutation root */
 export type Mutation_RootUpdate_VideosArgs = {
   _append?: InputMaybe<Videos_Append_Input>;
   _delete_at_path?: InputMaybe<Videos_Delete_At_Path_Input>;
@@ -2462,6 +2564,12 @@ export type Query_Root = {
   machines_aggregate: Machines_Aggregate;
   /** fetch data from the table: "machines" using primary key columns */
   machines_by_pk?: Maybe<Machines>;
+  /** fetch data from the table: "recipes" */
+  recipes: Array<Recipes>;
+  /** fetch aggregated fields from the table: "recipes" */
+  recipes_aggregate: Recipes_Aggregate;
+  /** fetch data from the table: "recipes" using primary key columns */
+  recipes_by_pk?: Maybe<Recipes>;
   /** fetch data from the table: "videos" */
   videos: Array<Videos>;
   /** fetch aggregated fields from the table: "videos" */
@@ -2563,6 +2671,29 @@ export type Query_RootMachines_By_PkArgs = {
 };
 
 
+export type Query_RootRecipesArgs = {
+  distinct_on?: InputMaybe<Array<Recipes_Select_Column>>;
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  offset?: InputMaybe<Scalars['Int']['input']>;
+  order_by?: InputMaybe<Array<Recipes_Order_By>>;
+  where?: InputMaybe<Recipes_Bool_Exp>;
+};
+
+
+export type Query_RootRecipes_AggregateArgs = {
+  distinct_on?: InputMaybe<Array<Recipes_Select_Column>>;
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  offset?: InputMaybe<Scalars['Int']['input']>;
+  order_by?: InputMaybe<Array<Recipes_Order_By>>;
+  where?: InputMaybe<Recipes_Bool_Exp>;
+};
+
+
+export type Query_RootRecipes_By_PkArgs = {
+  id: Scalars['uuid']['input'];
+};
+
+
 export type Query_RootVideosArgs = {
   distinct_on?: InputMaybe<Array<Videos_Select_Column>>;
   limit?: InputMaybe<Scalars['Int']['input']>;
@@ -2583,6 +2714,274 @@ export type Query_RootVideos_AggregateArgs = {
 
 export type Query_RootVideos_By_PkArgs = {
   id: Scalars['uuid']['input'];
+};
+
+/** columns and relationships of "recipes" */
+export type Recipes = {
+  __typename?: 'recipes';
+  auto_apply: Scalars['Boolean']['output'];
+  /** An array relationship */
+  clips: Array<Clips>;
+  /** An aggregate relationship */
+  clips_aggregate: Clips_Aggregate;
+  created_at: Scalars['timestamptz']['output'];
+  description?: Maybe<Scalars['String']['output']>;
+  id: Scalars['uuid']['output'];
+  name: Scalars['String']['output'];
+  settings: Scalars['jsonb']['output'];
+  updated_at: Scalars['timestamptz']['output'];
+};
+
+
+/** columns and relationships of "recipes" */
+export type RecipesClipsArgs = {
+  distinct_on?: InputMaybe<Array<Clips_Select_Column>>;
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  offset?: InputMaybe<Scalars['Int']['input']>;
+  order_by?: InputMaybe<Array<Clips_Order_By>>;
+  where?: InputMaybe<Clips_Bool_Exp>;
+};
+
+
+/** columns and relationships of "recipes" */
+export type RecipesClips_AggregateArgs = {
+  distinct_on?: InputMaybe<Array<Clips_Select_Column>>;
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  offset?: InputMaybe<Scalars['Int']['input']>;
+  order_by?: InputMaybe<Array<Clips_Order_By>>;
+  where?: InputMaybe<Clips_Bool_Exp>;
+};
+
+
+/** columns and relationships of "recipes" */
+export type RecipesSettingsArgs = {
+  path?: InputMaybe<Scalars['String']['input']>;
+};
+
+/** aggregated selection of "recipes" */
+export type Recipes_Aggregate = {
+  __typename?: 'recipes_aggregate';
+  aggregate?: Maybe<Recipes_Aggregate_Fields>;
+  nodes: Array<Recipes>;
+};
+
+/** aggregate fields of "recipes" */
+export type Recipes_Aggregate_Fields = {
+  __typename?: 'recipes_aggregate_fields';
+  count: Scalars['Int']['output'];
+  max?: Maybe<Recipes_Max_Fields>;
+  min?: Maybe<Recipes_Min_Fields>;
+};
+
+
+/** aggregate fields of "recipes" */
+export type Recipes_Aggregate_FieldsCountArgs = {
+  columns?: InputMaybe<Array<Recipes_Select_Column>>;
+  distinct?: InputMaybe<Scalars['Boolean']['input']>;
+};
+
+/** append existing jsonb value of filtered columns with new jsonb value */
+export type Recipes_Append_Input = {
+  settings?: InputMaybe<Scalars['jsonb']['input']>;
+};
+
+/** Boolean expression to filter rows from the table "recipes". All fields are combined with a logical 'AND'. */
+export type Recipes_Bool_Exp = {
+  _and?: InputMaybe<Array<Recipes_Bool_Exp>>;
+  _not?: InputMaybe<Recipes_Bool_Exp>;
+  _or?: InputMaybe<Array<Recipes_Bool_Exp>>;
+  auto_apply?: InputMaybe<Boolean_Comparison_Exp>;
+  clips?: InputMaybe<Clips_Bool_Exp>;
+  clips_aggregate?: InputMaybe<Clips_Aggregate_Bool_Exp>;
+  created_at?: InputMaybe<Timestamptz_Comparison_Exp>;
+  description?: InputMaybe<String_Comparison_Exp>;
+  id?: InputMaybe<Uuid_Comparison_Exp>;
+  name?: InputMaybe<String_Comparison_Exp>;
+  settings?: InputMaybe<Jsonb_Comparison_Exp>;
+  updated_at?: InputMaybe<Timestamptz_Comparison_Exp>;
+};
+
+/** unique or primary key constraints on table "recipes" */
+export enum Recipes_Constraint {
+  /** unique or primary key constraint on columns "name" */
+  RecipesNameKey = 'recipes_name_key',
+  /** unique or primary key constraint on columns "id" */
+  RecipesPkey = 'recipes_pkey'
+}
+
+/** delete the field or element with specified path (for JSON arrays, negative integers count from the end) */
+export type Recipes_Delete_At_Path_Input = {
+  settings?: InputMaybe<Array<Scalars['String']['input']>>;
+};
+
+/** delete the array element with specified index (negative integers count from the end). throws an error if top level container is not an array */
+export type Recipes_Delete_Elem_Input = {
+  settings?: InputMaybe<Scalars['Int']['input']>;
+};
+
+/** delete key/value pair or string element. key/value pairs are matched based on their key value */
+export type Recipes_Delete_Key_Input = {
+  settings?: InputMaybe<Scalars['String']['input']>;
+};
+
+/** input type for inserting data into table "recipes" */
+export type Recipes_Insert_Input = {
+  auto_apply?: InputMaybe<Scalars['Boolean']['input']>;
+  clips?: InputMaybe<Clips_Arr_Rel_Insert_Input>;
+  created_at?: InputMaybe<Scalars['timestamptz']['input']>;
+  description?: InputMaybe<Scalars['String']['input']>;
+  id?: InputMaybe<Scalars['uuid']['input']>;
+  name?: InputMaybe<Scalars['String']['input']>;
+  settings?: InputMaybe<Scalars['jsonb']['input']>;
+  updated_at?: InputMaybe<Scalars['timestamptz']['input']>;
+};
+
+/** aggregate max on columns */
+export type Recipes_Max_Fields = {
+  __typename?: 'recipes_max_fields';
+  created_at?: Maybe<Scalars['timestamptz']['output']>;
+  description?: Maybe<Scalars['String']['output']>;
+  id?: Maybe<Scalars['uuid']['output']>;
+  name?: Maybe<Scalars['String']['output']>;
+  updated_at?: Maybe<Scalars['timestamptz']['output']>;
+};
+
+/** aggregate min on columns */
+export type Recipes_Min_Fields = {
+  __typename?: 'recipes_min_fields';
+  created_at?: Maybe<Scalars['timestamptz']['output']>;
+  description?: Maybe<Scalars['String']['output']>;
+  id?: Maybe<Scalars['uuid']['output']>;
+  name?: Maybe<Scalars['String']['output']>;
+  updated_at?: Maybe<Scalars['timestamptz']['output']>;
+};
+
+/** response of any mutation on the table "recipes" */
+export type Recipes_Mutation_Response = {
+  __typename?: 'recipes_mutation_response';
+  /** number of rows affected by the mutation */
+  affected_rows: Scalars['Int']['output'];
+  /** data from the rows affected by the mutation */
+  returning: Array<Recipes>;
+};
+
+/** input type for inserting object relation for remote table "recipes" */
+export type Recipes_Obj_Rel_Insert_Input = {
+  data: Recipes_Insert_Input;
+  /** upsert condition */
+  on_conflict?: InputMaybe<Recipes_On_Conflict>;
+};
+
+/** on_conflict condition type for table "recipes" */
+export type Recipes_On_Conflict = {
+  constraint: Recipes_Constraint;
+  update_columns?: Array<Recipes_Update_Column>;
+  where?: InputMaybe<Recipes_Bool_Exp>;
+};
+
+/** Ordering options when selecting data from "recipes". */
+export type Recipes_Order_By = {
+  auto_apply?: InputMaybe<Order_By>;
+  clips_aggregate?: InputMaybe<Clips_Aggregate_Order_By>;
+  created_at?: InputMaybe<Order_By>;
+  description?: InputMaybe<Order_By>;
+  id?: InputMaybe<Order_By>;
+  name?: InputMaybe<Order_By>;
+  settings?: InputMaybe<Order_By>;
+  updated_at?: InputMaybe<Order_By>;
+};
+
+/** primary key columns input for table: recipes */
+export type Recipes_Pk_Columns_Input = {
+  id: Scalars['uuid']['input'];
+};
+
+/** prepend existing jsonb value of filtered columns with new jsonb value */
+export type Recipes_Prepend_Input = {
+  settings?: InputMaybe<Scalars['jsonb']['input']>;
+};
+
+/** select columns of table "recipes" */
+export enum Recipes_Select_Column {
+  /** column name */
+  AutoApply = 'auto_apply',
+  /** column name */
+  CreatedAt = 'created_at',
+  /** column name */
+  Description = 'description',
+  /** column name */
+  Id = 'id',
+  /** column name */
+  Name = 'name',
+  /** column name */
+  Settings = 'settings',
+  /** column name */
+  UpdatedAt = 'updated_at'
+}
+
+/** input type for updating data in table "recipes" */
+export type Recipes_Set_Input = {
+  auto_apply?: InputMaybe<Scalars['Boolean']['input']>;
+  created_at?: InputMaybe<Scalars['timestamptz']['input']>;
+  description?: InputMaybe<Scalars['String']['input']>;
+  id?: InputMaybe<Scalars['uuid']['input']>;
+  name?: InputMaybe<Scalars['String']['input']>;
+  settings?: InputMaybe<Scalars['jsonb']['input']>;
+  updated_at?: InputMaybe<Scalars['timestamptz']['input']>;
+};
+
+/** Streaming cursor of the table "recipes" */
+export type Recipes_Stream_Cursor_Input = {
+  /** Stream column input with initial value */
+  initial_value: Recipes_Stream_Cursor_Value_Input;
+  /** cursor ordering */
+  ordering?: InputMaybe<Cursor_Ordering>;
+};
+
+/** Initial value of the column from where the streaming should start */
+export type Recipes_Stream_Cursor_Value_Input = {
+  auto_apply?: InputMaybe<Scalars['Boolean']['input']>;
+  created_at?: InputMaybe<Scalars['timestamptz']['input']>;
+  description?: InputMaybe<Scalars['String']['input']>;
+  id?: InputMaybe<Scalars['uuid']['input']>;
+  name?: InputMaybe<Scalars['String']['input']>;
+  settings?: InputMaybe<Scalars['jsonb']['input']>;
+  updated_at?: InputMaybe<Scalars['timestamptz']['input']>;
+};
+
+/** update columns of table "recipes" */
+export enum Recipes_Update_Column {
+  /** column name */
+  AutoApply = 'auto_apply',
+  /** column name */
+  CreatedAt = 'created_at',
+  /** column name */
+  Description = 'description',
+  /** column name */
+  Id = 'id',
+  /** column name */
+  Name = 'name',
+  /** column name */
+  Settings = 'settings',
+  /** column name */
+  UpdatedAt = 'updated_at'
+}
+
+export type Recipes_Updates = {
+  /** append existing jsonb value of filtered columns with new jsonb value */
+  _append?: InputMaybe<Recipes_Append_Input>;
+  /** delete the field or element with specified path (for JSON arrays, negative integers count from the end) */
+  _delete_at_path?: InputMaybe<Recipes_Delete_At_Path_Input>;
+  /** delete the array element with specified index (negative integers count from the end). throws an error if top level container is not an array */
+  _delete_elem?: InputMaybe<Recipes_Delete_Elem_Input>;
+  /** delete key/value pair or string element. key/value pairs are matched based on their key value */
+  _delete_key?: InputMaybe<Recipes_Delete_Key_Input>;
+  /** prepend existing jsonb value of filtered columns with new jsonb value */
+  _prepend?: InputMaybe<Recipes_Prepend_Input>;
+  /** sets the columns of the filtered rows to the given values */
+  _set?: InputMaybe<Recipes_Set_Input>;
+  /** filter the rows which have to be updated */
+  where: Recipes_Bool_Exp;
 };
 
 export type Subscription_Root = {
@@ -2619,6 +3018,14 @@ export type Subscription_Root = {
   machines_by_pk?: Maybe<Machines>;
   /** fetch data from the table in a streaming manner: "machines" */
   machines_stream: Array<Machines>;
+  /** fetch data from the table: "recipes" */
+  recipes: Array<Recipes>;
+  /** fetch aggregated fields from the table: "recipes" */
+  recipes_aggregate: Recipes_Aggregate;
+  /** fetch data from the table: "recipes" using primary key columns */
+  recipes_by_pk?: Maybe<Recipes>;
+  /** fetch data from the table in a streaming manner: "recipes" */
+  recipes_stream: Array<Recipes>;
   /** fetch data from the table: "videos" */
   videos: Array<Videos>;
   /** fetch aggregated fields from the table: "videos" */
@@ -2747,6 +3154,36 @@ export type Subscription_RootMachines_StreamArgs = {
   batch_size: Scalars['Int']['input'];
   cursor: Array<InputMaybe<Machines_Stream_Cursor_Input>>;
   where?: InputMaybe<Machines_Bool_Exp>;
+};
+
+
+export type Subscription_RootRecipesArgs = {
+  distinct_on?: InputMaybe<Array<Recipes_Select_Column>>;
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  offset?: InputMaybe<Scalars['Int']['input']>;
+  order_by?: InputMaybe<Array<Recipes_Order_By>>;
+  where?: InputMaybe<Recipes_Bool_Exp>;
+};
+
+
+export type Subscription_RootRecipes_AggregateArgs = {
+  distinct_on?: InputMaybe<Array<Recipes_Select_Column>>;
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  offset?: InputMaybe<Scalars['Int']['input']>;
+  order_by?: InputMaybe<Array<Recipes_Order_By>>;
+  where?: InputMaybe<Recipes_Bool_Exp>;
+};
+
+
+export type Subscription_RootRecipes_By_PkArgs = {
+  id: Scalars['uuid']['input'];
+};
+
+
+export type Subscription_RootRecipes_StreamArgs = {
+  batch_size: Scalars['Int']['input'];
+  cursor: Array<InputMaybe<Recipes_Stream_Cursor_Input>>;
+  where?: InputMaybe<Recipes_Bool_Exp>;
 };
 
 
@@ -3428,6 +3865,49 @@ export type MachinesSubscriptionVariables = Exact<{ [key: string]: never; }>;
 
 export type MachinesSubscription = { __typename?: 'subscription_root', machines: Array<{ __typename?: 'machines', id: string, name: string, os?: string | null, capabilities: Array<string>, status: string, tailscale_ip?: string | null, mac_address?: string | null, last_seen_at?: string | null, woken_at?: string | null }> };
 
+export type RecipesSubscriptionVariables = Exact<{ [key: string]: never; }>;
+
+
+export type RecipesSubscription = { __typename?: 'subscription_root', recipes: Array<{ __typename?: 'recipes', id: string, name: string, description?: string | null, settings: unknown, auto_apply: boolean, created_at: string, updated_at: string, clips_aggregate: { __typename?: 'clips_aggregate', aggregate?: { __typename?: 'clips_aggregate_fields', count: number } | null } }> };
+
+export type InsertRecipeMutationVariables = Exact<{
+  name: Scalars['String']['input'];
+  description?: InputMaybe<Scalars['String']['input']>;
+  settings: Scalars['jsonb']['input'];
+  auto_apply: Scalars['Boolean']['input'];
+}>;
+
+
+export type InsertRecipeMutation = { __typename?: 'mutation_root', insert_recipes_one?: { __typename?: 'recipes', id: string } | null };
+
+export type UpdateRecipeMutationVariables = Exact<{
+  id: Scalars['uuid']['input'];
+  name?: InputMaybe<Scalars['String']['input']>;
+  description?: InputMaybe<Scalars['String']['input']>;
+  settings?: InputMaybe<Scalars['jsonb']['input']>;
+  auto_apply?: InputMaybe<Scalars['Boolean']['input']>;
+}>;
+
+
+export type UpdateRecipeMutation = { __typename?: 'mutation_root', update_recipes_by_pk?: { __typename?: 'recipes', id: string } | null };
+
+export type DeleteRecipeMutationVariables = Exact<{
+  id: Scalars['uuid']['input'];
+}>;
+
+
+export type DeleteRecipeMutation = { __typename?: 'mutation_root', delete_recipes_by_pk?: { __typename?: 'recipes', id: string } | null };
+
+export type ReviewClipsSubscriptionVariables = Exact<{ [key: string]: never; }>;
+
+
+export type ReviewClipsSubscription = { __typename?: 'subscription_root', clips: Array<{ __typename?: 'clips', id: string, start_s: number, end_s: number, title?: string | null, hook?: string | null, reason?: string | null, origin: string, status: string, output_path?: string | null, render_settings?: unknown | null, updated_at: string, recipe?: { __typename?: 'recipes', id: string, name: string } | null, video: { __typename?: 'videos', id: string, title: string, note?: string | null, assets: Array<{ __typename?: 'assets', data?: unknown | null }> } }> };
+
+export type ReviewCountSubscriptionVariables = Exact<{ [key: string]: never; }>;
+
+
+export type ReviewCountSubscription = { __typename?: 'subscription_root', clips_aggregate: { __typename?: 'clips_aggregate', aggregate?: { __typename?: 'clips_aggregate_fields', count: number } | null } };
+
 export type LibrarySubscriptionVariables = Exact<{ [key: string]: never; }>;
 
 
@@ -3492,6 +3972,12 @@ export const RetryJobDocument = {"kind":"Document","definitions":[{"kind":"Opera
 export const ClearFinishedJobsDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"ClearFinishedJobs"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"delete_jobs"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"where"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"status"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"_in"},"value":{"kind":"ListValue","values":[{"kind":"StringValue","value":"done","block":false},{"kind":"StringValue","value":"error","block":false},{"kind":"StringValue","value":"cancelled","block":false}]}}]}}]}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"affected_rows"}}]}}]}}]} as unknown as DocumentNode<ClearFinishedJobsMutation, ClearFinishedJobsMutationVariables>;
 export const EnqueueJobDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"EnqueueJob"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"type"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"video_id"}},"type":{"kind":"NamedType","name":{"kind":"Name","value":"uuid"}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"payload"}},"type":{"kind":"NamedType","name":{"kind":"Name","value":"jsonb"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"insert_jobs_one"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"object"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"type"},"value":{"kind":"Variable","name":{"kind":"Name","value":"type"}}},{"kind":"ObjectField","name":{"kind":"Name","value":"video_id"},"value":{"kind":"Variable","name":{"kind":"Name","value":"video_id"}}},{"kind":"ObjectField","name":{"kind":"Name","value":"payload"},"value":{"kind":"Variable","name":{"kind":"Name","value":"payload"}}}]}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}}]}}]}}]} as unknown as DocumentNode<EnqueueJobMutation, EnqueueJobMutationVariables>;
 export const MachinesDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"subscription","name":{"kind":"Name","value":"Machines"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"machines"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"order_by"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"name"},"value":{"kind":"EnumValue","value":"asc"}}]}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"os"}},{"kind":"Field","name":{"kind":"Name","value":"capabilities"}},{"kind":"Field","name":{"kind":"Name","value":"status"}},{"kind":"Field","name":{"kind":"Name","value":"tailscale_ip"}},{"kind":"Field","name":{"kind":"Name","value":"mac_address"}},{"kind":"Field","name":{"kind":"Name","value":"last_seen_at"}},{"kind":"Field","name":{"kind":"Name","value":"woken_at"}}]}}]}}]} as unknown as DocumentNode<MachinesSubscription, MachinesSubscriptionVariables>;
+export const RecipesDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"subscription","name":{"kind":"Name","value":"Recipes"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"recipes"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"order_by"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"name"},"value":{"kind":"EnumValue","value":"asc"}}]}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"description"}},{"kind":"Field","name":{"kind":"Name","value":"settings"}},{"kind":"Field","name":{"kind":"Name","value":"auto_apply"}},{"kind":"Field","name":{"kind":"Name","value":"created_at"}},{"kind":"Field","name":{"kind":"Name","value":"updated_at"}},{"kind":"Field","name":{"kind":"Name","value":"clips_aggregate"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"aggregate"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"count"}}]}}]}}]}}]}}]} as unknown as DocumentNode<RecipesSubscription, RecipesSubscriptionVariables>;
+export const InsertRecipeDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"InsertRecipe"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"name"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"description"}},"type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"settings"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"jsonb"}}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"auto_apply"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"Boolean"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"insert_recipes_one"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"object"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"name"},"value":{"kind":"Variable","name":{"kind":"Name","value":"name"}}},{"kind":"ObjectField","name":{"kind":"Name","value":"description"},"value":{"kind":"Variable","name":{"kind":"Name","value":"description"}}},{"kind":"ObjectField","name":{"kind":"Name","value":"settings"},"value":{"kind":"Variable","name":{"kind":"Name","value":"settings"}}},{"kind":"ObjectField","name":{"kind":"Name","value":"auto_apply"},"value":{"kind":"Variable","name":{"kind":"Name","value":"auto_apply"}}}]}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}}]}}]}}]} as unknown as DocumentNode<InsertRecipeMutation, InsertRecipeMutationVariables>;
+export const UpdateRecipeDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"UpdateRecipe"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"id"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"uuid"}}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"name"}},"type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"description"}},"type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"settings"}},"type":{"kind":"NamedType","name":{"kind":"Name","value":"jsonb"}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"auto_apply"}},"type":{"kind":"NamedType","name":{"kind":"Name","value":"Boolean"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"update_recipes_by_pk"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"pk_columns"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"id"},"value":{"kind":"Variable","name":{"kind":"Name","value":"id"}}}]}},{"kind":"Argument","name":{"kind":"Name","value":"_set"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"name"},"value":{"kind":"Variable","name":{"kind":"Name","value":"name"}}},{"kind":"ObjectField","name":{"kind":"Name","value":"description"},"value":{"kind":"Variable","name":{"kind":"Name","value":"description"}}},{"kind":"ObjectField","name":{"kind":"Name","value":"settings"},"value":{"kind":"Variable","name":{"kind":"Name","value":"settings"}}},{"kind":"ObjectField","name":{"kind":"Name","value":"auto_apply"},"value":{"kind":"Variable","name":{"kind":"Name","value":"auto_apply"}}}]}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}}]}}]}}]} as unknown as DocumentNode<UpdateRecipeMutation, UpdateRecipeMutationVariables>;
+export const DeleteRecipeDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"DeleteRecipe"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"id"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"uuid"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"delete_recipes_by_pk"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"id"},"value":{"kind":"Variable","name":{"kind":"Name","value":"id"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}}]}}]}}]} as unknown as DocumentNode<DeleteRecipeMutation, DeleteRecipeMutationVariables>;
+export const ReviewClipsDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"subscription","name":{"kind":"Name","value":"ReviewClips"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"clips"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"where"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"status"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"_in"},"value":{"kind":"ListValue","values":[{"kind":"StringValue","value":"rendered","block":false},{"kind":"StringValue","value":"approved","block":false}]}}]}},{"kind":"ObjectField","name":{"kind":"Name","value":"output_path"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"_is_null"},"value":{"kind":"BooleanValue","value":false}}]}}]}},{"kind":"Argument","name":{"kind":"Name","value":"order_by"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"updated_at"},"value":{"kind":"EnumValue","value":"desc"}}]}},{"kind":"Argument","name":{"kind":"Name","value":"limit"},"value":{"kind":"IntValue","value":"60"}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"start_s"}},{"kind":"Field","name":{"kind":"Name","value":"end_s"}},{"kind":"Field","name":{"kind":"Name","value":"title"}},{"kind":"Field","name":{"kind":"Name","value":"hook"}},{"kind":"Field","name":{"kind":"Name","value":"reason"}},{"kind":"Field","name":{"kind":"Name","value":"origin"}},{"kind":"Field","name":{"kind":"Name","value":"status"}},{"kind":"Field","name":{"kind":"Name","value":"output_path"}},{"kind":"Field","name":{"kind":"Name","value":"render_settings"}},{"kind":"Field","name":{"kind":"Name","value":"updated_at"}},{"kind":"Field","name":{"kind":"Name","value":"recipe"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"}}]}},{"kind":"Field","name":{"kind":"Name","value":"video"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"title"}},{"kind":"Field","name":{"kind":"Name","value":"note"}},{"kind":"Field","name":{"kind":"Name","value":"assets"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"where"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"kind"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"_eq"},"value":{"kind":"StringValue","value":"postkit","block":false}}]}}]}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"data"}}]}}]}}]}}]}}]} as unknown as DocumentNode<ReviewClipsSubscription, ReviewClipsSubscriptionVariables>;
+export const ReviewCountDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"subscription","name":{"kind":"Name","value":"ReviewCount"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"clips_aggregate"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"where"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"status"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"_eq"},"value":{"kind":"StringValue","value":"rendered","block":false}}]}},{"kind":"ObjectField","name":{"kind":"Name","value":"output_path"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"_is_null"},"value":{"kind":"BooleanValue","value":false}}]}}]}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"aggregate"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"count"}}]}}]}}]}}]} as unknown as DocumentNode<ReviewCountSubscription, ReviewCountSubscriptionVariables>;
 export const LibraryDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"subscription","name":{"kind":"Name","value":"Library"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"videos"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"order_by"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"created_at"},"value":{"kind":"EnumValue","value":"desc"}}]}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"title"}},{"kind":"Field","name":{"kind":"Name","value":"channel"}},{"kind":"Field","name":{"kind":"Name","value":"duration"}},{"kind":"Field","name":{"kind":"Name","value":"width"}},{"kind":"Field","name":{"kind":"Name","value":"height"}},{"kind":"Field","name":{"kind":"Name","value":"vcodec"}},{"kind":"Field","name":{"kind":"Name","value":"status"}},{"kind":"Field","name":{"kind":"Name","value":"pipeline"}},{"kind":"Field","name":{"kind":"Name","value":"note"}},{"kind":"Field","name":{"kind":"Name","value":"storage_path"}},{"kind":"Field","name":{"kind":"Name","value":"thumb_path"}},{"kind":"Field","name":{"kind":"Name","value":"size_bytes"}},{"kind":"Field","name":{"kind":"Name","value":"created_at"}},{"kind":"Field","name":{"kind":"Name","value":"assets"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"kind"}},{"kind":"Field","name":{"kind":"Name","value":"data"}}]}},{"kind":"Field","name":{"kind":"Name","value":"clips_aggregate"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"aggregate"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"count"}}]}}]}},{"kind":"Field","alias":{"kind":"Name","value":"rendered"},"name":{"kind":"Name","value":"clips_aggregate"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"where"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"status"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"_in"},"value":{"kind":"ListValue","values":[{"kind":"StringValue","value":"rendered","block":false},{"kind":"StringValue","value":"approved","block":false},{"kind":"StringValue","value":"posted","block":false}]}}]}}]}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"aggregate"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"count"}}]}}]}},{"kind":"Field","name":{"kind":"Name","value":"jobs"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"where"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"status"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"_in"},"value":{"kind":"ListValue","values":[{"kind":"StringValue","value":"queued","block":false},{"kind":"StringValue","value":"claimed","block":false},{"kind":"StringValue","value":"running","block":false},{"kind":"StringValue","value":"cancel_requested","block":false}]}}]}}]}},{"kind":"Argument","name":{"kind":"Name","value":"order_by"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"created_at"},"value":{"kind":"EnumValue","value":"desc"}}]}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"type"}},{"kind":"Field","name":{"kind":"Name","value":"status"}},{"kind":"Field","name":{"kind":"Name","value":"progress"}},{"kind":"Field","name":{"kind":"Name","value":"progress_note"}}]}}]}}]}}]} as unknown as DocumentNode<LibrarySubscription, LibrarySubscriptionVariables>;
 export const VideoDetailDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"subscription","name":{"kind":"Name","value":"VideoDetail"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"id"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"uuid"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"videos_by_pk"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"id"},"value":{"kind":"Variable","name":{"kind":"Name","value":"id"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"title"}},{"kind":"Field","name":{"kind":"Name","value":"channel"}},{"kind":"Field","name":{"kind":"Name","value":"duration"}},{"kind":"Field","name":{"kind":"Name","value":"width"}},{"kind":"Field","name":{"kind":"Name","value":"height"}},{"kind":"Field","name":{"kind":"Name","value":"vcodec"}},{"kind":"Field","name":{"kind":"Name","value":"status"}},{"kind":"Field","name":{"kind":"Name","value":"pipeline"}},{"kind":"Field","name":{"kind":"Name","value":"note"}},{"kind":"Field","name":{"kind":"Name","value":"url"}},{"kind":"Field","name":{"kind":"Name","value":"storage_path"}},{"kind":"Field","name":{"kind":"Name","value":"thumb_path"}},{"kind":"Field","name":{"kind":"Name","value":"size_bytes"}},{"kind":"Field","name":{"kind":"Name","value":"created_at"}},{"kind":"Field","name":{"kind":"Name","value":"assets"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"kind"}},{"kind":"Field","name":{"kind":"Name","value":"path"}},{"kind":"Field","name":{"kind":"Name","value":"data"}},{"kind":"Field","name":{"kind":"Name","value":"created_at"}}]}},{"kind":"Field","name":{"kind":"Name","value":"clips"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"order_by"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"created_at"},"value":{"kind":"EnumValue","value":"asc"}}]}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"start_s"}},{"kind":"Field","name":{"kind":"Name","value":"end_s"}},{"kind":"Field","name":{"kind":"Name","value":"title"}},{"kind":"Field","name":{"kind":"Name","value":"hook"}},{"kind":"Field","name":{"kind":"Name","value":"reason"}},{"kind":"Field","name":{"kind":"Name","value":"origin"}},{"kind":"Field","name":{"kind":"Name","value":"status"}},{"kind":"Field","name":{"kind":"Name","value":"output_path"}},{"kind":"Field","name":{"kind":"Name","value":"render_settings"}},{"kind":"Field","name":{"kind":"Name","value":"created_at"}}]}},{"kind":"Field","name":{"kind":"Name","value":"jobs"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"order_by"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"created_at"},"value":{"kind":"EnumValue","value":"desc"}}]}},{"kind":"Argument","name":{"kind":"Name","value":"limit"},"value":{"kind":"IntValue","value":"30"}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"type"}},{"kind":"Field","name":{"kind":"Name","value":"status"}},{"kind":"Field","name":{"kind":"Name","value":"progress"}},{"kind":"Field","name":{"kind":"Name","value":"progress_note"}},{"kind":"Field","name":{"kind":"Name","value":"error"}},{"kind":"Field","name":{"kind":"Name","value":"clip_id"}},{"kind":"Field","name":{"kind":"Name","value":"created_at"}}]}}]}}]}}]} as unknown as DocumentNode<VideoDetailSubscription, VideoDetailSubscriptionVariables>;
 export const UpdateVideoDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"UpdateVideo"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"id"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"uuid"}}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"note"}},"type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"pipeline"}},"type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"update_videos_by_pk"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"pk_columns"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"id"},"value":{"kind":"Variable","name":{"kind":"Name","value":"id"}}}]}},{"kind":"Argument","name":{"kind":"Name","value":"_set"},"value":{"kind":"ObjectValue","fields":[{"kind":"ObjectField","name":{"kind":"Name","value":"note"},"value":{"kind":"Variable","name":{"kind":"Name","value":"note"}}},{"kind":"ObjectField","name":{"kind":"Name","value":"pipeline"},"value":{"kind":"Variable","name":{"kind":"Name","value":"pipeline"}}}]}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"note"}},{"kind":"Field","name":{"kind":"Name","value":"pipeline"}}]}}]}}]} as unknown as DocumentNode<UpdateVideoMutation, UpdateVideoMutationVariables>;

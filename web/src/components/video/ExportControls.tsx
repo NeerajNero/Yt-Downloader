@@ -1,6 +1,8 @@
+import { useMutation, useSubscription } from '@apollo/client'
 import { useEffect, useState } from 'react'
+import { DeleteRecipeDocument, InsertRecipeDocument, RecipesDocument, UpdateRecipeDocument } from '../../gql/generated'
 import { listMusic, uploadMusic } from '../../lib/api'
-import { DEFAULT_SETTINGS, loadPresets, savePresets, type RenderSettings } from '../../lib/settings'
+import { fromStored, type RenderSettings } from '../../lib/settings'
 
 interface Props {
   settings: RenderSettings
@@ -20,36 +22,52 @@ interface Props {
   onPreviewCaps: (v: boolean) => void
   onExport: () => void
   disabled: boolean
+  recipeId: string | null
+  onRecipe: (id: string | null) => void
 }
 
 export default function ExportControls(p: Props) {
   const s = p.settings
   const set = <K extends keyof RenderSettings>(k: K, v: RenderSettings[K]) => p.onChange({ ...s, [k]: v })
-  const [presets, setPresets] = useState<Record<string, RenderSettings>>({})
-  const [presetName, setPresetName] = useState('')
+  const { data: recipeData } = useSubscription(RecipesDocument)
+  const recipes = recipeData?.recipes ?? []
+  const [insertRecipe] = useMutation(InsertRecipeDocument)
+  const [updateRecipe] = useMutation(UpdateRecipeDocument)
+  const [deleteRecipe] = useMutation(DeleteRecipeDocument)
+  const current = recipes.find((r) => r.id === p.recipeId) ?? null
   const [music, setMusic] = useState<string[]>([])
   const [msg, setMsg] = useState<string | null>(null)
 
   useEffect(() => {
-    setPresets(loadPresets())
     listMusic().then(setMusic).catch(() => setMusic([]))
   }, [])
 
-  const applyPreset = (name: string) => {
-    setPresetName(name)
-    if (presets[name]) p.onChange({ ...DEFAULT_SETTINGS, ...presets[name] })
+  const applyRecipe = (id: string) => {
+    p.onRecipe(id || null)
+    const r = recipes.find((x) => x.id === id)
+    if (r) p.onChange(fromStored(r.settings))
   }
-  const savePreset = () => {
-    const name = window.prompt('Preset name:', presetName || 'My preset')?.trim()
+  const saveRecipe = async () => {
+    const name = window.prompt('Recipe name:', current?.name ?? 'My recipe')?.trim()
     if (!name) return
-    const next = { ...presets, [name]: s }
-    setPresets(next); savePresets(next); setPresetName(name)
+    setMsg(null)
+    try {
+      const existing = recipes.find((r) => r.name === name)
+      if (existing) {
+        await updateRecipe({ variables: { id: existing.id, name, description: existing.description, settings: s, auto_apply: existing.auto_apply } })
+        p.onRecipe(existing.id)
+        setMsg(`Updated recipe "${name}".`)
+      } else {
+        const r = await insertRecipe({ variables: { name, description: null, settings: s, auto_apply: false } })
+        p.onRecipe(r.data?.insert_recipes_one?.id ?? null)
+        setMsg(`Saved recipe "${name}". Turn on auto-apply under More → Recipes.`)
+      }
+    } catch (e) { setMsg((e as Error).message) }
   }
-  const deletePreset = () => {
-    if (!presetName) return
-    const next = { ...presets }
-    delete next[presetName]
-    setPresets(next); savePresets(next); setPresetName('')
+  const removeRecipe = async () => {
+    if (!current || !window.confirm(`Delete recipe "${current.name}"?`)) return
+    await deleteRecipe({ variables: { id: current.id } })
+    p.onRecipe(null)
   }
   const onPickMusic = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0]
@@ -70,13 +88,14 @@ export default function ExportControls(p: Props) {
   return (
     <div className="stack export">
       <div className="row wrap">
-        <span className="muted small">Preset</span>
-        <select value={presetName} onChange={(e) => applyPreset(e.target.value)} aria-label="Export preset">
+        <span className="muted small">Recipe</span>
+        <select value={p.recipeId ?? ''} onChange={(e) => applyRecipe(e.target.value)} aria-label="Recipe">
           <option value="">— none —</option>
-          {Object.keys(presets).map((n) => <option key={n} value={n}>{n}</option>)}
+          {recipes.map((r) => <option key={r.id} value={r.id}>{r.name}{r.auto_apply ? ' (auto)' : ''}</option>)}
         </select>
-        <button className="btn small" onClick={savePreset}>Save preset</button>
-        {presetName && presets[presetName] && <button className="btn small" onClick={deletePreset}>Delete</button>}
+        <button className="btn small" onClick={() => void saveRecipe()}>{current ? 'Save as…' : 'Save as recipe'}</button>
+        {current && <button className="btn small" onClick={() => void updateRecipe({ variables: { id: current.id, name: current.name, description: current.description, settings: s, auto_apply: current.auto_apply } }).then(() => setMsg(`Updated "${current.name}".`))}>Update</button>}
+        {current && <button className="btn small" onClick={() => void removeRecipe()}>Delete</button>}
       </div>
 
       <div className="row wrap">

@@ -62,6 +62,36 @@ async def upload(request: Request, filename: str = Query(...), note: str | None 
     return {"ok": True, "video_id": str(vid), "title": folder.name}
 
 
+IMAGE_EXTS_OK = {".png", ".webp"}
+
+
+@router.get("/overlays")
+def overlays_list():
+    """Watermark / logo images for recipes (<library>/.overlays)."""
+    d = settings.LIBRARY_DIR / ".overlays"
+    if not d.is_dir():
+        return []
+    return sorted(f.name for f in d.iterdir() if f.suffix.lower() in IMAGE_EXTS_OK)
+
+
+@router.post("/overlays", dependencies=[Depends(require_secret)])
+async def overlays_upload(request: Request, filename: str = Query(...)):
+    name = Path(filename).name
+    if Path(name).suffix.lower() not in IMAGE_EXTS_OK:
+        raise HTTPException(status_code=400, detail="Use a PNG or WebP with transparency.")
+    safe = media.safe_stem(name) + Path(name).suffix.lower()
+    d = settings.LIBRARY_DIR / ".overlays"
+    d.mkdir(parents=True, exist_ok=True)
+    dest = d / safe
+    with dest.open("wb") as fh:
+        async for chunk in request.stream():
+            fh.write(chunk)
+    if dest.stat().st_size == 0:
+        dest.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail="The upload was empty.")
+    return {"ok": True, "name": safe}
+
+
 @router.get("/music")
 def music_list():
     d = settings.LIBRARY_DIR / ".music"

@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from . import actions, events, files, ingest, internal, settings
+from . import actions, events, files, ingest, internal, settings, timeline
 from .db import pool
 
 
@@ -25,6 +25,7 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(title="YT Studio API", lifespan=lifespan)
 app.include_router(files.router)
 app.include_router(ingest.router)
+app.include_router(timeline.router)
 app.include_router(actions.router)
 app.include_router(events.router)
 app.include_router(internal.router)

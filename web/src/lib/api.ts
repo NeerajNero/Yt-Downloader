@@ -59,3 +59,12 @@ export interface Transcript {
 }
 export interface Scenes { scenes: number[]; duration: number | null }
 export interface ManualCaptions { speed: number; items: { text: string; start: number; duration: number }[] }
+
+export const listOverlays = () => fetch('/api/overlays').then(check).then((r) => r.json() as Promise<string[]>)
+
+export const uploadOverlay = (file: File) =>
+  fetch(`/api/overlays?filename=${encodeURIComponent(file.name)}`, { method: 'POST', headers, body: file })
+    .then(check).then((r) => r.json() as Promise<{ name: string }>)
+
+export const timelineUrl = (videoId: string, status: 'all' | 'rendered' | 'approved') =>
+  `/api/files/${videoId}/timeline.fcpxml?status=${status}`

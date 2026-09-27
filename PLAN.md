@@ -408,18 +408,23 @@ job completes after worker restart. Cancel works from the phone.
 
 **Test:** full v1 workflow phone-first: paste URL → download (gaming PC or brain) → auto transcribe+scenes → suggest clips → export a captioned 9:16 → play the result on the phone. Gaming PC asleep → render job wakes it.
 
-### Phase 3 — Edit recipes  ← NEXT
+### Phase 3 — Edit recipes ✅ built, verified locally 2026-09-27 — awaiting server deploy
 1. `recipes` table + CRUD in PWA; migrate `presets.json` as seed data. Extend the settings JSON for your
    every-short edits: watermark overlay, SFX layers (reuse the music/duck machinery), punch-in zoom markers.
 2. `auto_apply` recipes: event trigger on video ready (after transcribe/scenes) → render jobs per recipe.
 3. Review screen (the phone payoff): rendered clips as swipeable cards — approve / reject / tweak-and-rerender;
    approve moves `clips.status → 'approved'` and surfaces the postkit.
-4. Optional: DaVinci Resolve timeline export — generate FCPXML from a clip list (start/end/source),
-   downloadable from the PWA, for edits that need hand-finishing.
+4. DaVinci Resolve timeline export — FCPXML from a clip list (start/end/source), downloadable from the
+   video page (`/api/files/{video_id}/timeline.fcpxml`); relink the source on import.
+
+Built as: `recipes` table (seeded with the v1 preset + an `auto-shorts-default`), recipe extras in the
+render payload (`watermark`, `sfx[]`, `zoom_markers[]` — one extra zoompan pass, overlay input, adelay+amix),
+auto-apply in the suggest-done event (one clips row per segment × recipe), Review tab with swipeable cards
+(approve / reject / mark posted / tweak → video page with the clip's settings loaded), Recipes page under More.
 
 **Test:** new download → recipe renders automatically overnight → morning phone review → approved file + title/hashtags ready to post.
 
-### Phase 4 — Idea engine
+### Phase 4 — Idea engine  ← NEXT
 1. `ideas` table. Fetchers in `api/app/ideas/`: YouTube Data API (trending gaming videos, keyword
    searches), source-channel RSS (`/feeds/videos.xml?channel_id=`, no quota), own-channel stats
    (YouTube Analytics API, OAuth).

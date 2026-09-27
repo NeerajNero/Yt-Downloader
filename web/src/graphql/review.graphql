@@ -1,0 +1,35 @@
+subscription ReviewClips {
+  clips(where: { status: { _in: ["rendered", "approved"] }, output_path: { _is_null: false } }, order_by: { updated_at: desc }, limit: 60) {
+    id
+    start_s
+    end_s
+    title
+    hook
+    reason
+    origin
+    status
+    output_path
+    render_settings
+    updated_at
+    recipe {
+      id
+      name
+    }
+    video {
+      id
+      title
+      note
+      assets(where: { kind: { _eq: "postkit" } }) {
+        data
+      }
+    }
+  }
+}
+
+subscription ReviewCount {
+  clips_aggregate(where: { status: { _eq: "rendered" }, output_path: { _is_null: false } }) {
+    aggregate {
+      count
+    }
+  }
+}

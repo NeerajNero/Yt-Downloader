@@ -14,6 +14,7 @@ from . import JobContext
 def handle(ctx: JobContext) -> dict:
     video = ctx.video()
     p = ctx.payload
+    recipe_id = p.pop("recipe_id", None)
     settings = core.RenderSettings(**p)
     settings.validate()
     vid = str(video["id"])
@@ -36,6 +37,11 @@ def handle(ctx: JobContext) -> dict:
     music_path = None
     if settings.music:
         music_path = ctx.storage.get_file(ctx.storage.join(".music", settings.music))
+    watermark_path = None
+    if settings.watermark and settings.watermark.get("file"):
+        watermark_path = ctx.storage.get_file(ctx.storage.join(".overlays", settings.watermark["file"]))
+    sfx_paths = [(ctx.storage.get_file(ctx.storage.join(".music", l["file"])), float(l.get("at", 0)), float(l.get("gain", 80)))
+                 for l in settings.sfx if l.get("file")]
 
     src = ctx.source_file(video)
     name = core.output_name(ctx.stem(video), settings, music_path is not None)
@@ -43,7 +49,8 @@ def handle(ctx: JobContext) -> dict:
     out = ctx.storage.output_path(rel, ctx.id)
     try:
         core.run_export(src, out, settings, ctx.tools, ctx.encoder, ctx.report, ctx.should_cancel,
-                        transcript=transcript, manual_captions=manual, music_path=music_path)
+                        transcript=transcript, manual_captions=manual, music_path=music_path,
+                        watermark_path=watermark_path, sfx_paths=sfx_paths)
         if not ctx.storage.local:
             ctx.report(99.0, "uploading render")
         ctx.storage.put_file(rel, out)
@@ -57,14 +64,14 @@ def handle(ctx: JobContext) -> dict:
     if clip_id:
         ctx.db.execute(
             "update clips set status = 'rendered', output_path = %s, render_settings = %s::jsonb, "
-            "start_s = %s, end_s = %s where id = %s",
-            (rel, json.dumps(p), settings.start, settings.end, clip_id),
+            "start_s = %s, end_s = %s, recipe_id = coalesce(%s::uuid, recipe_id) where id = %s",
+            (rel, json.dumps(p), settings.start, settings.end, recipe_id, clip_id),
         )
     else:
         row = ctx.db.fetch_one(
-            """insert into clips (video_id, start_s, end_s, origin, status, output_path, render_settings, job_id)
-               values (%s, %s, %s, 'manual', 'rendered', %s, %s::jsonb, %s) returning id""",
-            (vid, settings.start, settings.end, rel, json.dumps(p), ctx.id),
+            """insert into clips (video_id, start_s, end_s, origin, status, output_path, render_settings, job_id, recipe_id)
+               values (%s, %s, %s, %s, 'rendered', %s, %s::jsonb, %s, %s::uuid) returning id""",
+            (vid, settings.start, settings.end, "recipe" if recipe_id else "manual", rel, json.dumps(p), ctx.id, recipe_id),
         )
         clip_id = str(row["id"])
     return {"output_path": rel, "clip_id": str(clip_id), "encoder": ctx.encoder}
