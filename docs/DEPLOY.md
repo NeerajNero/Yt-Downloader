@@ -119,11 +119,12 @@ in the PWA for what your key can call, or on the server:
 curl -s "https://generativelanguage.googleapis.com/v1beta/models?key=$GEMINI_API_KEY" | grep '"name"'
 ```
 
-**Wake-on-LAN**: the `wol` service runs on the host network and sends magic
-packets on the api's behalf. Put the gaming PC's MAC address into
-`machines.mac_address` (Hasura console → machines, or `psql`). The watchdog
-auto-wakes a capable offline machine when a job has waited a minute with nobody
-online to run it; the Machines page has a manual Wake button too.
+**Wake-on-LAN** is **off by default**. To enable: `WOL_ENABLED=true` in `.env`,
+put the gaming PC's MAC address into `machines.mac_address` (Hasura console →
+machines, or `psql`), and start the host-network sidecar with
+`docker compose --profile wol up -d`. Then the watchdog auto-wakes a capable
+offline machine when a job has waited a minute with nobody online to run it,
+and the Machines page shows a Wake button.
 
 A Hasura cron trigger calls the api's watchdog every minute (requeues jobs whose
 worker died, marks silent machines offline) — nothing to set up, it ships in

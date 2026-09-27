@@ -92,6 +92,13 @@ async def overlays_upload(request: Request, filename: str = Query(...)):
     return {"ok": True, "name": safe}
 
 
+@router.get("/config")
+def config():
+    """Feature flags the PWA adapts to."""
+    from worker.core import gemini
+    return {"wol_enabled": settings.WOL_ENABLED, "gemini": bool(gemini.api_key()), "library_dir": str(settings.LIBRARY_DIR)}
+
+
 @router.get("/ai/models")
 def ai_models():
     """Configured Gemini fallback chain + what the server's key can actually call."""

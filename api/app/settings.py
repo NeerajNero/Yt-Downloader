@@ -16,3 +16,6 @@ MACHINE_OFFLINE_AFTER = int(os.environ.get("MACHINE_OFFLINE_AFTER", "90"))
 # capable offline machine; don't re-send within AUTO_WAKE_RETRY.
 AUTO_WAKE_AFTER = int(os.environ.get("AUTO_WAKE_AFTER", "60"))
 AUTO_WAKE_RETRY = int(os.environ.get("AUTO_WAKE_RETRY", "300"))
+
+# Wake-on-LAN (manual button + auto-wake from the watchdog). Off unless WOL_ENABLED=true.
+WOL_ENABLED = os.environ.get("WOL_ENABLED", "false").strip().lower() in ("1", "true", "yes", "on")
