@@ -1,19 +1,33 @@
 import { useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
+import { TRANSITIONS } from '../components/video/Montage'
 
 /** Visual guide to the editing features: every section pairs a short
  *  explanation with a live CSS/SVG demo of what the setting does. */
 
-const DEMO_TRANSITIONS: { value: string; label: string; note: string }[] = [
-  { value: 'cut', label: 'Hard cut', note: 'Instant. Best for gameplay pace.' },
-  { value: 'fade', label: 'Crossfade', note: 'The shots overlap and blend.' },
-  { value: 'fadeblack', label: 'Dip to black', note: 'Fade out, then in. Feels like a chapter break.' },
-  { value: 'fadewhite', label: 'Flash white', note: 'A flash between shots. Hype / impact.' },
-  { value: 'slideleft', label: 'Slide left', note: 'The next shot pushes in from the right.' },
-  { value: 'wipeleft', label: 'Wipe left', note: 'A moving edge reveals the next shot.' },
-  { value: 'zoomin', label: 'Zoom through', note: 'Punch through the first shot into the next.' },
-  { value: 'circleopen', label: 'Circle open', note: 'The next shot opens from the centre.' },
-]
+/** One note per transition the builder offers (same list, same order). */
+const TRANSITION_NOTES: Record<string, string> = {
+  cut: 'Instant. Best for gameplay pace.',
+  fade: 'The shots overlap and blend.',
+  fadeblack: 'Fade out, then in. Feels like a chapter break.',
+  fadewhite: 'A flash between shots. Hype / impact.',
+  dissolve: 'A grainy crossfade — softer and older-looking than a plain fade.',
+  zoomin: 'Punch through the first shot into the next.',
+  slideleft: 'The next shot pushes in from the right.',
+  slideright: 'The next shot pushes in from the left.',
+  slideup: 'The next shot pushes in from the bottom.',
+  slidedown: 'The next shot pushes in from the top.',
+  wipeleft: 'A moving edge reveals the next shot, right to left.',
+  wiperight: 'A moving edge reveals the next shot, left to right.',
+  smoothleft: 'Both shots slide together to the left, like a carousel.',
+  circleopen: 'The next shot opens from the centre.',
+  circleclose: 'The first shot shrinks to a dot in the centre.',
+  radial: 'A clock-hand sweep reveals the next shot.',
+  pixelize: 'The picture breaks into blocks, then reforms as the next shot.',
+  hblur: 'A horizontal motion blur smears one shot into the next.',
+  squeezeh: 'The first shot is squashed flat, the next one unfolds.',
+}
+const DEMO_TRANSITIONS = TRANSITIONS.map((t) => ({ ...t, note: TRANSITION_NOTES[t.value] ?? '' }))
 
 function Section({ id, title, children }: { id: string; title: string; children: React.ReactNode }) {
   return (
@@ -50,7 +64,7 @@ function TransitionDemo() {
         <div className="help-veil" />
         <div className="help-bar"><div className="help-bar-fill" /></div>
       </div>
-      <p className="muted small">{info.note} The amber bar is the output timeline; the transition is the overlap where both shots are on screen. Longer = softer, shorter = snappier. Transitions can't be longer than half of the shorter shot: the app clamps them.</p>
+      <p className="muted small">{info.note} (The demo is a CSS approximation; the render uses ffmpeg's own version.) The amber bar is the output timeline; the transition is the overlap where both shots are on screen. Longer = softer, shorter = snappier. Transitions can't be longer than half of the shorter shot: the app clamps them.</p>
     </div>
   )
 }

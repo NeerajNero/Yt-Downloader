@@ -42,6 +42,7 @@ interface Props {
   tweakingClip: string | null
   onStep?: (step: EditStep) => void
   shotCount?: number
+  montageRevision?: number
 }
 
 const STEPS: { id: EditStep; title: string; blurb: string; help: string; montageOnly?: boolean }[] = [
@@ -152,7 +153,7 @@ export default function EditPanel(p: Props) {
 
   const montage = (view: MontageView) => (
     <Montage video={p.video} view={view} plan={p.plan} scenes={p.scenes} dialogue={p.dialogue} tags={p.tags} clipPack={p.clipPack} rangeStart={p.range.start} rangeEnd={p.range.end}
-             seek={p.seek} playhead={p.playhead} onRangeChange={p.onRange} onRender={p.onRenderSequence} disabled={!ready} onShotsChange={p.onMontageShots}
+             seek={p.seek} playhead={p.playhead} onRangeChange={p.onRange} onRender={p.onRenderSequence} disabled={!ready} onShotsChange={p.onMontageShots} revision={p.montageRevision}
              onApplyPlanLook={(pl) => p.onChange({ ...s, captions: pl.captions, caption_style: pl.caption_style as RenderSettings['caption_style'],
                                                     caption_pos: pl.caption_pos as RenderSettings['caption_pos'], grade: pl.grade as RenderSettings['grade'], vivid_amount: pl.vivid })} />
   )

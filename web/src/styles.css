@@ -403,6 +403,37 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; }
 @keyframes help-zoomin { 0%, 30% { transform: scale(0.5); opacity: 0 } 70%, 100% { transform: scale(1); opacity: 1 } }
 .help-t-circleopen .help-shot.b { animation-name: help-circleopen; }
 @keyframes help-circleopen { 0%, 30% { clip-path: circle(0% at 50% 50%) } 70%, 100% { clip-path: circle(75% at 50% 50%) } }
+/* the rest of the builder's list */
+.help-t-dissolve .help-shot.b { animation-name: help-dissolve; }
+@keyframes help-dissolve { 0%, 30% { opacity: 0; filter: contrast(1) } 50% { opacity: 0.5; filter: contrast(2.2) saturate(0.6) } 70%, 100% { opacity: 1; filter: contrast(1) } }
+.help-t-slideright .help-shot.b { animation-name: help-slideright; }
+@keyframes help-slideright { 0%, 30% { transform: translateX(-100%) } 70%, 100% { transform: translateX(0) } }
+.help-t-slideup .help-shot.b { animation-name: help-slideup; }
+@keyframes help-slideup { 0%, 30% { transform: translateY(100%) } 70%, 100% { transform: translateY(0) } }
+.help-t-slidedown .help-shot.b { animation-name: help-slidedown; }
+@keyframes help-slidedown { 0%, 30% { transform: translateY(-100%) } 70%, 100% { transform: translateY(0) } }
+.help-t-wiperight .help-shot.b { animation-name: help-wiperight; }
+@keyframes help-wiperight { 0%, 30% { clip-path: inset(0 100% 0 0) } 70%, 100% { clip-path: inset(0 0 0 0) } }
+.help-t-smoothleft .help-shot.a { animation: help-smooth-out var(--len) ease-in-out infinite; }
+.help-t-smoothleft .help-shot.b { animation-name: help-slideleft; }
+@keyframes help-smooth-out { 0%, 30% { transform: translateX(0) } 70%, 100% { transform: translateX(-100%) } }
+.help-t-circleclose .help-shot.a { z-index: 1; animation: help-circleclose var(--len) ease-in-out infinite; }
+@keyframes help-circleclose { 0%, 30% { clip-path: circle(75% at 50% 50%) } 70%, 100% { clip-path: circle(0% at 50% 50%) } }
+@property --help-ang { syntax: '<angle>'; inherits: false; initial-value: 0deg; }
+.help-t-radial .help-shot.b { animation-name: help-radial; -webkit-mask-image: conic-gradient(#000 var(--help-ang), transparent 0); mask-image: conic-gradient(#000 var(--help-ang), transparent 0); }
+@keyframes help-radial { 0%, 30% { --help-ang: 0deg } 70%, 100% { --help-ang: 360deg } }
+.help-t-pixelize .help-shot.a { animation: help-pixel-out var(--len) steps(6) infinite; }
+.help-t-pixelize .help-shot.b { animation-name: help-pixel-in; animation-timing-function: steps(6); }
+@keyframes help-pixel-out { 0%, 30% { filter: blur(0); transform: scale(1) } 50% { filter: blur(6px) contrast(3); transform: scale(1.04) } 70%, 100% { filter: blur(0); transform: scale(1) } }
+@keyframes help-pixel-in { 0%, 45% { opacity: 0; filter: blur(6px) contrast(3) } 50% { opacity: 1; filter: blur(6px) contrast(3) } 70%, 100% { opacity: 1; filter: blur(0) } }
+.help-t-hblur .help-shot.a { animation: help-hblur-out var(--len) ease-in-out infinite; }
+.help-t-hblur .help-shot.b { animation-name: help-hblur-in; }
+@keyframes help-hblur-out { 0%, 30% { filter: blur(0); transform: scaleX(1) } 50% { filter: blur(10px); transform: scaleX(1.25) } 70%, 100% { filter: blur(10px); transform: scaleX(1.25) } }
+@keyframes help-hblur-in { 0%, 30% { opacity: 0; filter: blur(10px); transform: scaleX(1.25) } 50% { opacity: 1; filter: blur(10px); transform: scaleX(1.25) } 70%, 100% { opacity: 1; filter: blur(0); transform: scaleX(1) } }
+.help-t-squeezeh .help-shot.a { animation: help-squeeze-out var(--len) ease-in infinite; }
+.help-t-squeezeh .help-shot.b { animation-name: help-squeeze-in; animation-timing-function: ease-out; }
+@keyframes help-squeeze-out { 0%, 30% { transform: scaleY(1) } 50%, 100% { transform: scaleY(0) } }
+@keyframes help-squeeze-in { 0%, 50% { transform: scaleY(0); opacity: 0 } 50.1% { opacity: 1 } 70%, 100% { transform: scaleY(1); opacity: 1 } }
 
 /* captions + motion demo frames */
 .help-cap { display: grid; gap: 6px; }

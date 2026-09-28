@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import Progress from '../components/Progress'
 import Segmented from '../components/ui/Segmented'
-import type { Plan } from '../components/video/Montage'
+import { saveMontage, shotsFromSegments, type Plan, type Segment, type Transition } from '../components/video/Montage'
 import Player from '../components/video/Player'
 import Timeline from '../components/video/Timeline'
 import ClipsSection from '../components/video/sections/ClipsSection'
@@ -32,6 +32,7 @@ export default function VideoPage() {
   const [editMode, setEditMode] = useState<'range' | 'montage'>('range')
   const [montageShots, setMontageShots] = useState<{ start: number; end: number; active?: boolean }[] | null>(null)
   const [editStep, setEditStep] = useState<string>('cut')
+  const [montageRevision, setMontageRevision] = useState(0)
   const [settings, setSettings] = useState<RenderSettings>(DEFAULT_SETTINGS)
   const [recipeId, setRecipeId] = useState<string | null>(null)
   const [tweakClip, setTweakClip] = useState<string | null>(null)
@@ -99,8 +100,18 @@ export default function VideoPage() {
     setRange({ start: c.start_s, end: c.end_s })
     if (c.render_settings) setSettings(fromStored(c.render_settings))
     setRecipeId((c.render_settings as { recipe_id?: string } | null)?.recipe_id ?? null)
-    setTweakClip(c.id); setEditMode('range')
-    setMsg(`Tweaking "${c.title ?? 'clip'}" — Render replaces its file.`)
+    setTweakClip(c.id)
+    const rs = c.render_settings as { segments?: Partial<Segment>[]; transition?: Transition } | null
+    if (rs?.segments?.length) {
+      // A montage: put its shots back into the builder and open it.
+      saveMontage(video.id, shotsFromSegments(rs.segments), rs.transition ?? { type: 'fade', duration: 0.35 })
+      setMontageRevision((n) => n + 1)
+      setEditMode('montage')
+      setMsg(`Tweaking the montage "${c.title ?? 'clip'}" — its ${rs.segments.length} shots are loaded; Render montage replaces its file.`)
+    } else {
+      setEditMode('range')
+      setMsg(`Tweaking "${c.title ?? 'clip'}" — Render replaces its file.`)
+    }
     params.delete('clip'); params.set('tab', 'edit'); setParams(params, { replace: true })
   }, [wantClip, video?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -136,8 +147,11 @@ export default function VideoPage() {
     void run('render', { ...basePayload(), start: st, end: en }, 'Render queued — watch it on the Jobs tab; the clip lands in Clips and Review.', clipId ?? tweakClip ?? undefined)
     if (!clipId) setTweakClip(null)
   }
-  const renderSequence = (segments: unknown[], transition: { type: string; duration: number }) =>
-    void run('render', { ...basePayload(), segments, transition }, 'Montage queued — watch it on the Jobs tab.')
+  const renderSequence = (segments: unknown[], transition: { type: string; duration: number }) => {
+    void run('render', { ...basePayload(), segments, transition },
+             tweakClip ? 'Montage re-render queued — it replaces the clip\'s file.' : 'Montage queued — watch it on the Jobs tab.', tweakClip ?? undefined)
+    setTweakClip(null)
+  }
 
   const prepareAll = async () => {
     // "prepare" lets the pipeline chain the rest (dialogue after the transcript, tags after scenes, post kit, AI picks + plan).
@@ -244,7 +258,7 @@ export default function VideoPage() {
                      borders={borders} active={active} run={(t, pl, ok) => void run(t, pl, ok)}
                      previewCaps={previewCaps} onPreviewCaps={setPreviewCaps} recipeId={recipeId} onRecipe={setRecipeId}
                      onRender={() => renderRange()} onRenderSequence={renderSequence} onMontageShots={setMontageShots}
-                     tweakingClip={tweakClip} onStep={setEditStep} shotCount={montageShots?.length ?? 0} />
+                     tweakingClip={tweakClip} onStep={setEditStep} shotCount={montageShots?.length ?? 0} montageRevision={montageRevision} />
         )}
         {mode === 'tools' && <ToolsSection video={video} range={range} active={active} run={(t, pl, ok) => void run(t, pl, ok)} onRemove={() => void remove()} />}
        </div>
