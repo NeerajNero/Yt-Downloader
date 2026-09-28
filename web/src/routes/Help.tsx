@@ -132,8 +132,10 @@ export default function Help() {
   useEffect(() => {
     const id = hash.replace('#', '')
     if (!id) return
-    const t = window.setTimeout(() => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50)
-    return () => window.clearTimeout(t)
+    // twice: once right away, once after the page has laid out its demos (a fresh load lands before that)
+    const go = () => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    const t1 = window.setTimeout(go, 50), t2 = window.setTimeout(go, 450)
+    return () => { window.clearTimeout(t1); window.clearTimeout(t2) }
   }, [hash])
   return (
     <div className="stack" id="top">
@@ -142,7 +144,7 @@ export default function Help() {
         <p className="small">Everything the app can do to a video, shown rather than told. Jump to a part:</p>
         <div className="row wrap">
           {[['workflow', 'Workflow'], ['timeline', 'Timeline'], ['detect', 'Detection'], ['montage', 'Montage'], ['transitions', 'Transitions'], ['motion', 'Motion'],
-            ['framing', 'Framing'], ['captions', 'Captions'], ['sound', 'Sound'], ['ai', 'AI & recipes'], ['review', 'Review']].map(([id, label]) => (
+            ['framing', 'Framing'], ['effects', 'Look & effects'], ['captions', 'Captions'], ['sound', 'Sound'], ['ai', 'AI & recipes'], ['review', 'Review']].map(([id, label]) => (
             <a key={id} href={`#${id}`} className="btn small">{label}</a>
           ))}
         </div>
@@ -244,6 +246,28 @@ export default function Help() {
           <g><rect x="420" y="10" width="160" height="90" fill="#000" rx="4" /><rect x="420" y="22" width="160" height="66" fill="#4f9de6" opacity="0.8" /><rect x="420" y="10" width="160" height="12" fill="none" stroke="#e5534b" strokeDasharray="3 2" /><rect x="420" y="88" width="160" height="12" fill="none" stroke="#e5534b" strokeDasharray="3 2" /><text x="500" y="120" className="help-svg-label" textAnchor="middle">Trim bars (measured or by %)</text></g>
         </svg>
         <p className="small">Portrait 9:16 for Shorts, landscape 16:9 otherwise. <strong>Fill</strong> crops into the picture: on the Frame step an amber box on the player shows exactly what will fill the frame — drag it to the action, scroll on it (or use the zoom slider) to zoom in. <strong>Fit</strong> keeps the whole picture over a blurred copy of itself; zoom in there to show only part of it. Rotate turns the picture, and "rotate with video" turns the captions with it.</p>
+      </Section>
+
+      <Section id="effects" title="Look and effects">
+        <p className="small">Grades are film colour looks (teal &amp; orange, moody, warm, cool, black &amp; white); vivid boosts saturation and contrast; the HDR look adds crunchy local contrast. Effects are textures layered on the framed picture, under the captions. Each has a strength slider; they stack.</p>
+        <div className="help-grid">
+          {[
+            ['Vignette', 'fxv-vignette', 'Darkened corners. Pulls the eye to the middle; 30–50 is plenty.'],
+            ['Grain', 'fxv-grain', 'Film grain. A little hides compression blocks; a lot is a look.'],
+            ['Glow', 'fxv-glow', 'Bloom: bright parts bleed softly. The trailer / dream look.'],
+            ['Aberration', 'fxv-aberration', 'Red and blue fringes pulled apart at the edges. The gaming-edit staple; keep it under 40 unless you want a glitch.'],
+            ['Halation', 'fxv-halation', 'A warm red glow around highlights, like old film stock. Pairs with grain and a warm grade.'],
+            ['Sharpen', 'fxv-sharpen', 'Crisper edges and HUD text. Fights soft 720p sources.'],
+            ['VHS tape', 'fxv-vhs', 'Soft, bleeding colour, scanlines, a little noise. On or off.'],
+            ['Bars', 'fxv-bars', 'Black bars top and bottom: thin, cinema or wide. Captions still sit in the frame, so pick "middle" position with wide bars.'],
+          ].map(([name, cls, note]) => (
+            <div key={name} className="help-cap">
+              <div className={`help-cap-frame fxv ${cls}`}><div className="fxv-scene"><span>HUD 120</span></div></div>
+              <span className="small"><strong>{name}</strong> — {note}</span>
+            </div>
+          ))}
+        </div>
+        <p className="small"><strong>Overlays: lens flares, light leaks, dust.</strong> These are short clips on a black background that you drop into the library's <span className="mono">.fx</span> folder (or upload with "Add clip"). On the Look step, "Add at playhead" blends one over the picture from that moment for the clip's own length. <em>Screen</em> keeps only the light and hides the black; <em>Add</em> is hotter; <em>Overlay</em> and <em>Soft light</em> also darken. Opacity, speed and a horizontal flip let you reuse one flare several times without it looking copied. Free packs are on the usual stock sites; anything mp4, mov or webm works.</p>
       </Section>
 
       <Section id="captions" title="Captions">

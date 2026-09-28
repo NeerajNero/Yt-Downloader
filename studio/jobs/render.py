@@ -43,6 +43,9 @@ def handle(ctx: JobContext) -> dict:
         watermark_path = _library_file(ctx, ".overlays", settings.watermark["file"])
     sfx_paths = [(_library_file(ctx, ".music", l["file"]), float(l.get("at", 0)), float(l.get("gain", 80)))
                  for l in settings.sfx if l.get("file")]
+    fx_paths = [(_library_file(ctx, ".fx", l["file"]), float(l.get("at", 0)), float(l.get("opacity", 80)),
+                 str(l.get("blend", "screen")), bool(l.get("flip")), float(l.get("speed", 1.0) or 1.0))
+                for l in settings.fx if l.get("file")]
 
     src = ctx.source_file(video)
     name = core.output_name(ctx.stem(video), settings, music_path is not None)
@@ -51,7 +54,7 @@ def handle(ctx: JobContext) -> dict:
     try:
         core.run_export(src, out, settings, ctx.tools, ctx.encoder, ctx.report, ctx.should_cancel,
                         transcript=transcript, manual_captions=manual, music_path=music_path,
-                        watermark_path=watermark_path, sfx_paths=sfx_paths)
+                        watermark_path=watermark_path, sfx_paths=sfx_paths, fx_paths=fx_paths)
     except BaseException:
         if clip_id:
             clip = ctx.store.get_clip(clip_id)

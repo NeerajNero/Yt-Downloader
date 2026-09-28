@@ -160,6 +160,9 @@ class Library:
     def overlays_dir(self) -> Path:
         return self.root / ".overlays"
 
+    def fx_dir(self) -> Path:
+        return self.root / ".fx"
+
     # ---- reads / writes -----------------------------------------------------
 
     def read_json(self, rel: str) -> dict:

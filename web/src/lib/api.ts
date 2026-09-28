@@ -90,6 +90,10 @@ export const uploadMusic = (file: File) =>
   fetch(`/api/music?filename=${encodeURIComponent(file.name)}`, { method: 'POST', body: file })
     .then(check).then((r) => r.json() as Promise<{ name: string }>)
 
+export const listFx = () => fetch('/api/fx').then(check).then((r) => r.json() as Promise<string[]>)
+export const uploadFx = (file: File) =>
+  fetch(`/api/fx?filename=${encodeURIComponent(file.name)}`, { method: 'POST', body: file })
+    .then(check).then((r) => r.json() as Promise<{ name: string }>)
 export const listOverlays = () => fetch('/api/overlays').then(check).then((r) => r.json() as Promise<string[]>)
 export const uploadOverlay = (file: File) =>
   fetch(`/api/overlays?filename=${encodeURIComponent(file.name)}`, { method: 'POST', body: file })

@@ -254,6 +254,52 @@ def test_playback_reverse_and_bounce():
         validate_payload("render", {"segments": [{"start": 0, "end": 3, "playback": "loop"}]})
 
 
+def test_effects_filter_and_payload():
+    fx = {"vignette": 50, "grain": 100, "glow": 40, "aberration": 25, "halation": 60, "sharpen": 50, "vhs": True, "letterbox": "cinema"}
+    f = render.effects_filter(fx, 1080, 1920)
+    assert f.startswith(",rgbashift=rh=4:bh=-4,split[fxg0][fxg1];[fxg1]colorlevels=rimin=0.55")
+    assert "blend=all_mode=screen:all_opacity=0.550" in f and "colorchannelmixer=rr=1:gg=0.35:bb=0.2[fxhb]" in f
+    assert ",noise=alls=50:allf=t+u," in f and "drawgrid=w=iw:h=4:t=1:c=black@0.28" in f
+    assert "unsharp=5:5:1.00:5:5:0" in f and "vignette=angle=0.960" in f
+    assert f.endswith("drawbox=x=0:y=0:w=iw:h=230:color=black:t=fill,drawbox=x=0:y=ih-230:w=iw:h=230:color=black:t=fill")
+    assert render.effects_filter({}, 1080, 1920) == "" and render.effects_filter({"letterbox": "none", "grain": 0}, 1080, 1920) == ""
+    assert not render.effects_active(None) and render.effects_active({"vhs": True})
+    s = render.RenderSettings(start=0, end=3, effects={"grain": 30, "letterbox": "thin"})
+    s.validate()
+    assert render.output_name("X", s, False) == "X_9x16_0s-3s_blur_fx-grai-lett.mp4"
+    with pytest.raises(ValueError, match="Letterbox"):
+        render.RenderSettings(start=0, end=3, effects={"letterbox": "huge"}).validate()
+    p = validate_payload("render", {"start": 0, "end": 3, "effects": {"glow": 20}})
+    assert p["effects"]["glow"] == 20 and p["effects"]["vhs"] is False and p["effects"]["letterbox"] == "none"
+    with pytest.raises(ValueError):
+        validate_payload("render", {"start": 0, "end": 3, "effects": {"sparkle": 1}})
+    assert validate_recipe({"effects": {"vignette": 40}})["effects"]["vignette"] == 40
+
+
+def test_fx_overlay_chain_and_payload(tmp_path):
+    flare = tmp_path / "flare.mp4"; flare.write_bytes(b"x")
+    frag, out, inputs = render._fx_chain(1080, 1920, 30.0, [(flare, 1.5, 70, "screen", True, 1.0), (flare, 0, 100, "weird", False, 2.0)], "vpre", 1)
+    assert inputs == ["-i", str(flare), "-i", str(flare)] and out == "vfxout"
+    assert frag.startswith("[vpre]format=gbrp[fxbase];[1:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1,hflip,setpts=(PTS-STARTPTS)/1.0000,fps=30.0000,format=gbrp,tpad=start_duration=1.500")
+    assert "[fxbase][fx0]blend=all_mode=screen:all_opacity=0.700:shortest=1[vfx0]" in frag and frag.endswith("[vfx1]format=yuv420p[vfxout]")
+    assert "[2:v]scale" in frag and "setpts=(PTS-STARTPTS)/2.0000" in frag and "[vfx0][fx1]blend=all_mode=screen:all_opacity=1.000:shortest=1[vfx1]" in frag
+    # overlays go before the watermark, and the graph still ends in [v]
+    s = render.RenderSettings(start=0, end=3, style="crop", fx=[{"file": "flare.mp4"}], watermark={"file": "w.png"})
+    inputs = ["-i", "src"]
+    logo = tmp_path / "w.png"; logo.write_bytes(b"x")
+    g, n = render._finish_video("[0:v]crop=1:1", inputs, 1, 1080, 1920, 30.0, s, logo, [(flare, 0, 80, "screen", False, 1.0)])
+    assert g.startswith("[0:v]crop=1:1[vpre];[vpre]format=gbrp[fxbase];[1:v]scale") and "[vfxout][wm]overlay=" in g and g.endswith("[v]") and n == 3
+    g2, _ = render._finish_video("[0:v]crop=1:1", ["-i", "src"], 1, 1080, 1920, 30.0, s, None, [(flare, 0, 80, "screen", False, 1.0)])
+    assert g2.endswith(";[vfxout]null[v]")
+    g3, _ = render._finish_video("[0:v]crop=1:1", ["-i", "src"], 1, 1080, 1920, 30.0, render.RenderSettings(start=0, end=3), None, [])
+    assert g3 == "[0:v]crop=1:1[v]"
+    assert render.output_name("X", s, False).endswith("_wm_ovl1.mp4")
+    p = validate_payload("render", {"start": 0, "end": 3, "fx": [{"file": "flare.mp4", "at": 2, "blend": "addition"}]})
+    assert p["fx"][0] == {"file": "flare.mp4", "at": 2.0, "opacity": 80, "blend": "addition", "flip": False, "speed": 1.0}
+    with pytest.raises(ValueError):
+        validate_payload("render", {"start": 0, "end": 3, "fx": [{"file": "f.mp4", "blend": "multiply"}]})
+
+
 def test_dialogue_lines_and_tag_shots(tmp_path):
     from studio.core import dialogue
     tr = {"duration": 30.0, "segments": [

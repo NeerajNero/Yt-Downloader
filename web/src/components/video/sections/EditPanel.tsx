@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { deleteRecipe, insertRecipe, listMusic, listOverlays, updateRecipe, uploadMusic, uploadOverlay, type DialogueLine, type ManualCaptions, type TaggedShot } from '../../../lib/api'
+import { deleteRecipe, insertRecipe, listFx, listMusic, listOverlays, updateRecipe, uploadFx, uploadMusic, uploadOverlay, type DialogueLine, type ManualCaptions, type TaggedShot } from '../../../lib/api'
 import { duration } from '../../../lib/format'
 import { usePoll } from '../../../lib/poll'
-import { DEFAULT_SETTINGS, PLAYBACKS, REVERSE_SPEEDS, fromStored, getEditLayout, playbackLength, summarize, type RenderSettings, type SfxLayer, type ShakeMarker, type ZoomMarker } from '../../../lib/settings'
+import { DEFAULT_EFFECTS, DEFAULT_SETTINGS, EFFECT_SLIDERS, FX_BLENDS, PLAYBACKS, REVERSE_SPEEDS, effectsSummary, fromStored, getEditLayout, playbackLength, summarize, type Effects, type FxLayer, type RenderSettings, type SfxLayer, type ShakeMarker, type ZoomMarker } from '../../../lib/settings'
 import type { Job, Recipe, VideoDetail as Video } from '../../../lib/types'
 import Group from '../../ui/Group'
 import TimeInput from '../../ui/TimeInput'
@@ -50,7 +50,7 @@ const STEPS: { id: EditStep; title: string; blurb: string; help: string; montage
   { id: 'frame', title: 'Frame', blurb: 'Shape of the output and which part of the picture fills it. Drag the box on the player.', help: 'framing' },
   { id: 'motion', title: 'Motion', blurb: 'Speed tricks: punch-ins, shakes, a bounce, a slow zoom.', help: 'motion' },
   { id: 'transitions', title: 'Transitions', blurb: 'How one shot becomes the next, and how long that takes.', help: 'transitions', montageOnly: true },
-  { id: 'look', title: 'Look', blurb: 'Colour: a grade, extra punch, the HDR look.', help: 'motion' },
+  { id: 'look', title: 'Look', blurb: 'Colour and texture: a grade, vivid, the HDR look, and effects like grain, glow, vignette or VHS.', help: 'effects' },
   { id: 'captions', title: 'Captions', blurb: 'Word-timed text from the transcript, or your own lines.', help: 'captions' },
   { id: 'sound', title: 'Sound', blurb: 'A music bed, sound effects, loudness.', help: 'sound' },
   { id: 'brand', title: 'Brand', blurb: 'Your logo or handle on top.', help: 'ai' },
@@ -70,6 +70,7 @@ export default function EditPanel(p: Props) {
   const current = recipes.find((r) => r.id === p.recipeId) ?? null
   const [music, setMusic] = useState<string[]>([])
   const [overlays, setOverlays] = useState<string[]>([])
+  const [fxFiles, setFxFiles] = useState<string[]>([])
   const [msg, setMsg] = useState<string | null>(null)
   const [layout] = useState(getEditLayout)
   const [step, setStepState] = useState<EditStep>(() => { try { return (localStorage.getItem(stepKey(p.video.id)) as EditStep) || 'cut' } catch { return 'cut' } })
@@ -79,6 +80,7 @@ export default function EditPanel(p: Props) {
   useEffect(() => {
     listMusic().then(setMusic).catch(() => setMusic([]))
     listOverlays().then(setOverlays).catch(() => setOverlays([]))
+    listFx().then(setFxFiles).catch(() => setFxFiles([]))
   }, [])
   const steps = STEPS.filter((st) => !st.montageOnly || p.mode === 'montage')
   const effectiveStep: EditStep = layout === 'page' ? 'cut' : (steps.some((st) => st.id === step) ? step : 'cut')
@@ -116,6 +118,12 @@ export default function EditPanel(p: Props) {
   const setSfx = (list: SfxLayer[]) => set('sfx', list)
   const setMarkers = (list: ZoomMarker[]) => set('zoom_markers', list)
   const setShakes = (list: ShakeMarker[]) => set('shake_markers', list)
+  const setFxLayers = (list: FxLayer[]) => set('fx', list)
+  const onPickFx = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0]; e.target.value = ''
+    if (!f) return
+    try { const r = await uploadFx(f); setFxFiles(await listFx()); setFxLayers([...s.fx, { file: r.name, at: rel(), opacity: 80, blend: 'screen', flip: false, speed: 1 }]) } catch (err) { setMsg((err as Error).message) }
+  }
   const onPickMusic = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0]; e.target.value = ''
     if (!f) return
@@ -137,7 +145,10 @@ export default function EditPanel(p: Props) {
     s.crop_zoom > 1 ? `zoom ${s.crop_zoom.toFixed(2)}×` : '', moved ? 'moved' : '', s.rotate !== 'none' ? `rotate ${s.rotate}` : '', s.trim_x || s.trim_y ? `trim ${s.trim_y}/${s.trim_x}%` : ''].filter(Boolean).join(' · ')
   const motionSummary = p.mode === 'montage' ? 'per shot' : [s.playback !== 'forward' ? `${s.playback}${s.reverse_speed > 1 ? ` ${s.reverse_speed}×` : ''} → ${duration(rangeOut)} out` : '', s.zoom === 'in' ? 'slow zoom' : '',
     s.zoom_markers.length ? `${s.zoom_markers.length} punch-in${s.zoom_markers.length > 1 ? 's' : ''}` : '', s.shake_markers.length ? `${s.shake_markers.length} shake${s.shake_markers.length > 1 ? 's' : ''}` : ''].filter(Boolean).join(' · ') || 'none'
-  const lookSummary = [s.grade !== 'none' ? s.grade.replace('_', ' & ') : 'natural', s.vivid_amount ? `vivid ${s.vivid_amount}` : '', s.look === 'hdr' ? 'HDR look' : ''].filter(Boolean).join(' · ')
+  const fxSummary = effectsSummary(s.effects)
+  const lookSummary = [s.grade !== 'none' ? s.grade.replace('_', ' & ') : 'natural', s.vivid_amount ? `vivid ${s.vivid_amount}` : '', s.look === 'hdr' ? 'HDR look' : '', fxSummary].filter(Boolean).join(' · ')
+  const setFx = (patch: Partial<Effects>) => set('effects', { ...DEFAULT_EFFECTS, ...s.effects, ...patch })
+  const fxOn = Boolean(fxSummary) || s.fx.length > 0
   const capSummary = s.captions ? `${s.caption_style} · ${s.caption_pos}${s.caption_source === 'manual' ? ' · manual' : ''}` : 'off'
   const soundSummary = [s.music ? `music ${s.music}${s.duck ? ' (ducked)' : ''}` : 'original audio', s.sfx.length ? `${s.sfx.length} sfx` : '', s.loudness ? '-14 LUFS' : ''].filter(Boolean).join(' · ')
   const brandSummary = wm?.file ? `${wm.file} · ${wm.position.replace('_', ' ')}` : 'no watermark'
@@ -147,7 +158,7 @@ export default function EditPanel(p: Props) {
     cut: p.mode === 'montage' ? (p.shotCount ?? 0) > 0 : p.range.end > p.range.start,
     frame: s.orientation !== D.orientation || s.resolution !== D.resolution || s.style !== D.style || s.rotate !== 'none' || Boolean(s.trim_x || s.trim_y || s.fg_crop) || s.crop_zoom > 1 || moved,
     motion: p.mode === 'range' ? (s.zoom !== 'none' || s.zoom_markers.length > 0 || s.shake_markers.length > 0 || s.playback !== 'forward') : undefined,
-    look: s.grade !== 'none' || s.vivid_amount > 0 || s.look !== 'none',
+    look: s.grade !== 'none' || s.vivid_amount > 0 || s.look !== 'none' || fxOn,
     captions: s.captions, sound: Boolean(s.music || s.sfx.length || s.loudness), brand: Boolean(wm?.file),
   }
 
@@ -283,6 +294,7 @@ export default function EditPanel(p: Props) {
     </>
   )
   const lookSection = (
+    <>
     <div className="row wrap">
       <select value={s.grade} onChange={(e) => set('grade', e.target.value as RenderSettings['grade'])} aria-label="Colour grade">
         <option value="none">Natural colour</option><option value="teal_orange">Teal & orange</option><option value="moody">Moody</option>
@@ -298,6 +310,64 @@ export default function EditPanel(p: Props) {
           <span className="mono small">{s.look_sharp}</span></label>
       )}
     </div>
+    <div className="stack" style={{ gap: 6 }}>
+      <div className="row wrap">
+        <span className="muted small">Effects</span>
+        <span className="muted small">{fxOn ? fxSummary : 'none — slide one up to try it'}</span>
+        {fxOn && <button className="btn small" onClick={() => set('effects', { ...DEFAULT_EFFECTS })}>Clear effects</button>}
+        <Link to="/help#effects" className="btn small">? what they look like</Link>
+      </div>
+      <div className="fx-grid">
+        {EFFECT_SLIDERS.map((x) => (
+          <label key={x.key} className="slider fx-slider" title={x.hint}>
+            <span className={`small ${(s.effects[x.key] as number) > 0 ? '' : 'muted'}`}>{x.label}</span>
+            <input type="range" min={0} max={100} step={5} value={s.effects[x.key] as number} onChange={(e) => setFx({ [x.key]: Number(e.target.value) } as Partial<Effects>)} aria-label={x.label} />
+            <span className="mono small">{s.effects[x.key] as number}</span>
+          </label>
+        ))}
+        <label className="check" title="Soft, bleeding colour, scanlines — old tape"><input type="checkbox" checked={s.effects.vhs} onChange={(e) => setFx({ vhs: e.target.checked })} /> VHS tape</label>
+        <label className="slider fx-slider" title="Black bars top and bottom for a cinematic frame">
+          <span className={`small ${s.effects.letterbox !== 'none' ? '' : 'muted'}`}>Bars</span>
+          <select value={s.effects.letterbox} onChange={(e) => setFx({ letterbox: e.target.value as Effects['letterbox'] })} aria-label="Letterbox bars">
+            <option value="none">No bars</option><option value="thin">Thin (6 %)</option><option value="cinema">Cinema (12 %)</option><option value="wide">Wide (20 %)</option>
+          </select>
+        </label>
+      </div>
+      <span className="muted small">Effects sit on the framed picture, under the captions. Each one is an extra pass; three or four at 1080p is fine.</span>
+    </div>
+    <div className="stack" style={{ gap: 6 }}>
+      <div className="row wrap">
+        <span className="muted small">Overlays</span>
+        <button className="btn small" disabled={!fxFiles.length} title={fxFiles.length ? 'Blend a flare / light leak from the playhead' : 'Add a clip first'}
+                onClick={() => setFxLayers([...s.fx, { file: fxFiles[0], at: rel(), opacity: 80, blend: 'screen', flip: false, speed: 1 }])}>Add at playhead</button>
+        <label className="btn small">Add clip<input type="file" accept=".mp4,.mov,.webm,.mkv,.m4v,video/*" onChange={(e) => void onPickFx(e)} hidden /></label>
+        {s.fx.length > 0 && <button className="btn small" onClick={() => setFxLayers([])}>Clear</button>}
+        <span className="muted small">{fxFiles.length ? `${fxFiles.length} clip${fxFiles.length > 1 ? 's' : ''} in the library's .fx folder` : 'lens flares, light leaks, dust: short clips on a black background, into the library\'s .fx folder'}</span>
+      </div>
+      {s.fx.map((l, i) => (
+        <div key={i} className="row wrap small">
+          <select value={l.file} onChange={(e) => setFxLayers(s.fx.map((x, j) => (j === i ? { ...x, file: e.target.value } : x)))} aria-label="Overlay clip">
+            {fxFiles.map((m) => <option key={m} value={m}>{m}</option>)}
+            {!fxFiles.includes(l.file) && <option value={l.file}>{l.file} (missing)</option>}
+          </select>
+          <span className="mono muted">at {duration(p.range.start + l.at)}</span>
+          <button className="btn small" onClick={() => setFxLayers(s.fx.map((x, j) => (j === i ? { ...x, at: rel() } : x)))} title="Move to the playhead">⟵ playhead</button>
+          <select value={l.blend} onChange={(e) => setFxLayers(s.fx.map((x, j) => (j === i ? { ...x, blend: e.target.value as FxLayer['blend'] } : x)))} aria-label="Blend">
+            {FX_BLENDS.map((b) => <option key={b.value} value={b.value}>{b.label}</option>)}
+          </select>
+          <label className="slider"><span className="muted small">opacity</span>
+            <input type="range" min={5} max={100} step={5} value={l.opacity} onChange={(e) => setFxLayers(s.fx.map((x, j) => (j === i ? { ...x, opacity: Number(e.target.value) } : x)))} />
+            <span className="mono small">{l.opacity}</span></label>
+          <select value={l.speed} onChange={(e) => setFxLayers(s.fx.map((x, j) => (j === i ? { ...x, speed: Number(e.target.value) } : x)))} aria-label="Overlay speed" title="Plays the overlay faster or slower">
+            {[0.5, 0.75, 1, 1.5, 2, 3].map((v) => <option key={v} value={v}>{v}×</option>)}
+          </select>
+          <label className="check small" title="Mirror it, for a second pass of the same flare"><input type="checkbox" checked={l.flip} onChange={(e) => setFxLayers(s.fx.map((x, j) => (j === i ? { ...x, flip: e.target.checked } : x)))} /> flip</label>
+          <button className="btn small" onClick={() => setFxLayers(s.fx.filter((_, j) => j !== i))} aria-label="Remove">✕</button>
+        </div>
+      ))}
+      {s.fx.length > 0 && <span className="muted small">Each overlay plays once from its time, for its own length. Black parts vanish with Screen, Add and Lighten. Free flare and light-leak packs are on the usual stock sites.</span>}
+    </div>
+    </>
   )
   const captionsSection = (
     <>
@@ -400,7 +470,7 @@ export default function EditPanel(p: Props) {
           {modeRow}{p.mode === 'range' ? <>{rangeRow}{playbackRow}</> : montage('all')}
         </Group>
         <Group title="Format" summary={frameSummary} help="framing" info="Shape and size of the output. Fill crops into the picture (drag the box on the player); fit keeps the whole picture over a blurred copy. Trim removes black bars.">{formatSection}</Group>
-        <Group title="Look" summary={`${lookSummary}${p.mode === 'range' && motionSummary !== 'none' ? ` · ${motionSummary}` : ''}`} help="motion" info="Colour and motion. Grades are film looks; vivid boosts saturation; HDR look adds crunchy local contrast. Punch-ins are quick zooms and shakes are camera jolts at moments you mark.">
+        <Group title="Look" summary={`${lookSummary}${p.mode === 'range' && motionSummary !== 'none' ? ` · ${motionSummary}` : ''}`} help="effects" info="Colour and motion. Grades are film looks; vivid boosts saturation; HDR look adds crunchy local contrast. Punch-ins are quick zooms and shakes are camera jolts at moments you mark.">
           {lookSection}{p.mode === 'range' && markersSection}
         </Group>
         <Group title="Captions" summary={capSummary} help="captions" info="Burns word-timed captions from the transcript, or hand-typed ones.">{captionsSection}</Group>
