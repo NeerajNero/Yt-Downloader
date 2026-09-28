@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # YT Studio launcher (macOS/Linux). First run sets everything up;
-# after that it just starts the server. Usage: ./run.sh
+# after that it just starts the app. Usage: ./run.sh
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -9,8 +9,7 @@ PY=""
 for candidate in python3.13 python3.12 python3.11 python3; do
   if command -v "$candidate" >/dev/null 2>&1; then
     if "$candidate" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)'; then
-      PY="$candidate"
-      break
+      PY="$candidate"; break
     fi
   fi
 done
@@ -31,22 +30,20 @@ if [ ! -x venv/bin/python ]; then
   echo "Creating venv with $PY..."
   "$PY" -m venv venv
 fi
-if ! venv/bin/python -c 'import fastapi, uvicorn, yt_dlp, faster_whisper' 2>/dev/null; then
+if ! venv/bin/python -c 'import fastapi, uvicorn, yt_dlp, faster_whisper, pydantic' 2>/dev/null; then
   echo "Installing Python dependencies..."
   venv/bin/pip install --no-cache-dir -q -r requirements.txt
 fi
 
-# --- UI build --------------------------------------------------------------
-if [ ! -f ui/dist/index.html ]; then
+# --- web app build ---------------------------------------------------------
+if [ ! -f web/dist/index.html ]; then
   if ! command -v npm >/dev/null 2>&1; then
-    echo "error: Node/npm not found (needed once to build the UI)." >&2
-    echo "       On macOS: brew install node" >&2
+    echo "error: Node/npm not found — needed once to build the web app. On macOS: brew install node" >&2
     exit 1
   fi
-  echo "Building the UI (first run only)..."
-  (cd ui && npm install --no-fund --no-audit && npm run build)
+  echo "Building the web app (first run only)..."
+  (cd web && npm install --no-fund --no-audit && npm run build)
 fi
 
 # --- go --------------------------------------------------------------------
-echo "Starting YT Studio at http://127.0.0.1:8765 (Ctrl+C to stop)"
-exec venv/bin/python server/main.py
+exec venv/bin/python -m studio

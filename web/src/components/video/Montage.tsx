@@ -1,9 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { VideoDetailSubscription } from '../../gql/generated'
 import { duration } from '../../lib/format'
 import type { ZoomMarker } from '../../lib/settings'
-
-type Video = NonNullable<VideoDetailSubscription['videos_by_pk']>
+import type { VideoDetail as Video } from '../../lib/types'
 
 export interface Shot {
   id: string

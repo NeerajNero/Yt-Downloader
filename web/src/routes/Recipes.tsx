@@ -1,26 +1,23 @@
-import { useMutation, useSubscription } from '@apollo/client'
 import { useState } from 'react'
-import { DeleteRecipeDocument, RecipesDocument, UpdateRecipeDocument, type RecipesSubscription } from '../gql/generated'
+import { deleteRecipe, updateRecipe } from '../lib/api'
+import { usePoll } from '../lib/poll'
 import { summarize, type RecipeSettings } from '../lib/settings'
-
-type Recipe = RecipesSubscription['recipes'][number]
+import type { Recipe } from '../lib/types'
 
 function RecipeCard({ r }: { r: Recipe }) {
-  const [update] = useMutation(UpdateRecipeDocument)
-  const [del] = useMutation(DeleteRecipeDocument)
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(r.name)
   const [desc, setDesc] = useState(r.description ?? '')
   const [json, setJson] = useState(JSON.stringify(r.settings, null, 2))
   const [err, setErr] = useState<string | null>(null)
-  const s = r.settings as RecipeSettings
+  const s = r.settings as unknown as RecipeSettings
 
   const save = async () => {
     setErr(null)
     let settings: unknown
     try { settings = JSON.parse(json) } catch { return setErr('Settings must be valid JSON.') }
     try {
-      await update({ variables: { id: r.id, name: name.trim(), description: desc.trim() || null, settings, auto_apply: r.auto_apply } })
+      await updateRecipe(r.id, { name: name.trim(), description: desc.trim() || null, settings })
       setEditing(false)
     } catch (e) { setErr((e as Error).message) }
   }
@@ -31,13 +28,13 @@ function RecipeCard({ r }: { r: Recipe }) {
         <strong>{r.name}</strong>
         <label className="check" title="Render every suggested clip with this recipe automatically">
           <input type="checkbox" checked={r.auto_apply}
-                 onChange={(e) => void update({ variables: { id: r.id, name: r.name, description: r.description, settings: r.settings, auto_apply: e.target.checked } })} />
+                 onChange={(e) => void updateRecipe(r.id, { auto_apply: e.target.checked }).catch((err) => setErr((err as Error).message))} />
           auto-apply
         </label>
       </div>
       {r.description && <div className="muted small">{r.description}</div>}
       <div className="mono muted small">{summarize(s)}</div>
-      <div className="muted small">{r.clips_aggregate.aggregate?.count ?? 0} clips rendered with it</div>
+      <div className="muted small">{r.clips_count} clips rendered with it</div>
       {editing ? (
         <div className="stack" style={{ gap: 6 }}>
           <input type="text" value={name} onChange={(e) => setName(e.target.value)} aria-label="Recipe name" />
@@ -50,20 +47,23 @@ function RecipeCard({ r }: { r: Recipe }) {
           </div>
         </div>
       ) : (
-        <div className="job-actions">
-          <button className="btn small" onClick={() => setEditing(true)}>Edit</button>
-          <button className="btn small" onClick={() => window.confirm(`Delete recipe "${r.name}"?`) && void del({ variables: { id: r.id } })}>Delete</button>
-        </div>
+        <>
+          {err && <p className="job-error small">{err}</p>}
+          <div className="job-actions">
+            <button className="btn small" onClick={() => setEditing(true)}>Edit</button>
+            <button className="btn small" onClick={() => window.confirm(`Delete recipe "${r.name}"?`) && void deleteRecipe(r.id)}>Delete</button>
+          </div>
+        </>
       )}
     </article>
   )
 }
 
 export default function Recipes() {
-  const { data, loading, error } = useSubscription(RecipesDocument)
-  if (error) return <p className="error">Can't reach the brain: {error.message}</p>
+  const { data, loading, error } = usePoll<Recipe[]>('/api/recipes', 3000)
+  if (error && !data) return <p className="error">Can't reach the app: {error}</p>
   if (loading && !data) return <p className="muted">Connecting…</p>
-  const recipes = data?.recipes ?? []
+  const recipes = data ?? []
   const auto = recipes.filter((r) => r.auto_apply).length
   return (
     <section className="panel">
@@ -72,8 +72,8 @@ export default function Recipes() {
         <span className="muted small">{auto ? `${auto} auto-apply` : 'none auto-apply'}</span>
       </div>
       <p className="muted small">
-        A recipe is a saved export setup. Auto-apply recipes render every AI-suggested clip while you're away
-        (the "Auto Shorts" pipeline). Save new ones from a video's Export panel.
+        A recipe is a saved export setup. Auto-apply recipes render every AI-suggested clip in the
+        "Auto Shorts" pipeline. Save new ones from a video's Edit panel.
       </p>
       <div className="stack">
         {recipes.map((r) => <RecipeCard key={r.id} r={r} />)}

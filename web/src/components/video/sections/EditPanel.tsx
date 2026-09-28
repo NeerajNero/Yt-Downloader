@@ -1,15 +1,12 @@
-import { useMutation, useSubscription } from '@apollo/client'
 import { useEffect, useState } from 'react'
-import { DeleteRecipeDocument, InsertRecipeDocument, RecipesDocument, UpdateRecipeDocument, type VideoDetailSubscription } from '../../../gql/generated'
-import { listMusic, listOverlays, uploadMusic, uploadOverlay, type ManualCaptions } from '../../../lib/api'
+import { deleteRecipe, insertRecipe, listMusic, listOverlays, updateRecipe, uploadMusic, uploadOverlay, type ManualCaptions } from '../../../lib/api'
 import { duration } from '../../../lib/format'
+import { usePoll } from '../../../lib/poll'
 import { fromStored, summarize, type RenderSettings, type SfxLayer, type ZoomMarker } from '../../../lib/settings'
+import type { Job, Recipe, VideoDetail as Video } from '../../../lib/types'
 import Group from '../../ui/Group'
 import CaptionEditor from '../CaptionEditor'
 import Montage, { type Plan, type Transition } from '../Montage'
-
-type Video = NonNullable<VideoDetailSubscription['videos_by_pk']>
-type Job = Video['jobs'][number]
 
 interface Props {
   video: Video
@@ -56,11 +53,8 @@ function TimeInput({ value, onCommit, label }: { value: number; onCommit: (v: nu
 export default function EditPanel(p: Props) {
   const s = p.settings
   const set = <K extends keyof RenderSettings>(k: K, v: RenderSettings[K]) => p.onChange({ ...s, [k]: v })
-  const { data: recipeData } = useSubscription(RecipesDocument)
-  const recipes = recipeData?.recipes ?? []
-  const [insertRecipe] = useMutation(InsertRecipeDocument)
-  const [updateRecipe] = useMutation(UpdateRecipeDocument)
-  const [deleteRecipe] = useMutation(DeleteRecipeDocument)
+  const { data: recipeData } = usePoll<Recipe[]>('/api/recipes', 3000)
+  const recipes = recipeData ?? []
   const current = recipes.find((r) => r.id === p.recipeId) ?? null
   const [music, setMusic] = useState<string[]>([])
   const [overlays, setOverlays] = useState<string[]>([])
@@ -83,11 +77,11 @@ export default function EditPanel(p: Props) {
     try {
       const existing = recipes.find((r) => r.name === name)
       if (existing) {
-        await updateRecipe({ variables: { id: existing.id, name, description: existing.description, settings: s, auto_apply: existing.auto_apply } })
+        await updateRecipe(existing.id, { settings: s })
         p.onRecipe(existing.id); setMsg(`Updated "${name}".`)
       } else {
-        const r = await insertRecipe({ variables: { name, description: null, settings: s, auto_apply: false } })
-        p.onRecipe(r.data?.insert_recipes_one?.id ?? null); setMsg(`Saved "${name}". Auto-apply it under More → Recipes.`)
+        const r = await insertRecipe({ name, description: null, settings: s, auto_apply: false })
+        p.onRecipe(r.id); setMsg(`Saved "${name}". Auto-apply it under More → Recipes.`)
       }
     } catch (e) { setMsg((e as Error).message) }
   }
@@ -130,7 +124,7 @@ export default function EditPanel(p: Props) {
           {recipes.map((r) => <option key={r.id} value={r.id}>{r.name}{r.auto_apply ? ' (auto)' : ''}</option>)}
         </select>
         <button className="btn small" onClick={() => void saveRecipe()}>Save look</button>
-        {current && <button className="btn small" onClick={() => window.confirm(`Delete recipe "${current.name}"?`) && void deleteRecipe({ variables: { id: current.id } }).then(() => p.onRecipe(null))}>Delete</button>}
+        {current && <button className="btn small" onClick={() => window.confirm(`Delete recipe "${current.name}"?`) && void deleteRecipe(current.id).then(() => p.onRecipe(null))}>Delete</button>}
       </div>
       {p.tweakingClip && <p className="chip accent" style={{ alignSelf: 'flex-start' }}>Tweaking a clip — Render replaces its file</p>}
 

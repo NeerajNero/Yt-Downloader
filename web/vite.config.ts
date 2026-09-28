@@ -21,17 +21,14 @@ export default defineConfig({
         ],
       },
       workbox: {
-        // Never cache GraphQL or API responses — live data only.
-        navigateFallbackDenylist: [/^\/v1\//, /^\/api\//],
+        // Never cache API responses — live data only.
+        navigateFallbackDenylist: [/^\/api\//],
         runtimeCaching: [],
       },
     }),
   ],
   server: {
     port: 5173,
-    proxy: {
-      '/v1': { target: 'http://localhost:8081', ws: true },
-      '/api': { target: 'http://localhost:8080' }  // api has no host port; go through Caddy,
-    },
+    proxy: { '/api': { target: 'http://localhost:8765' } },
   },
 })

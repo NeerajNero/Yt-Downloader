@@ -1,19 +1,19 @@
-import { useSubscription } from '@apollo/client'
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { LibraryDocument, type LibrarySubscription } from '../gql/generated'
+import { rescanLibrary } from '../lib/api'
 import { bytes, duration, resolution } from '../lib/format'
+import { usePoll } from '../lib/poll'
+import type { LibraryVideo } from '../lib/types'
 
-type Video = LibrarySubscription['videos'][number]
-
-function has(v: Video, kind: string) {
+function has(v: LibraryVideo, kind: string) {
   return v.assets.some((a) => a.kind === kind)
 }
 
-function VideoCard({ video }: { video: Video }) {
+function VideoCard({ video }: { video: LibraryVideo }) {
   const job = video.jobs[0]
-  const clips = video.clips_aggregate.aggregate?.count ?? 0
-  const rendered = video.rendered.aggregate?.count ?? 0
-  const downloading = video.status !== 'ready'
+  const clips = video.clips_count
+  const rendered = video.rendered_count
+  const notReady = video.status !== 'ready'
 
   return (
     <Link to={`/video/${video.id}`} className="video-card link-card">
@@ -28,7 +28,7 @@ function VideoCard({ video }: { video: Video }) {
         </div>
         {video.note && <div className="note small">“{video.note}”</div>}
         <div className="caps">
-          {downloading && <span className={`chip ${video.status === 'failed' ? 'bad' : ''}`}>{video.status}</span>}
+          {notReady && <span className={`chip ${video.status === 'failed' || video.status === 'missing' ? 'bad' : ''}`}>{video.status === 'missing' ? 'file missing' : video.status}</span>}
           {has(video, 'transcript') && <span className="chip ok">transcript</span>}
           {has(video, 'scenes') && <span className="chip ok">scenes</span>}
           {has(video, 'edit_copy') && <span className="chip ok">edit copy</span>}
@@ -47,19 +47,28 @@ function VideoCard({ video }: { video: Video }) {
 }
 
 export default function Library() {
-  const { data, loading, error } = useSubscription(LibraryDocument)
-  if (error) return <p className="error">Can't reach the brain: {error.message}</p>
+  const { data, loading, error } = usePoll<LibraryVideo[]>('/api/videos', 2000)
+  const [msg, setMsg] = useState<string | null>(null)
+  if (error && !data) return <p className="error">Can't reach the app: {error}</p>
   if (loading && !data) return <p className="muted">Connecting…</p>
-  const videos = data?.videos ?? []
+  const videos = data ?? []
+  const rescan = async () => {
+    try { const r = await rescanLibrary(); setMsg(`${r.videos} videos, ${r.added} new${r.missing ? `, ${r.missing} with missing files` : ''}.`) }
+    catch (e) { setMsg((e as Error).message) }
+  }
   return (
     <section className="panel">
       <div className="panel-head">
         <h2>Library</h2>
-        <Link to="/add" className="btn small accent">Add video</Link>
+        <div className="row">
+          <button className="btn small" onClick={() => void rescan()} title="Index folders copied into the library by hand">Rescan</button>
+          <Link to="/add" className="btn small accent">Add video</Link>
+        </div>
       </div>
+      {msg && <p className="muted small">{msg}</p>}
       <div className="stack">
         {videos.map((v) => <VideoCard key={v.id} video={v} />)}
-        {!videos.length && <p className="muted small">Empty. Add a link, or run scripts/import_v1_library.py on the brain.</p>}
+        {!videos.length && <p className="muted small">Empty. Add a link, or drop a folder with a video and its .info.json into the library and tap Rescan.</p>}
       </div>
     </section>
   )

@@ -1,69 +1,61 @@
 # YT Studio — CLAUDE.md
 
-Personal tool for a gaming-Shorts YouTube editor. v1 (single-machine web app) is being evolved into v2:
-a three-machine job system driven from a phone PWA. **Read PLAN.md before starting any v2 work** — it has
-the full schema, phase breakdown, and v1→v2 mapping.
+Personal tool for a gaming-Shorts YouTube editor. **v3 = one machine, one process, run when needed.**
+`run.bat` / `run.sh` starts a FastAPI app with an in-memory job queue and the React PWA; nothing else to
+run. No database, no Docker, no workers. The earlier multi-machine design (Postgres + Hasura + worker
+agents, tag `v2-multimachine`) was dropped on 2026-09-28 because the always-on brain wasn't wanted.
+Read PLAN.md for what exists, what is next and why.
 
-## Machine roles (v2)
+## Machines
 
-| Machine | OS | Role | Notes |
-|---|---|---|---|
-| **Brain** (weak laptop, always on) | Ubuntu Server | Postgres + Hasura v2 + FastAPI (`api/`) + React PWA, via Docker Compose | Single source of truth. Serves the app over `tailscale serve` (HTTPS). Sends Wake-on-LAN |
-| **NVIDIA laptop** (GTX 1650, 4 GB VRAM) | Windows 11 | Transcription worker | faster-whisper, native Windows CUDA (no WSL), int8/int8_float16, word timestamps. Runs via Task Scheduler/NSSM |
-| **Gaming PC** (Ryzen 5 3600, RX 6750 XT 12 GB, 32 GB RAM) | Windows 11 | Render + LLM worker | FFmpeg with **h264_amf** (Gyan full build); Ollama native Windows (Vulkan/ROCm). Often asleep — woken by WoL (enable NIC magic-packet, disable Fast Startup) |
+- **Gaming PC** (Ryzen 5 3600, RX 6750 XT, Windows 11) — where the app runs. ffmpeg = Gyan full build
+  (`h264_amf` + libass), encoder auto-detected. OBS recordings live here too.
+- **NVIDIA laptop** (GTX 1650) — optional. Transcription is CPU faster-whisper on the PC by default;
+  a remote transcribe helper on the laptop is a possible later addition (not built).
+- **Dev machine** — this Mac (`h264_videotoolbox`, `ffmpeg-full` from Homebrew).
+- **Phone** — opens the app over the LAN / Tailscale while the PC is on (`HOST=0.0.0.0`).
 
-Dev machine is this Mac; the brain deploys via `git pull` + `docker compose up -d`. No WSL anywhere —
-Windows workers run native Python for GPU access and simple WoL.
+## Layout
 
-All machines on Tailscale. Used from an Android phone as an installed PWA.
-
-## Stack
-
-- **DB**: Postgres 16 — the only source of truth. Media files stay on disk; DB stores relative paths + metadata.
-- **GraphQL**: Hasura v2. Migrations + metadata managed with the Hasura CLI, committed under `hasura/`.
-  Actions → `api/` handlers; event triggers fan out jobs; cron triggers run watchdog + daily idea scan.
-- **API**: FastAPI (`api/`) — Action/event/cron handlers, file serving, WoL. Not a general REST API;
-  CRUD goes through Hasura.
-- **Workers** (`worker/`): Python. `worker/core/` = pure media functions (no queue knowledge);
-  `worker/agent/` = claim loop. Jobs claimed by capability with `FOR UPDATE SKIP LOCKED`, 15 s heartbeats,
-  progress + cancel via row updates, stale jobs requeued by a cron watchdog.
-- **Web** (`web/`): React + Vite + TypeScript PWA, Apollo Client, graphql-codegen (`.graphql` docs → typed hooks).
-- **Media**: yt-dlp (as a library, nightly channel when YouTube breaks), FFmpeg (must include libass for
-  caption burn-in — `ffmpeg-full` on macOS Homebrew), faster-whisper, Gemini REST (`gemini-2.5-flash`,
-  plain urllib, no SDK) for clip suggestions/post kits, local LLM for idea ranking.
+```
+studio/            the app (python -m studio)
+  config.py        .env → Settings; ffmpeg + encoder auto-detect
+  library.py       library-relative paths, sidecar layout, assets = files on disk
+  store.py         JSON state: <library>/.ytstudio/{videos,recipes,styles}.json + <stem>.clips.json
+  queue.py         in-memory job queue, heavy (ffmpeg/whisper, 1 at a time) + light lanes
+  jobs/            adapters: payload → studio.core function → files + store updates
+  pipeline.py      the automatic chain (prepare / shorts) after downloads and finished jobs
+  routes/          JSON API (state.py reads, actions.py writes, files.py, ingest.py)
+  core/            pure media functions (ffmpeg, yt-dlp, whisper, Gemini) — no app state
+  schemas.py       pydantic payload/recipe schemas
+  tests/           pytest (no ffmpeg needed)
+web/               React + Vite + TS PWA; polls the API every second (lib/poll.ts)
+```
 
 ## Conventions
 
-- **Paths in DB/payloads are always library-root-relative**; each worker resolves them against its
-  configured root. Never store absolute machine paths.
-- Job payloads/results are jsonb validated by pydantic schemas in `worker/agent/jobs/`.
-- Job statuses: `queued → claimed → running → done | error | cancelled`; cancel = set `cancel_requested`,
-  the worker notices and flips to `cancelled`. Progress: `progress` (0–100 or null) + `progress_note`.
-- `worker/core/` functions take a `report(percent, note)` callback and a `should_cancel()` check —
-  no DB access, no globals. Only `worker/agent/` touches Postgres.
-- Encoder selection lives in `worker/core/encoders.py`, keyed by worker config — never hardcode libx264.
-- Derived artifacts (transcripts, scenes, rendered clips) are written next to the media (v1 sidecar
-  layout) **and** registered as `assets`/`clips` rows.
-- Schema changes only via `hasura migrate` — never hand-edit the DB.
-- Frontend: subscriptions for live data (jobs dashboard), queries elsewhere; run codegen after changing
-  `.graphql` documents.
-- Secrets in `.env` files (gitignored, `.env.example` committed): `HASURA_ADMIN_SECRET`, `GEMINI_API_KEY`,
-  `GEMINI_MODEL`, `WHISPER_MODEL`, YouTube API keys. `cookies.txt` (YouTube session) lives with the
-  download-capable worker; never commit it.
-- UI text: sentence case, plain-words errors, dark theme with the amber accent (`#F2A33C`) from v1.
-
-## v1 (legacy, at `server/` + `ui/` until Phase 2 completes)
-
-Single-machine FastAPI app: `server/main.py` (routes), `server/downloader.py` (in-memory job engine +
-all ffmpeg/yt-dlp/whisper logic), `server/ai.py` (Gemini). Run with `./run.sh`; docs in README.md.
-The `run_*` functions in `downloader.py`/`ai.py` are the port source for `worker/core/` — the tuned
-ffmpeg filter graphs (reframe, captions, grades, ducking) are valuable, don't rewrite them from scratch.
+- **Paths stored anywhere are library-root-relative** (posix). `studio/library.py` resolves them.
+- **Assets are files.** A transcript exists when `<stem>.transcript.json` exists — there is no
+  registry. Derived artifacts go next to the media (v1 sidecar layout). Clips + review status are
+  `<stem>.clips.json`; app-level state is `<library>/.ytstudio/`.
+- Jobs: `queued → running → done | error | cancelled`; cancel = `cancel_requested`, the handler's
+  `should_cancel()` notices. Jobs die with the process — that is the design.
+- `studio/core/` functions take `report(percent, note)` + `should_cancel()` and never touch the
+  store. Only `studio/jobs/`, `studio/pipeline.py` and `studio/routes/` do.
+- Encoder from `studio/core/encoders.py`, keyed by `Settings.encoder` — never hardcode libx264.
+- Payloads validated by `studio/schemas.py` (render payload rejects unknown keys).
+- Frontend: `usePoll(url)` for reads; every mutation in `web/src/lib/api.ts` calls `invalidate()`.
+  Types in `web/src/lib/types.ts` mirror `studio/routes/state.py`.
+- Settings in `.env` (gitignored; `.env.example` documents every key). `cookies.txt` never committed.
+- UI text: sentence case, plain-words errors, dark theme with the amber accent (`#F2A33C`).
 
 ## Gotchas
 
-- YouTube download 403s → update yt-dlp nightly: `pip install -U --pre yt-dlp`.
-- Homebrew's plain `ffmpeg` lacks libass; captions need `ffmpeg-full`.
-- Whisper hallucinates stray words on music/CG-only footage — require ≥20 words before auto-captioning
-  (see `_has_speech` in v1 `ai.py`).
-- 4K sources are VP9/AV1 → merged to mkv at download; browsers may not play them (use edit copy / renders).
-- WoL packets don't cross Tailscale — they need a sender on the target's physical LAN (`machines.wol_via`).
+- YouTube download 403s → `venv/bin/pip install -U --pre yt-dlp` (nightly).
+- Homebrew's plain `ffmpeg` lacks libass; captions need `ffmpeg-full`. Windows: Gyan *full* build.
+- Whisper hallucinates on music-only footage — recipes with `captions_if_speech` need ≥20 words.
+- 4K sources are VP9/AV1 mkv; the browser player may not play them — Prepare → Preview copy.
+- `ffmpeg -encoders` lists encoders the build has, not ones the GPU can run; config tests a
+  0.2 s encode before picking one. Force with `ENCODER=` if the guess is wrong.
+- Removing a video from the library hides its folder from rescans (`hidden` in videos.json); delete
+  the folder by hand if you want the space back.
