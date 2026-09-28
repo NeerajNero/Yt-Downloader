@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { Link, useLocation } from 'react-router-dom'
 
 /** Visual guide to the editing features: every section pairs a short
  *  explanation with a live CSS/SVG demo of what the setting does. */
@@ -95,6 +95,12 @@ function MotionDemo() {
         <span className="small"><strong>Slow zoom in</strong> — a gentle Ken Burns push across the whole clip. Keeps static footage alive.</span>
       </div>
       <div className="help-cap">
+        <div className="help-cap-frame help-bounce-frame">
+          <div className="help-bounce-track"><div className="help-bounce-dot" /><span className="help-bounce-label fw">play ▶</span><span className="help-bounce-label bw">◀ rewind 2×</span></div>
+        </div>
+        <span className="small"><strong>Bounce</strong> — the shot plays forward, then rewinds (usually faster). A boomerang. Audio rewinds too. One per Short, on the hero moment, 10 s or shorter. "Reverse" plays backwards only.</span>
+      </div>
+      <div className="help-cap">
         <div className="help-cap-frame help-speed">
           <div className="help-speed-row"><span className="mono small">0.5×</span><div className="help-speed-track"><div className="help-speed-dot" style={{ animationDuration: '4s' }} /></div></div>
           <div className="help-speed-row"><span className="mono small">1×</span><div className="help-speed-track"><div className="help-speed-dot" style={{ animationDuration: '2s' }} /></div></div>
@@ -107,6 +113,14 @@ function MotionDemo() {
 }
 
 export default function Help() {
+  // Arriving from a "?" link (/help#captions) or a jump button: scroll to that part.
+  const { hash } = useLocation()
+  useEffect(() => {
+    const id = hash.replace('#', '')
+    if (!id) return
+    const t = window.setTimeout(() => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50)
+    return () => window.clearTimeout(t)
+  }, [hash])
   return (
     <div className="stack" id="top">
       <section className="panel stack">
@@ -133,6 +147,7 @@ export default function Help() {
           ))}
         </div>
         <p className="small">Nothing runs while the app is closed. Each step is a job on the Jobs tab; heavy ones (ffmpeg, whisper) run one at a time so the PC stays usable.</p>
+        <p className="small"><strong>Edit goes step by step:</strong> Cut → Frame → Motion → Transitions (montage only) → Look → Captions → Sound → Brand → Render. Only Cut is required; Next moves on, the bar at the top jumps anywhere, a ✓ means you changed something there. A recipe fills every step at once, and "Skip to Render" is on the first step. Prefer the old single page? More → Edit tab.</p>
       </Section>
 
       <Section id="timeline" title="Reading the timeline">
@@ -184,7 +199,7 @@ export default function Help() {
         </svg>
         <ul className="small help-list">
           <li><strong>Shots from</strong> — scene cuts, dialogue lines, the clip pack, the AI plan, suggested clips, or "Add current range". Tagged shots filter by closeup / dialogue / gameplay / cutscene.</li>
-          <li><strong>Per shot</strong> — include on/off, speed, punch, shake, order, and the transition <em>into the next shot</em> with its own length. "Default" uses the montage transition below the list.</li>
+          <li><strong>Per shot</strong> — include on/off, speed and order on the Cut step; punch, shake and bounce on Motion; the transition <em>into the next shot</em> with its own length on Transitions. "Default" uses the montage transition.</li>
           <li><strong>Output length</strong> is shown live: retimed shot lengths minus every overlap.</li>
           <li>Format, look, captions, sound and brand apply to the whole montage. Captions are re-timed to the new order automatically.</li>
         </ul>
@@ -205,7 +220,7 @@ export default function Help() {
 
       <Section id="motion" title="Motion: speed, punch-ins, shakes">
         <MotionDemo />
-        <p className="small">In a single range, punch-ins and shakes are markers you add at the playhead (Look group). In a montage, tick "punch" or "shake" on a shot and it fires at that shot's start. Both happen before captions, so text stays still.</p>
+        <p className="small">All of this lives on the Motion step. In a single range, punch-ins and shakes are markers you add at the playhead and Playback is a select. In a montage, tick "punch" or "shake" on a shot, and pick ▶ / ⟲ / ◀ per shot; the rewind speed appears next to it. Punch and shake happen before captions, so text stays still.</p>
       </Section>
 
       <Section id="framing" title="Framing: crop, blur pad, trim">
@@ -214,7 +229,7 @@ export default function Help() {
           <g><rect x="220" y="10" width="160" height="90" fill="#2a323c" rx="4" /><rect x="260" y="10" width="80" height="90" fill="#4f9de6" opacity="0.25" /><rect x="260" y="33" width="80" height="45" fill="#4f9de6" opacity="0.9" /><rect x="260" y="10" width="80" height="90" fill="none" stroke="#f2a33c" strokeWidth="2" /><text x="300" y="120" className="help-svg-label" textAnchor="middle">Fit on blurred pad</text></g>
           <g><rect x="420" y="10" width="160" height="90" fill="#000" rx="4" /><rect x="420" y="22" width="160" height="66" fill="#4f9de6" opacity="0.8" /><rect x="420" y="10" width="160" height="12" fill="none" stroke="#e5534b" strokeDasharray="3 2" /><rect x="420" y="88" width="160" height="12" fill="none" stroke="#e5534b" strokeDasharray="3 2" /><text x="500" y="120" className="help-svg-label" textAnchor="middle">Trim bars (measured or by %)</text></g>
         </svg>
-        <p className="small">Portrait 9:16 for Shorts, landscape 16:9 otherwise. Fill crops the middle of the picture to the frame; fit keeps the whole picture over a blurred copy of itself (and "crop sides" tightens it a little). Rotate turns the picture, and "rotate with video" turns the captions with it.</p>
+        <p className="small">Portrait 9:16 for Shorts, landscape 16:9 otherwise. <strong>Fill</strong> crops into the picture: on the Frame step an amber box on the player shows exactly what will fill the frame — drag it to the action, scroll on it (or use the zoom slider) to zoom in. <strong>Fit</strong> keeps the whole picture over a blurred copy of itself; zoom in there to show only part of it. Rotate turns the picture, and "rotate with video" turns the captions with it.</p>
       </Section>
 
       <Section id="captions" title="Captions">

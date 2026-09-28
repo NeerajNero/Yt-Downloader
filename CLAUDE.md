@@ -42,6 +42,9 @@ web/               React + Vite + TS PWA; polls the API every second (lib/poll.t
 - Montage segments may carry their own `transition` (into the next shot) and `shake_markers`;
   `render.sequence_layout` returns one bounds entry per boundary (kind + clamped overlap) and the
   graph mixes `concat` (cut) with `xfade`. Every shot chain ends in `setsar=1` — concat needs it.
+- Crop window: `crop_x` / `crop_y` (0..1) + `crop_zoom` (1..3) on the render payload place the crop
+  (Fill) or a zoomed window (Fit) — `render._window()`; `Player.cropWindow()` mirrors the same maths
+  for the draggable box, so change both together.
 - Jobs: `queued → running → done | error | cancelled`; cancel = `cancel_requested`, the handler's
   `should_cancel()` notices. Jobs die with the process — that is the design.
 - `studio/core/` functions take `report(percent, note)` + `should_cancel()` and never touch the

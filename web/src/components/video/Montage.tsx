@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import type { DialogueLine, TaggedShot, TagKind } from '../../lib/api'
 import { duration } from '../../lib/format'
-import type { ShakeMarker, ZoomMarker } from '../../lib/settings'
+import { PLAYBACKS, REVERSE_SPEEDS, playbackLength, type Playback, type ShakeMarker, type ZoomMarker } from '../../lib/settings'
 import type { VideoDetail as Video } from '../../lib/types'
 
 export interface Transition { type: string; duration: number }
@@ -15,10 +16,16 @@ export interface Shot {
   punch: boolean                 // one punch-in at the shot's start
   shake: boolean                 // one camera shake at the shot's start
   transition: Transition | null  // into the NEXT shot; null = the montage default
+  playback: Playback             // forward | reverse | bounce (forward, then rewind)
+  reverse_speed: number          // speed of the rewind leg
   label?: string
 }
 
-export interface Segment { start: number; end: number; speed: number; zoom_markers: ZoomMarker[]; shake_markers: ShakeMarker[]; transition: Transition | null }
+export interface Segment { start: number; end: number; speed: number; zoom_markers: ZoomMarker[]; shake_markers: ShakeMarker[]; transition: Transition | null; playback: Playback; reverse_speed: number }
+const MAX_REVERSE = 10  // seconds of shot (after speed) ffmpeg can hold in memory to reverse
+
+/** Which part of the builder to show: one step of the Edit flow, or everything. */
+export type MontageView = 'cut' | 'motion' | 'transitions' | 'render' | 'all'
 
 export const TRANSITIONS: { value: string; label: string }[] = [
   { value: 'cut', label: 'Hard cut' }, { value: 'fade', label: 'Crossfade' }, { value: 'fadeblack', label: 'Dip to black' },
@@ -36,7 +43,7 @@ const SHAKE: ShakeMarker = { at: 0, duration: 0.4, intensity: 60 }
 
 export interface Plan {
   title?: string; hook?: string; summary?: string; out_length?: number; model?: string
-  shots: { start: number; end: number; speed: number; punch: boolean; shake?: boolean; transition?: Transition | null; why: string }[]
+  shots: { start: number; end: number; speed: number; punch: boolean; shake?: boolean; playback?: Playback; reverse_speed?: number; transition?: Transition | null; why: string }[]
   transition: { type: string; duration: number }
   captions: boolean; caption_style: string; caption_pos: string; grade: string; vivid: number
   music_vibe?: string; sfx_ideas?: string[]; resolve_notes?: string[]
@@ -55,6 +62,7 @@ const KIND_LABEL: Record<TagKind, string> = { closeup: 'closeup', medium: 'mediu
 
 interface Props {
   video: Video
+  view?: MontageView
   plan: Plan | null
   onApplyPlanLook: (plan: Plan) => void
   scenes: number[] | null
@@ -73,14 +81,29 @@ const key = (id: string) => `ytstudio.montage.${id}`
 let counter = 0
 const mk = (start: number, end: number, label?: string): Shot =>
   ({ id: `${Date.now().toString(36)}-${counter++}`, start: Math.round(start * 100) / 100, end: Math.round(end * 100) / 100,
-     include: true, speed: 1, punch: false, shake: false, transition: null, label })
-/** Saved shots from before shake / per-shot transitions existed get the defaults. */
-const normalise = (s: Partial<Shot>): Shot => ({ ...mk(s.start ?? 0, s.end ?? 0, s.label), ...s, shake: s.shake ?? false, transition: s.transition ?? null, id: s.id ?? mk(0, 0).id })
+     include: true, speed: 1, punch: false, shake: false, transition: null, playback: 'forward', reverse_speed: 2, label })
+/** Saved shots from before shake / per-shot transitions / playback existed get the defaults. */
+const normalise = (s: Partial<Shot>): Shot => ({ ...mk(s.start ?? 0, s.end ?? 0, s.label), ...s, shake: s.shake ?? false, transition: s.transition ?? null,
+                                                 playback: s.playback ?? 'forward', reverse_speed: s.reverse_speed ?? 2, id: s.id ?? mk(0, 0).id })
+const shotLen = (s: Shot) => playbackLength(s.end - s.start, s.speed, s.playback, s.reverse_speed)
+const DEFAULT_TRANSITION: Transition = { type: 'fade', duration: 0.35 }
+
+/** The builder is remounted between Edit steps; its state lives in localStorage per video. */
+function load(videoId: string): { shots: Shot[]; transition: Transition } {
+  try {
+    const raw = localStorage.getItem(key(videoId))
+    if (raw) {
+      const saved = JSON.parse(raw) as { shots: Partial<Shot>[]; transition: Transition }
+      return { shots: (saved.shots ?? []).map(normalise), transition: saved.transition ?? DEFAULT_TRANSITION }
+    }
+  } catch { /* ignore */ }
+  return { shots: [], transition: DEFAULT_TRANSITION }
+}
 
 /** Output length: each shot's retimed length minus each boundary's overlap
  *  (the shot's own transition or the default, clamped to half the shorter neighbour). */
 export function montageLength(shots: Shot[], fallback: Transition): number {
-  const lens = shots.map((s) => (s.end - s.start) / s.speed)
+  const lens = shots.map(shotLen)
   if (!lens.length) return 0
   let total = lens.reduce((a, b) => a + b, 0)
   for (let k = 1; k < lens.length; k++) {
@@ -91,26 +114,34 @@ export function montageLength(shots: Shot[], fallback: Transition): number {
   return total
 }
 
-export default function Montage({ video, plan, onApplyPlanLook, scenes, dialogue, tags, clipPack, rangeStart, rangeEnd, seek, onRender, onShotsChange, disabled }: Props) {
-  const [shots, setShots] = useState<Shot[]>([])
-  const [transition, setTransition] = useState<Transition>({ type: 'fade', duration: 0.35 })
+/** What a shot has set beyond time and speed — shown in compact rows. */
+const extras = (s: Shot, last: boolean): string[] => {
+  const out: string[] = []
+  if (s.punch) out.push('punch')
+  if (s.shake) out.push('shake')
+  if (s.playback === 'bounce') out.push(`⟲ bounce ${s.reverse_speed}×`)
+  if (s.playback === 'reverse') out.push(`◀ reverse ${s.reverse_speed}×`)
+  if (!last && s.transition) out.push(`→ ${transitionLabel(s.transition.type)}${s.transition.type !== 'cut' ? ` ${s.transition.duration.toFixed(2)}s` : ''}`)
+  return out
+}
+
+export default function Montage({ video, view = 'all', plan, onApplyPlanLook, scenes, dialogue, tags, clipPack, rangeStart, rangeEnd, seek, onRender, onShotsChange, disabled }: Props) {
+  const [shots, setShots] = useState<Shot[]>(() => load(video.id).shots)
+  const [transition, setTransition] = useState<Transition>(() => load(video.id).transition)
   const [msg, setMsg] = useState<string | null>(null)
   const [showPlan, setShowPlan] = useState(false)
+  const [loadedFor, setLoadedFor] = useState(video.id)
 
-  // Keep the builder across navigation (phone tabs) — per video, in this browser.
+  // Another video while mounted: swap to its saved builder.
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(key(video.id))
-      if (raw) {
-        const saved = JSON.parse(raw) as { shots: Partial<Shot>[]; transition: Transition }
-        setShots((saved.shots ?? []).map(normalise)); setTransition(saved.transition ?? { type: 'fade', duration: 0.35 })
-      }
-    } catch { /* ignore */ }
-  }, [video.id])
+    if (loadedFor === video.id) return
+    const saved = load(video.id); setShots(saved.shots); setTransition(saved.transition); setLoadedFor(video.id)
+  }, [video.id, loadedFor])
   useEffect(() => {
+    if (loadedFor !== video.id) return
     try { localStorage.setItem(key(video.id), JSON.stringify({ shots, transition })) } catch { /* ignore */ }
     onShotsChange?.(shots.length ? shots.filter((x) => x.include).map((x) => ({ start: x.start, end: x.end })) : null)
-  }, [shots, transition, video.id]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [shots, transition, video.id, loadedFor]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const replace = (next: Shot[], what: string) => {
     if (!next.length) return setMsg(`Nothing matched ${what}.`)
@@ -142,7 +173,8 @@ export default function Montage({ video, plan, onApplyPlanLook, scenes, dialogue
   const fromSuggested = () => replace(video.clips.filter((c) => c.status !== 'rejected').map((c) => mk(c.start_s, c.end_s, c.title ?? undefined)), 'suggested clips')
   const fromPlan = () => {
     if (!plan) return
-    const next = plan.shots.map((sh) => ({ ...mk(sh.start, sh.end, sh.why), speed: sh.speed, punch: sh.punch, shake: Boolean(sh.shake), transition: sh.transition ?? null }))
+    const next = plan.shots.map((sh) => ({ ...mk(sh.start, sh.end, sh.why), speed: sh.speed, punch: sh.punch, shake: Boolean(sh.shake), transition: sh.transition ?? null,
+                                             playback: sh.playback ?? 'forward', reverse_speed: sh.reverse_speed ?? 2 }))
     if (shots.length && !window.confirm(`Replace the current ${shots.length} shots with the AI plan?`)) return
     setShots(next)
     setTransition({ type: plan.transition.type, duration: plan.transition.duration })
@@ -151,7 +183,7 @@ export default function Montage({ video, plan, onApplyPlanLook, scenes, dialogue
     setMsg(`AI plan loaded: ${next.length} shots, ~${Math.round(plan.out_length ?? 0)}s${own ? `, ${own} with their own transition` : ''}. Captions, grade and transition set to match.`)
   }
   const addRange = () => {
-    if (rangeStart == null || rangeEnd == null || rangeEnd <= rangeStart) return setMsg('Set a valid start/end in Export first.')
+    if (rangeStart == null || rangeEnd == null || rangeEnd <= rangeStart) return setMsg('Set a valid start/end first.')
     setShots((s) => [...s, mk(rangeStart, rangeEnd)])
   }
 
@@ -171,79 +203,151 @@ export default function Montage({ video, plan, onApplyPlanLook, scenes, dialogue
 
   const render = () => {
     if (included.length < 1) return setMsg('Include at least one shot.')
+    const tooLong = included.findIndex((s) => s.playback !== 'forward' && (s.end - s.start) / s.speed > MAX_REVERSE)
+    if (tooLong >= 0) return setMsg(`Shot ${shots.indexOf(included[tooLong]) + 1}: bounce and reverse need a shot of ${MAX_REVERSE} s or less. Shorten it or raise its speed.`)
     onRender(
       included.map((s, i) => ({
         start: s.start, end: s.end, speed: s.speed,
         zoom_markers: s.punch ? [{ at: 0, duration: Math.min(0.5, (s.end - s.start) / s.speed / 2), zoom: 1.15 }] : [],
-        shake_markers: s.shake ? [{ ...SHAKE, duration: Math.min(SHAKE.duration, (s.end - s.start) / s.speed / 2) }] : [],
+        shake_markers: s.shake ? [{ ...SHAKE, duration: Math.min(SHAKE.duration, shotLen(s) / 2) }] : [],
         transition: i < included.length - 1 ? s.transition : null,
+        playback: s.playback, reverse_speed: s.playback === 'forward' ? 1 : s.reverse_speed,
       })),
       transition,
     )
     setMsg('Montage render queued — it lands in Clips and Review.')
   }
 
+  const showCut = view === 'cut' || view === 'all'
+  const showMotion = view === 'motion' || view === 'all'
+  const showTrans = view === 'transitions' || view === 'all'
+  const showRender = view === 'render' || view === 'all'
+  const countLine = `${included.length} shot${included.length === 1 ? '' : 's'} · ${duration(total)} out`
+
+  const timeButton = (s: Shot, i: number) => (
+    <button className="shot-time mono" onClick={() => seek(s.start)} title="Preview from here">{i + 1}. {duration(s.start)}–{duration(s.end)}</button>
+  )
+  const labelSpan = (s: Shot, last: boolean, withExtras: boolean) => (
+    <span className="muted small grow">
+      {s.label ?? ''}{s.speed !== 1 || s.playback !== 'forward' ? ` · ${shotLen(s) < 1 ? shotLen(s).toFixed(1) : Math.round(shotLen(s))}s out` : ''}
+      {withExtras && extras(s, last).length > 0 && <span className="shot-extras"> {extras(s, last).join(' · ')}</span>}
+    </span>
+  )
+
   return (
     <div className="stack" style={{ gap: 8 }}>
-      <div className="row wrap">
-        <span className="muted small">Shots from</span>
-        <button className="btn small" onClick={fromScenes} disabled={!scenes?.length} title={scenes ? 'One shot per scene cut' : 'Run Detect scenes first'}>Scene cuts{scenes ? ` (${scenes.length + 1})` : ''}</button>
-        <button className="btn small" onClick={fromDialogue} disabled={!dialogue?.length} title={dialogue ? 'One shot per spoken line' : 'Run Prepare → Dialogue first'}>Dialogue lines{dialogue ? ` (${dialogue.length})` : ''}</button>
-        <button className="btn small" onClick={fromClipPack} disabled={!clipPack?.length} title={clipPack ? 'The shredded clips' : 'Run Shred to clips first'}>Clip pack{clipPack ? ` (${clipPack.length})` : ''}</button>
-        <button className="btn small accent" onClick={fromPlan} disabled={!plan} title={plan ? plan.summary : 'Run "Plan an edit" first'}>AI plan{plan ? ` (${plan.shots.length})` : ''}</button>
-        <button className="btn small" onClick={fromSuggested} disabled={!video.clips.length}>Suggested clips{video.clips.length ? ` (${video.clips.length})` : ''}</button>
-        <button className="btn small" onClick={addRange}>Add current range</button>
-        {shots.length > 0 && <button className="btn small" onClick={() => window.confirm('Clear the montage?') && setShots([])}>Clear</button>}
-      </div>
-      <div className="row wrap">
-        <span className="muted small">Tagged shots</span>
-        {tagCounts ? TAG_FILTERS.map((f) => (
-          <button key={f.value} className="btn small" onClick={() => fromTagged(f.value)} disabled={!tagCounts[f.value]} title={`Only the scenes tagged ${f.label.toLowerCase()}`}>
-            {f.label} ({tagCounts[f.value]})
-          </button>
-        )) : <span className="muted small">run Prepare → Shot tags to filter by closeups, dialogue, gameplay or cutscenes</span>}
-      </div>
-
-      {plan && (
-        <div className="stack" style={{ gap: 4 }}>
-          <button className="btn small" style={{ alignSelf: 'flex-start' }} onClick={() => setShowPlan(!showPlan)}>
-            {showPlan ? 'Hide plan notes' : `Plan: ${plan.title ?? 'untitled'}`}
-          </button>
-          {showPlan && (
-            <div className="stack small" style={{ gap: 4 }}>
-              {plan.hook && <p><strong>Hook.</strong> {plan.hook}</p>}
-              {plan.summary && <p>{plan.summary}</p>}
-              {plan.music_vibe && <p><strong>Music.</strong> {plan.music_vibe}</p>}
-              {plan.sfx_ideas && plan.sfx_ideas.length > 0 && <p><strong>SFX.</strong> {plan.sfx_ideas.join(' · ')}</p>}
-              {plan.resolve_notes && plan.resolve_notes.length > 0 && <p><strong>In Resolve.</strong> {plan.resolve_notes.join(' · ')}</p>}
-              {plan.model && <p className="muted">by {plan.model}</p>}
+      {showCut && (
+        <>
+          <div className="row wrap">
+            <span className="muted small">Shots from</span>
+            <button className="btn small" onClick={fromScenes} disabled={!scenes?.length} title={scenes ? 'One shot per scene cut' : 'Run Detect scenes first'}>Scene cuts{scenes ? ` (${scenes.length + 1})` : ''}</button>
+            <button className="btn small" onClick={fromDialogue} disabled={!dialogue?.length} title={dialogue ? 'One shot per spoken line' : 'Run Prepare → Dialogue first'}>Dialogue lines{dialogue ? ` (${dialogue.length})` : ''}</button>
+            <button className="btn small" onClick={fromClipPack} disabled={!clipPack?.length} title={clipPack ? 'The shredded clips' : 'Run Shred to clips first'}>Clip pack{clipPack ? ` (${clipPack.length})` : ''}</button>
+            <button className="btn small accent" onClick={fromPlan} disabled={!plan} title={plan ? plan.summary : 'Run "Plan an edit" first'}>AI plan{plan ? ` (${plan.shots.length})` : ''}</button>
+            <button className="btn small" onClick={fromSuggested} disabled={!video.clips.length}>Suggested clips{video.clips.length ? ` (${video.clips.length})` : ''}</button>
+            <button className="btn small" onClick={addRange} title="Adds the timeline's current range as a shot">Add current range</button>
+            {shots.length > 0 && <button className="btn small" onClick={() => window.confirm('Clear the montage?') && setShots([])}>Clear</button>}
+          </div>
+          {shots.length === 0 && (
+            <p className="muted small" style={{ margin: 0 }}>Start with a source above — <strong>Scene cuts</strong> gives one shot per scene, <strong>AI plan</strong> a finished edit. Then untick what you don't want and reorder. <Link to="/help#montage">How the montage works →</Link></p>
+          )}
+          <div className="row wrap">
+            <span className="muted small">Tagged shots</span>
+            {tagCounts ? TAG_FILTERS.map((f) => (
+              <button key={f.value} className="btn small" onClick={() => fromTagged(f.value)} disabled={!tagCounts[f.value]} title={`Only the scenes tagged ${f.label.toLowerCase()}`}>
+                {f.label} ({tagCounts[f.value]})
+              </button>
+            )) : <span className="muted small">run Prepare → Shot tags to filter by closeups, dialogue, gameplay or cutscenes</span>}
+          </div>
+          {plan && (
+            <div className="stack" style={{ gap: 4 }}>
+              <button className="btn small" style={{ alignSelf: 'flex-start' }} onClick={() => setShowPlan(!showPlan)}>
+                {showPlan ? 'Hide plan notes' : `Plan: ${plan.title ?? 'untitled'}`}
+              </button>
+              {showPlan && (
+                <div className="stack small" style={{ gap: 4 }}>
+                  {plan.hook && <p><strong>Hook.</strong> {plan.hook}</p>}
+                  {plan.summary && <p>{plan.summary}</p>}
+                  {plan.music_vibe && <p><strong>Music.</strong> {plan.music_vibe}</p>}
+                  {plan.sfx_ideas && plan.sfx_ideas.length > 0 && <p><strong>SFX.</strong> {plan.sfx_ideas.join(' · ')}</p>}
+                  {plan.resolve_notes && plan.resolve_notes.length > 0 && <p><strong>In Resolve.</strong> {plan.resolve_notes.join(' · ')}</p>}
+                  {plan.model && <p className="muted">by {plan.model}</p>}
+                </div>
+              )}
             </div>
           )}
-        </div>
+          {shots.length > 0 && (
+            <div className="stack" style={{ gap: 4 }}>
+              <span className="muted small">tick = include · tap a time to preview · speed per shot · ↑ ↓ reorder</span>
+              {shots.map((s, i) => (
+                <div key={s.id} className={`shot-row ${s.include ? '' : 'off'}`}>
+                  <input type="checkbox" checked={s.include} onChange={(e) => patch(s.id, { include: e.target.checked })} aria-label="Include shot" />
+                  {timeButton(s, i)}
+                  {labelSpan(s, i === shots.length - 1, view !== 'all')}
+                  <select value={s.speed} onChange={(e) => patch(s.id, { speed: Number(e.target.value) })} aria-label="Speed" title="Playback speed of this shot">
+                    {SPEEDS.map((v) => <option key={v} value={v}>{v}×</option>)}
+                  </select>
+                  <button className="btn small" onClick={() => move(i, -1)} disabled={i === 0} aria-label="Move up">↑</button>
+                  <button className="btn small" onClick={() => move(i, 1)} disabled={i === shots.length - 1} aria-label="Move down">↓</button>
+                  <button className="btn small" onClick={() => remove(s.id)} aria-label="Remove shot">✕</button>
+                </div>
+              ))}
+              <span className="mono muted small">{countLine}</span>
+            </div>
+          )}
+        </>
       )}
 
-      {shots.length > 0 && (
+      {showMotion && shots.length > 0 && (
         <div className="stack" style={{ gap: 4 }}>
-          {shots.map((s, i) => {
-            const last = i === shots.length - 1
-            const own = s.transition
+          {view === 'all' && <span className="muted small">Motion per shot</span>}
+          {shots.filter((s) => s.include).map((s) => {
+            const i = shots.indexOf(s)
             return (
-              <div key={s.id} className={`shot-row ${s.include ? '' : 'off'}`}>
-                <input type="checkbox" checked={s.include} onChange={(e) => patch(s.id, { include: e.target.checked })} aria-label="Include shot" />
-                <button className="shot-time mono" onClick={() => seek(s.start)} title="Preview from here">
-                  {i + 1}. {duration(s.start)}–{duration(s.end)}
-                </button>
-                <span className="muted small grow">{s.label ?? ''}{s.speed !== 1 ? ` · ${(s.end - s.start) / s.speed < 1 ? ((s.end - s.start) / s.speed).toFixed(1) : Math.round((s.end - s.start) / s.speed)}s out` : ''}</span>
-                <select value={s.speed} onChange={(e) => patch(s.id, { speed: Number(e.target.value) })} aria-label="Speed">
-                  {SPEEDS.map((v) => <option key={v} value={v}>{v}×</option>)}
-                </select>
+              <div key={s.id} className="shot-row">
+                {timeButton(s, i)}
+                {labelSpan(s, i === shots.length - 1, false)}
                 <label className="check small" title="Punch-in zoom at the start of this shot"><input type="checkbox" checked={s.punch} onChange={(e) => patch(s.id, { punch: e.target.checked })} /> punch</label>
                 <label className="check small" title="Camera shake at the start of this shot"><input type="checkbox" checked={s.shake} onChange={(e) => patch(s.id, { shake: e.target.checked })} /> shake</label>
-                <button className="btn small" onClick={() => move(i, -1)} disabled={i === 0} aria-label="Move up">↑</button>
-                <button className="btn small" onClick={() => move(i, 1)} disabled={last} aria-label="Move down">↓</button>
-                <button className="btn small" onClick={() => remove(s.id)} aria-label="Remove shot">✕</button>
-                {!last && (
-                  <div className="shot-next">
+                <select value={s.playback} onChange={(e) => patch(s.id, { playback: e.target.value as Playback })} aria-label="Playback" title={PLAYBACKS.find((x) => x.value === s.playback)?.hint}>
+                  <option value="forward">▶ forward</option><option value="bounce">⟲ bounce</option><option value="reverse">◀ reverse</option>
+                </select>
+                {s.playback !== 'forward' && (
+                  <select value={s.reverse_speed} onChange={(e) => patch(s.id, { reverse_speed: Number(e.target.value) })} aria-label="Rewind speed" title="Speed of the rewind leg">
+                    {REVERSE_SPEEDS.map((v) => <option key={v} value={v}>rewind {v}×</option>)}
+                  </select>
+                )}
+              </div>
+            )
+          })}
+          <p className="muted small" style={{ margin: 0 }}>Punch = quick zoom at the shot's start. Shake = a jolt. Bounce plays forward then rewinds (10 s or shorter). <Link to="/help#motion">Guide →</Link></p>
+        </div>
+      )}
+      {showMotion && shots.length === 0 && view !== 'all' && <p className="muted small">No shots yet — go back to Cut and load some.</p>}
+
+      {showTrans && (
+        <div className="stack" style={{ gap: 6 }}>
+          <div className="row wrap">
+            <span className="muted small">Default transition</span>
+            <select value={transition.type} onChange={(e) => setTransition({ ...transition, type: e.target.value })} aria-label="Transition">
+              {TRANSITIONS.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+            </select>
+            {transition.type !== 'cut' && (
+              <label className="slider"><span className="muted small">length</span>
+                <input type="range" min={10} max={150} step={5} value={Math.round(transition.duration * 100)} onChange={(e) => setTransition({ ...transition, duration: Number(e.target.value) / 100 })} />
+                <span className="mono small">{transition.duration.toFixed(2)}s</span></label>
+            )}
+            {ownCount > 0 && <button className="btn small" onClick={clearOwn} title="Every shot uses the default transition again">Reset {ownCount} own</button>}
+          </div>
+          {included.length > 1 && (
+            <div className="stack" style={{ gap: 4 }}>
+              <span className="muted small">Between shots — leave on Default unless one boundary needs something else</span>
+              {included.slice(0, -1).map((s) => {
+                const i = shots.indexOf(s)
+                const own = s.transition
+                return (
+                  <div key={s.id} className="shot-row">
+                    {timeButton(s, i)}
                     <span className="muted small">→ next</span>
                     <select value={own ? own.type : ''} aria-label="Transition into the next shot"
                             onChange={(e) => patch(s.id, { transition: e.target.value ? { type: e.target.value, duration: own?.duration ?? transition.duration } : null })}>
@@ -256,28 +360,21 @@ export default function Montage({ video, plan, onApplyPlanLook, scenes, dialogue
                         <span className="mono small">{own.duration.toFixed(2)}s</span></label>
                     )}
                   </div>
-                )}
-              </div>
-            )
-          })}
+                )
+              })}
+            </div>
+          )}
+          <p className="muted small" style={{ margin: 0 }}>{countLine}. Transitions overlap the shots, so the total shrinks a little with each one. <Link to="/help#transitions">See them animated →</Link></p>
         </div>
       )}
 
-      <div className="row wrap">
-        <span className="muted small">Default transition</span>
-        <select value={transition.type} onChange={(e) => setTransition({ ...transition, type: e.target.value })} aria-label="Transition">
-          {TRANSITIONS.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-        </select>
-        {transition.type !== 'cut' && (
-          <label className="slider"><span className="muted small">length</span>
-            <input type="range" min={10} max={150} step={5} value={Math.round(transition.duration * 100)} onChange={(e) => setTransition({ ...transition, duration: Number(e.target.value) / 100 })} />
-            <span className="mono small">{transition.duration.toFixed(2)}s</span></label>
-        )}
-        {ownCount > 0 && <button className="btn small" onClick={clearOwn} title="Every shot uses the default transition again">Reset {ownCount} own</button>}
-        <span className="mono muted small">{included.length} shots · {duration(total)} out</span>
-        <button className="btn accent" onClick={render} disabled={disabled || !included.length}>Render montage</button>
-      </div>
-      <p className="muted small">Each shot's "→ next" picks the transition into the following shot and its length; "Default" uses the montage transition. Format, Look, Captions, Sound and Brand below apply to the whole montage. Tap a shot's time to preview it.</p>
+      {showRender && (
+        <div className="row wrap">
+          <span className="mono muted small">{countLine} · {transitionLabel(transition.type)}{ownCount ? ` (+${ownCount} own)` : ''}</span>
+          <button className="btn accent" onClick={render} disabled={disabled || !included.length}>Render montage</button>
+        </div>
+      )}
+      {view === 'all' && <p className="muted small">Format, Look, Captions, Sound and Brand apply to the whole montage. <Link to="/help#montage">Guide →</Link></p>}
       {msg && <p className="muted small">{msg}</p>}
     </div>
   )
