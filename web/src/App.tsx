@@ -3,7 +3,6 @@ import Nav from './components/Nav'
 import Jobs from './routes/Jobs'
 import Library from './routes/Library'
 import Ingest from './routes/Ingest'
-import Machines from './routes/Machines'
 import More from './routes/More'
 import Recipes from './routes/Recipes'
 import Review from './routes/Review'
@@ -19,7 +18,7 @@ export default function App() {
             <span className="rec-dot" aria-hidden="true" />
             <h1>YT Studio</h1>
           </div>
-          <span className="mono muted">v2</span>
+          <span className="mono muted">v3</span>
         </header>
         <main className="stack">
           <Routes>
@@ -27,7 +26,6 @@ export default function App() {
             <Route path="/library" element={<Library />} />
             <Route path="/add" element={<Ingest />} />
             <Route path="/video/:id" element={<Video />} />
-            <Route path="/machines" element={<Machines />} />
             <Route path="/recipes" element={<Recipes />} />
             <Route path="/review" element={<Review />} />
             <Route path="/styles" element={<Styles />} />

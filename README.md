@@ -1,387 +1,86 @@
 # YT Studio
 
-A Shorts-editing pipeline for one gaming YouTube channel. This repo holds two
-generations side by side while v2 is being built:
+A personal Shorts pipeline for gaming footage: download or import a video, transcribe it, find the
+best moments (with Gemini), and render captioned 9:16 clips — or whole montages — with saved looks.
+Review the results, approve, post. One machine, one command, nothing running when you're not using it.
 
-- **v2 (current work)** — a three-machine job system: an always-on Ubuntu server
-  ("brain") running Postgres + Hasura + FastAPI + a React PWA in Docker Compose,
-  a Windows 11 NVIDIA laptop for GPU transcription, and a Windows 11 gaming PC
-  (RX 6750 XT) for hardware-encoded renders and the heavy re-encodes. Everything
-  talks over Tailscale; the PWA is used from a phone. Postgres is the single
-  source of truth; workers claim jobs with `FOR UPDATE SKIP LOCKED`.
-- **v1 (legacy, still runnable)** — the original single-machine web app at
-  `server/` + `ui/`, documented in the rest of this README. It is retired once
-  the v2 phone test passes on the real machines; its ffmpeg/caption/AI logic was
-  the port source for the v2 workers.
+## Quickstart
 
-## v2 quickstart
-
-| I want to… | Do this |
-|---|---|
-| Understand the architecture & roadmap | Read [PLAN.md](PLAN.md); conventions in [CLAUDE.md](CLAUDE.md) |
-| Run the brain stack (dev or server) | `cp .env.example .env`, fill the v2 section, `docker compose up -d --build` → PWA at `http://localhost:8080` |
-| Deploy to the Ubuntu server + phone | Follow [docs/DEPLOY.md](docs/DEPLOY.md) (Docker, `tailscale serve`, PWA install) |
-| Hack on the PWA | `cd web && npm install && npm run dev` (proxies to the containers) |
-| Change the DB schema | Hasura CLI workflow at the bottom of [docs/DEPLOY.md](docs/DEPLOY.md); write migrations idempotently |
-| Index the v1 library into the DB | `docker compose exec api python scripts/import_v1_library.py` (idempotent) |
-| Install a worker on Windows | [docs/WORKER-WINDOWS.md](docs/WORKER-WINDOWS.md) |
-| Decide which machine does what | PWA → More → Machines (per job type: off / does it / fallback; pause) |
-| Run a worker on the Mac (dev) | `cp worker/examples/mac-dev.toml worker/worker.toml && cd worker && ../venv/bin/yt-worker` |
-| Run the tests | `venv/bin/python -m pytest worker/tests api/tests` (needs the compose stack) |
-
-## What v2 does
-
-**From the phone (PWA tabs)**
-
-| Tab | What's there |
-|---|---|
-| Library | Every video with thumbnails, badges (transcript, scenes, edit copy, post kit, clips rendered), the note you left, and live job state |
-| Add | Paste a link → check → quality → a note to self → "while I'm away": *just download* / *prepare for editing* / *Auto Shorts*. Or upload a file from the device |
-| Video page | Player with scene markers and live caption preview · Transcribe / Detect scenes / Suggest clips / Auto Shorts / Post kit / **Plan an edit** / Edit copy / Remove silences · Clips (use, render, approve, reject, play) · Export panel (the whole v1 control set + recipes, watermark, SFX layers, punch-in zoom markers) · Caption editor · Clip pack · **Montage builder** · Resolve timeline export |
-| Review | Rendered clips as swipeable cards: approve / reject / mark posted / tweak / download, with the post kit |
-| Jobs | Live queue with progress, cancel, retry, which machine took it |
-| More | Machines (assignment + wake), Recipes, **Styles** (clone a Short's edit), AI models |
-
-**The pipeline.** A ready video with *prepare* fans out transcribe + scenes, then
-clip suggestions, a post kit and an AI edit plan once both exist. *Auto Shorts*
-also renders every suggested clip with each auto-apply recipe. Hasura event
-triggers drive the chain, a cron watchdog requeues jobs whose worker died, and
-Wake-on-LAN brings the gaming PC up when a render is waiting.
-
-**Editing features**
-
-- **Renders**: 9:16 or 16:9, crop or blurred pad, rotation, border trim, vivid /
-  colour grades / HDR look, Ken-Burns zoom, burned captions in four styles from
-  the Whisper transcript or hand-typed captions, music bed with ducking,
-  −14 LUFS loudness, watermark, SFX layers, punch-in zoom markers. Encoder per
-  machine (`h264_amf` on the gaming PC, libx264 elsewhere).
-- **Sequences**: several shots with per-shot speed (0.25×–4×) and punch-ins,
-  joined with hard cuts or 22 transitions (crossfade, wipes, slides, zoom-through,
-  …), captions kept in sync across speed changes.
-- **Montage builder**: shots from scene cuts, the clip pack, suggested clips, the
-  AI plan or a hand-picked range → include, reorder, speed, punch, preview → render.
-- **AI edit plan**: Gemini reads the transcript, scene cuts, keyframes and your
-  note and proposes the shot order (hook first), speeds, punch-ins, transition,
-  caption style, grade, music vibe, SFX ideas and Resolve notes; loads straight
-  into the montage builder.
-- **Recipes**: saved export setups (your v1 preset is seeded); auto-apply ones
-  render every suggested clip unattended.
-- **Style clone**: paste someone's Short → measured cuts/loudness + Gemini's
-  breakdown → a recipe for what we can do and DaVinci Resolve steps for the rest.
-- **Resolve hand-off**: FCPXML timeline of a video's clips.
-
-**Machines.** Who does what is set on the Machines page per job type: *does it*
-(shares the work), *fallback* (only when every primary machine is offline, after
-a minute's grace so a sleeping PC can be woken first), or off. Workers report
-what they can physically run, so only installed abilities can be assigned.
-Recommended: brain = download, scenes, bars, Gemini jobs; gaming PC = renders and
-re-encodes, fallback for the rest; laptop = transcribe.
-
-**AI.** Gemini for suggestions, post kits, style clone and edit plans, with retry
-and a model fallback chain (`GEMINI_MODELS`) for 503/429; More → AI models shows
-what your key can call. Whisper (faster-whisper) for transcripts.
-
-**Status:** Phases 0–3.6 are built and verified locally; the pipeline is deployed
-on the server and awaiting the worker installs and the phone test. Next: retire
-`server/` + `ui/`, then Phase 4 (idea engine) and Phase 5 (feedback loop).
-Task lists are in PLAN.md §4.
-
----
-
-# v1 — the original single-machine app
-
-Everything below documents v1. A local web app for downloading videos at the
-best possible quality and prepping them for editing. Paste a URL, check it,
-pick a quality, download with live progress. Every download lands in a library
-where you can open it in your file manager or create an edit-friendly H.264
-copy for DaVinci Resolve.
-
-Localhost only — the server binds to 127.0.0.1 and is unreachable from other
-machines. No auth, no database; the library is a filesystem scan of the
-downloads folder.
-
-## Requirements
-
-- Python 3.11+
-- ffmpeg and ffprobe on PATH
-- Node LTS (only needed to build the UI once)
-
-Setting up on a Windows machine instead? Follow [WINDOWS.md](WINDOWS.md).
-
-## First-time setup
-
-```sh
-# from the project root
-python3 -m venv venv
-./venv/bin/pip install --no-cache-dir -r requirements.txt   # Windows: venv\Scripts\pip install ...
-cd ui && npm install && npm run build && cd ..
-```
-
-## Run
-
-The easy way — the launcher script handles first-time setup (venv, Python
-deps, UI build) automatically and just starts the server on later runs:
+Needs Python 3.11+, ffmpeg (Windows: `winget install Gyan.FFmpeg` — the *full* build;
+macOS: `brew install ffmpeg-full`) and Node/npm once to build the web app.
 
 ```sh
 ./run.sh          # macOS / Linux
 run.bat           # Windows
 ```
 
-Or manually:
+First run creates `venv/`, installs Python packages, builds `web/`, then opens
+`http://127.0.0.1:8765`. Every later run just starts the app.
 
-```sh
-./venv/bin/python server/main.py        # Windows: venv\Scripts\python server\main.py
-```
+Settings go in `.env` (copy `.env.example`): library folder, port, `GEMINI_API_KEY` for the AI
+features, Whisper model, encoder override. Nothing else to configure.
 
-The browser opens automatically at http://127.0.0.1:8765.
+Your library is `downloads/` (or `LIBRARY_DIR`): one folder per video with the source, its sidecars
+(transcript, scenes, captions, plan, clips) and a `shorts/` folder of renders. Copy a folder from
+another machine and tap **Rescan** in the Library to index it. Everything the app knows lives in
+those folders plus `<library>/.ytstudio/` — no database.
 
-## Configuration
+## What it does
 
-Shared defaults live in `config.json` (committed). Machine-specific values go
-in `.env` (gitignored) — copy `.env.example` to `.env` and edit. `.env` and OS
-environment variables override `config.json`, so the Mac and Windows setups
-never conflict in git. Supported keys: `DOWNLOAD_DIR`, `PORT`, `COOKIES_FILE`,
-`PIPELINE_CMD`.
+- **Add**: paste a YouTube link (best / 4K / HDR / audio) or upload a file. Choose what happens
+  next: just download, *Prepare* (transcript, scene cuts, AI clip picks, AI edit plan, post kit) or
+  *Auto Shorts* (prepare, then render every AI pick with each auto-apply recipe).
+- **Video page**: Prepare checklist → Clips (AI picks, your ranges) → Edit → Tools.
+  Edit covers one range or a montage of shots (speed, punch-ins, 23 transitions), 9:16 / 16:9 framing
+  (crop or blurred pad), rotation, bar trimming, colour grades, vivid, HDR look, slow zoom, four
+  caption styles (word-timed from the transcript or hand-typed), music bed with ducking, sound
+  effects, loudness normalisation, watermark. Save any setup as a recipe.
+- **Review**: rendered clips as cards — approve, reject, tweak and re-render, mark posted, post kit
+  (title / description / hashtags) ready to paste.
+- **Styles**: paste a Short you like; the app measures it and has Gemini break the edit down into a
+  recipe plus DaVinci Resolve notes.
+- **Tools**: shred into shots along scene cuts, remove silences, FCPXML timeline for Resolve.
+- **Jobs**: live progress, cancel, retry. ffmpeg / whisper jobs run one at a time; downloads and
+  Gemini calls alongside. Jobs are forgotten when the app closes.
 
-`config.json`:
-
-- `download_dir` — where downloads land. A relative value resolves against the
-  project root. Default `downloads`.
-- `port` — default `8765`.
-- `cookies_file` — path to a Netscape-format cookies file, relative paths
-  resolve against the project root. Default `cookies.txt`. Used only if the
-  file exists; checked per request, so adding or refreshing it needs no
-  restart.
-
-## HDR downloads
-
-When a video has HDR streams (HDR10 / HLG), the quality dropdown shows an
-**HDR (best available)** option after you Check the link. Picking it grabs the
-HDR video stream and merges it into mkv without re-encoding, so the real HDR
-metadata (BT.2020 primaries, PQ/HLG transfer) is preserved intact. The option
-only appears for videos that actually have HDR — SDR videos won't show it.
-
-## Age-restricted videos
-
-Videos behind age verification need a logged-in YouTube session. Email/password
-login is not supported (Google blocks automated sign-ins); instead, hand the
-app your browser session's cookies:
-
-1. Log in to YouTube in your browser — use a throwaway/secondary Google
-   account, since accounts whose cookies drive automated downloads can get
-   flagged.
-2. Export cookies for `youtube.com` with a browser extension such as
-   "Get cookies.txt LOCALLY".
-3. Save the export as `cookies.txt` in the project root. Done — the next
-   probe/download picks it up automatically.
-
-Cookies expire: when age-gated videos start failing again, re-export the file.
-Keep the browser profile you exported from logged in — logging out invalidates
-the cookies immediately. `cookies.txt` is gitignored; treat it like a password
-and never commit or share it.
-
-## How it works
-
-- Downloads merge into **mkv** losslessly (4K streams are VP9/AV1 and don't mux
-  cleanly into mp4). Audio-only downloads keep their native container.
-- **Convert for editing** produces `<name>_edit.mp4` (H.264 CRF 16 / AAC /
-  faststart, 8-bit 4:2:0) next to the original — the safe target for Resolve.
-- Each video gets its own subfolder with the media file, an `.info.json`
-  sidecar, and a thumbnail. The library is rebuilt from these files on every
-  request, so it survives server restarts. Jobs are in-memory only and do not.
+Phone use: see `docs/PHONE.md`. Architecture and roadmap: `PLAN.md`. For Claude Code: `CLAUDE.md`.
 
 ## When downloads break
 
-Most future download breakage (typically `HTTP Error 403: Forbidden`) is fixed
-by updating yt-dlp — YouTube changes constantly and yt-dlp patches fast:
+YouTube changes often. Symptoms: 403s, "Sign in to confirm you're not a bot", missing formats.
 
 ```sh
-./venv/bin/pip install -U yt-dlp
+venv/bin/pip install -U --pre yt-dlp        # Windows: venv\Scripts\pip install -U --pre yt-dlp
 ```
 
-If the latest stable release still fails, the nightly channel usually has the
-fix already:
-
-```sh
-./venv/bin/pip install -U --pre yt-dlp
-```
-
-Then restart the server.
-
-## Importing local videos
-
-Two ways to get local footage in:
-
-- **The + button** next to the ingest box opens a file picker; the file
-  uploads to the server with a progress bar and lands in the library.
-- **Paste a file path** into the ingest box — something like
-  `/Users/you/Movies/raw.mp4` (or `D:\footage\raw.mp4` on Windows;
-  surrounding quotes are fine) and press Check. The card shows the
-file's resolution, size, and duration, and **Import to library** copies it
-into its own library folder with a generated thumbnail and metadata sidecar,
-with copy progress in Jobs. Imported videos get every feature downloads get:
-player, scene detection, transcription, captions, 9:16 exports, AI Auto
-Shorts, and the pipeline hand-off. Supported types: mkv, mp4, webm, mov,
-m4a, mp3, opus.
-
-## Player, scene detection, and 9:16 clips
-
-Click a library thumbnail to open the player. It prefers the edit copy when
-one exists — mkv/AV1 originals don't play in every browser (if playback fails,
-convert for editing first).
-
-- **Detect scenes** runs ffmpeg scene-cut detection (threshold 0.30) and saves
-  a `<name>.scenes.json` sidecar; cuts appear as amber markers under the video,
-  click one to jump there.
-- **Export clip** renders an H.264 clip from the chosen time range into a
-  `shorts/` subfolder. Pick the **orientation** — *Portrait 9:16* (Shorts /
-  Reels / TikTok) or *Landscape 16:9* (YouTube) — and the **resolution**:
-  1080p (1080×1920 or 1920×1080) or 4K (2160×3840 or 3840×2160; slower, larger
-  files). Styles: *Blurred pad* (whole frame over a blurred background) or
-  *Center crop*. **Rotate** turns the footage 90° left/right (or 180°) inside
-  the frame — e.g. rotate landscape footage 90° to fill a vertical 9:16 clip
-  edge-to-edge. By default captions stay upright; tick **"Rotate captions
-  too"** (appears when rotation is set) to turn the captions with the video,
-  so both read correctly when the phone is turned.
-  Times accept `1:23` or plain seconds; "Set start/end" grabs the current
-  playhead. Captions render on a canvas matching the orientation, so they stay
-  correctly proportioned in both portrait and landscape, at any resolution.
-- **Vivid** is a 0–100 slider (in the export row) that grades the clip with
-  progressively stronger saturation, vibrance, and contrast — the punchy look
-  people associate with HDR. 0 keeps the original colors; 100 is deliberately
-  strong (near-oversaturated). Real HDR can't be created from SDR sources; for
-  true grading use the mkv original in Resolve. Each value produces its own
-  filename (`_vivid75` etc.) so you can compare intensities side by side.
-- **Grade** (dropdown) applies a cinematic colour grade: *Teal & orange*
-  (blockbuster cool-shadow/warm-highlight), *Moody* (cool, crushed), *Warm
-  film*, *Cool*, or *Black & white* — real colour tools, tasteful, stacks with
-  Vivid and HDR look.
-- **Music** (in the export row) mixes a background track under the clip. Pick a
-  track from the dropdown or "Add track" to upload one (stored in a gitignored
-  `music/` folder), set the volume, and tick **Duck under speech** to
-  automatically lower the music whenever someone's talking (sidechain
-  compression). The track loops/trims to the clip length automatically.
-- **HDR look** (checkbox) applies a stylized grade on top of Vivid: strong
-  local-contrast "clarity" plus gentle contrast and saturation, for the punchy,
-  high-dimensionality feel of an HDR display. It can't turn SDR into real HDR
-  (nothing can), but it makes the image *look* punchy without skewing colour.
-  A **Sharp** slider (0–100) appears when it's on — higher is crisper.
-- **Auto zoom** adds a slow Ken-Burns punch-in over the clip (a gentle
-  continuous zoom toward the end) for energy. Captions don't zoom — the zoom
-  is applied to the video before captions burn on.
-- **Normalize audio** applies loudness normalization to −14 LUFS (the common
-  social-platform target) so clip volume is consistent.
-- **Presets** — the whole export setup (orientation, resolution, style, vivid,
-  trim, rotation, zoom, normalize, and all caption settings) can be saved as a
-  named preset and re-applied in one click from the preset bar. Presets live in
-  a gitignored `presets.json` in the project root, so each machine keeps its own.
-- **Preview on video** — tick it (with captions on) to see the captions
-  overlaid on the player as it plays, so you can check wording, timing, and
-  position before committing to a render. It's an approximation; the burned-in
-  result is exact.
-
-## Transcripts and captions
-
-- **Transcribe** (in the player) runs Whisper locally via faster-whisper — no
-  cloud, no cost. The first run downloads the model (~500 MB for the default
-  `small`; change with `WHISPER_MODEL` in `.env`). Output is a
-  `<name>.transcript.json` sidecar with word-level timestamps.
-- **Captions** (checkbox in the export panel) burns word-timed captions into
-  the 9:16 clip. Four styles, selectable next to the checkbox:
-  *Karaoke* (default — white text, the spoken word fills amber),
-  *Typewriter* (words appear one by one as spoken and accumulate),
-  *Pop* (bold uppercase chunks that bounce in with an amber glow and drop
-  shadow), and *Minimal* (small clean static lines). All styles work with
-  both auto (transcript) and manual captions, at any position.
-- **Manual captions** — "Edit captions manually" in the player opens an
-  editor where each caption has its own text, start time, and on-screen
-  duration; "Add caption at playhead" pre-fills the start time. A global
-  words/sec speed controls how fast the amber fill sweeps the words. Saved
-  as a `<name>.captions.json` sidecar. At export, pick the caption source
-  (Auto transcript / Manual) and position (Bottom / Middle / Top) — the
-  position applies to both sources. Long lines wrap automatically.
-- macOS note: Homebrew's plain `ffmpeg` formula is built without libass and
-  can't burn captions — install `brew install ffmpeg-full` (the server prefers
-  it automatically). Windows WinGet builds already include libass.
-
-## AI clip suggestions and Auto Shorts (Google Gemini)
-
-Set `GEMINI_API_KEY` in `.env` (get a key at https://aistudio.google.com/apikey)
-and restart the server. The model defaults to `gemini-2.5-flash`; override with
-`GEMINI_MODEL`. Calls go directly to Google's REST API — no extra dependency.
-
-- **Suggest clips** — Gemini reads the transcript, scene cuts, and sampled
-  keyframes, and returns ranked clip suggestions (time range, title, hook).
-  Works on dialogue-free videos too, judging from the frames. Suggestions are
-  cached as `<name>.suggestions.json`; delete that file to re-analyze.
-- **Auto Shorts** — the full pipeline in one click: transcribe → detect scenes
-  → ask Gemini for the top clips → export each as a blurred-pad 9:16 with
-  auto-trimmed black bars and burned captions (when the video has speech).
-  Prerequisite steps are skipped automatically when their sidecar files
-  already exist.
-
-Typical Gemini cost is a fraction of a cent per video with `gemini-2.5-flash`.
-The transcript and scene detection stay fully local — only the compact
-transcript text and ~16 small keyframes are sent to Google.
-
-## Clip pack (shred for editing)
-
-For hand-assembled montages/edits (character-vs-character, velocity edits),
-**Clip pack** shreds a video into a pile of short, montage-ready shots you
-drop into DaVinci and arrange yourself. In the player:
-
-- Choose **Whole video** or **Selected range** (uses the start/end fields).
-- Set the **Max** length (1–5s). Each detected shot is cut into consecutive
-  pieces up to that length, never crossing a scene cut — so you get a natural
-  mix of 1s/2s/3s clips. Footage with no clear cuts (continuous gameplay)
-  falls back to even chunks automatically.
-- **Shred to clips** runs one job (auto-detecting scenes first if needed) and
-  writes numbered, timestamped clips into a `clips/` subfolder next to the
-  video, at the **source resolution and aspect** (raw material — you frame in
-  DaVinci), edit-friendly H.264 with audio. A `clippack.json` manifest lists
-  each clip's source time.
-
-Clips are intentionally *not* reframed or captioned — they're raw shots. It
-does not try to auto-isolate a specific character (that needs unreliable
-person tracking); you cherry-pick the shots you want. Note 4K sources take a
-while (each clip is re-encoded); 1080p and smaller are fast.
-
-## AI post kit
-
-**Post kit** (in the player's AI row, needs a Gemini key) reads the transcript
-and generates a ready-to-paste **title, description, and hashtags** for the
-clip, each with a Copy button. Cached as a `<name>.postkit.json` sidecar.
-
-## Remove silences (auto jump-cuts)
-
-**Remove silences** (in the player) auto-detects silent gaps and cuts them out,
-producing a tighter, faster-paced `<name>_tight.mp4` next to the original — great
-for turning rambly talking-head footage punchy. The job title reports the
-result (e.g. "45s → 31s, 12 cuts"). Works on any video with real pauses; footage
-with constant background noise may report no removable silence.
-
-## VOD pipeline hand-off
-
-Set `PIPELINE_CMD` in `.env` to enable the Pipeline button on library cards,
-e.g. `PIPELINE_CMD=python D:\vod-pipeline\autopipe.py`. Clicking it runs that
-command with the video file path appended as the last argument and tracks it
-as a job (done/error follows the command's exit code).
-
-## Not built yet
-
-Playlist support and websocket progress remain future work.
+For age-restricted videos export your browser cookies (Netscape format) to `cookies.txt` in the
+project folder (or set `COOKIES_FILE`).
 
 ## Data files per video
 
-Everything lives next to the media file, so the library survives restarts and
-folder moves:
+| File | What |
+|---|---|
+| `<title>.mkv/.mp4` + `.info.json` + `.webp` | source, yt-dlp metadata, thumbnail |
+| `<title>.transcript.json` | faster-whisper segments with word timestamps |
+| `<title>.scenes.json` / `.borders.json` | scene-cut times / measured black bars |
+| `<title>.captions.json` | hand-typed captions |
+| `<title>.suggestions.json` / `.plan.json` / `.postkit.json` | Gemini outputs |
+| `<title>.clips.json` | the clip list with review status and render settings |
+| `<title>_edit.mp4` / `_tight.mp4` | preview/edit copy, silences removed |
+| `shorts/*.mp4` | renders (name encodes range + settings) |
+| `clips/` + `clippack.json` | shredded shots |
 
-| File | Written by |
-| --- | --- |
-| `<name>.info.json`, thumbnail | download |
-| `<name>_edit.mp4` | Convert for editing |
-| `<name>.scenes.json` | scene detection |
-| `<name>.transcript.json` | Transcribe |
-| `<name>.captions.json` | manual caption editor |
-| `<name>.suggestions.json` | AI Suggest clips |
-| `shorts/*.mp4` | clip exports / Auto Shorts |
+Library-level: `.ytstudio/` (index, recipes, styles), `.music/`, `.overlays/`, `.refs/` (style
+references), `.cache/`.
+
+## Tests
+
+```sh
+venv/bin/pip install pytest httpx && venv/bin/python -m pytest studio/tests -q
+cd web && npm run typecheck
+```
+
+## Older versions
+
+`git tag v1-last` is the original single-machine app; `v2-multimachine` is the three-machine
+Postgres/Hasura job system that this version replaced.

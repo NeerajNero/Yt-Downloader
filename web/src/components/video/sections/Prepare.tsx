@@ -1,8 +1,5 @@
-import type { VideoDetailSubscription } from '../../../gql/generated'
+import type { Job, VideoDetail as Video } from '../../../lib/types'
 import PostKit from '../PostKit'
-
-type Video = NonNullable<VideoDetailSubscription['videos_by_pk']>
-type Job = Video['jobs'][number]
 
 interface Props {
   video: Video

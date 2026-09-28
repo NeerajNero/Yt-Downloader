@@ -1,23 +1,17 @@
-import { useMutation } from '@apollo/client'
-import { DeleteClipDocument, SetClipStatusDocument, type VideoDetailSubscription } from '../../gql/generated'
-import { fileUrl } from '../../lib/api'
+import { deleteClip, fileUrl, setClipStatus } from '../../lib/api'
 import { duration } from '../../lib/format'
-
-type Video = NonNullable<VideoDetailSubscription['videos_by_pk']>
-type Clip = Video['clips'][number]
+import type { Clip, Job } from '../../lib/types'
 
 interface Props {
   clips: Clip[]
-  jobs: Video['jobs']
+  jobs: Job[]
   onUse: (c: Clip) => void
   onRender: (c: Clip) => void
 }
 
 export default function ClipsList({ clips, jobs, onUse, onRender }: Props) {
-  const [setStatus] = useMutation(SetClipStatusDocument)
-  const [del] = useMutation(DeleteClipDocument)
   if (!clips.length) return null
-  const activeFor = (id: string) => jobs.find((j) => j.clip_id === id && ['queued', 'claimed', 'running'].includes(j.status))
+  const activeFor = (id: string) => jobs.find((j) => j.clip_id === id && ['queued', 'running', 'cancel_requested'].includes(j.status))
 
   return (
     <div className="stack" style={{ gap: 8 }}>
@@ -40,13 +34,13 @@ export default function ClipsList({ clips, jobs, onUse, onRender }: Props) {
               {!job && <button className="btn small" onClick={() => onRender(c)}>{c.output_path ? 'Re-render' : 'Render'}</button>}
               {c.output_path && <a className="btn small accent" href={fileUrl(c.output_path)} target="_blank" rel="noreferrer">Play</a>}
               {c.output_path && c.status === 'rendered' && (
-                <button className="btn small" onClick={() => void setStatus({ variables: { id: c.id, status: 'approved' } })}>Approve</button>
+                <button className="btn small" onClick={() => void setClipStatus(c.id, 'approved')}>Approve</button>
               )}
               {c.status !== 'rejected' && c.status !== 'posted' && (
-                <button className="btn small" onClick={() => void setStatus({ variables: { id: c.id, status: 'rejected' } })}>Reject</button>
+                <button className="btn small" onClick={() => void setClipStatus(c.id, 'rejected')}>Reject</button>
               )}
               {c.status === 'rejected' && (
-                <button className="btn small" onClick={() => void del({ variables: { id: c.id } })}>Delete</button>
+                <button className="btn small" onClick={() => void deleteClip(c.id)}>Delete</button>
               )}
             </div>
           </div>

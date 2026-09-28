@@ -1,10 +1,6 @@
-import type { VideoDetailSubscription } from '../../../gql/generated'
+import type { Clip, Job, VideoDetail as Video } from '../../../lib/types'
 import ClipsList from '../ClipsList'
 import type { Plan } from '../Montage'
-
-type Video = NonNullable<VideoDetailSubscription['videos_by_pk']>
-type Job = Video['jobs'][number]
-type Clip = Video['clips'][number]
 
 interface Props {
   video: Video

@@ -1,64 +1,55 @@
-import { useMutation } from '@apollo/client'
 import { useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { ProbeUrlDocument, StartDownloadDocument, type ProbeUrlMutation } from '../gql/generated'
-import { uploadVideo } from '../lib/api'
+import { probeUrl, startDownload, uploadVideo, type ProbeResult } from '../lib/api'
 import { duration } from '../lib/format'
 
-type Probe = NonNullable<ProbeUrlMutation['probe_url']>
 const ACCEPT = '.mkv,.mp4,.webm,.m4a,.mov,.mp3,.opus,video/*,audio/*'
 
 const PIPELINES = [
   { value: 'none', label: 'Just download', help: 'Nothing else happens until you open the video.' },
-  { value: 'prepare', label: 'Prepare for editing', help: 'Transcribe, detect scenes, suggest clips and write a post kit.' },
-  { value: 'shorts', label: 'Auto Shorts', help: 'Prepare, then render every suggested clip with the default look.' },
+  { value: 'prepare', label: 'Prepare for editing', help: 'Transcribe, detect scenes, suggest clips, plan an edit and write a post kit.' },
+  { value: 'shorts', label: 'Auto Shorts', help: 'Prepare, then render every suggested clip with each auto-apply recipe.' },
 ]
 
 export default function Ingest() {
   const nav = useNavigate()
   const [url, setUrl] = useState('')
-  const [info, setInfo] = useState<Probe | null>(null)
+  const [info, setInfo] = useState<ProbeResult | null>(null)
   const [quality, setQuality] = useState('best')
   const [note, setNote] = useState('')
   const [pipeline, setPipeline] = useState('prepare')
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [probing, setProbing] = useState(false)
+  const [starting, setStarting] = useState(false)
   const [upload, setUpload] = useState<{ name: string; pct: number } | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
-
-  const [probe, { loading: probing }] = useMutation(ProbeUrlDocument)
-  const [start, { loading: starting }] = useMutation(StartDownloadDocument)
 
   const check = async () => {
     const trimmed = url.trim()
     if (!trimmed) return
-    setError(null); setNotice(null); setInfo(null)
+    setError(null); setNotice(null); setInfo(null); setProbing(true)
     try {
-      const r = await probe({ variables: { url: trimmed } })
-      setInfo(r.data?.probe_url ?? null)
+      setInfo(await probeUrl(trimmed))
       setQuality('best')
     } catch (e) {
       setError((e as Error).message)
-    }
+    } finally { setProbing(false) }
   }
 
   const download = async () => {
     if (!info) return
-    setError(null)
+    setError(null); setStarting(true)
     try {
-      const r = await start({
-        variables: {
-          url: info.webpage_url ?? url.trim(), quality, title: info.title, youtube_id: info.youtube_id,
-          note: note.trim() || null, pipeline,
-        },
+      const out = await startDownload({
+        url: info.webpage_url ?? url.trim(), quality, title: info.title, youtube_id: info.youtube_id,
+        note: note.trim() || null, pipeline,
       })
-      const out = r.data?.start_download
-      if (!out) throw new Error('No response')
       if (out.existing && !out.job_id) setNotice('Already in the library — opening it.')
       nav(`/video/${out.video_id}`)
     } catch (e) {
       setError((e as Error).message)
-    }
+    } finally { setStarting(false) }
   }
 
   const onPickFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -96,7 +87,7 @@ export default function Ingest() {
       </label>
 
       <div className="field">
-        <span className="muted small">While I'm away</span>
+        <span className="muted small">After the download</span>
         <div className="choices">
           {PIPELINES.map((p) => (
             <label key={p.value} className={`choice ${pipeline === p.value ? 'active' : ''}`}>

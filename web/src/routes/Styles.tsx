@@ -1,14 +1,10 @@
-import { useMutation, useSubscription } from '@apollo/client'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import {
-  AnalyzeStyleDocument, DeleteStyleDocument, InsertRecipeDocument, StylesDocument, type StylesSubscription,
-} from '../gql/generated'
-import { fileUrl } from '../lib/api'
+import { analyzeStyle, deleteStyle, fileUrl, insertRecipe } from '../lib/api'
 import { duration, timeAgo } from '../lib/format'
+import { usePoll } from '../lib/poll'
 import { summarize, type RecipeSettings } from '../lib/settings'
-
-type Style = StylesSubscription['styles'][number]
+import type { Style } from '../lib/types'
 interface Report {
   summary?: string; hook?: string; chips?: string[]
   captions?: { present: boolean; style: string; position: string; notes: string }
@@ -37,8 +33,6 @@ function Notes({ md }: { md: string }) {
 }
 
 function StyleCard({ s }: { s: Style }) {
-  const [insertRecipe] = useMutation(InsertRecipeDocument)
-  const [del] = useMutation(DeleteStyleDocument)
   const [open, setOpen] = useState<'report' | 'resolve' | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
   const r = (s.report ?? {}) as Report
@@ -48,7 +42,7 @@ function StyleCard({ s }: { s: Style }) {
     const name = window.prompt('Recipe name:', `like: ${(s.title ?? 'short').slice(0, 40)}`)?.trim()
     if (!name || !recipe) return
     try {
-      await insertRecipe({ variables: { name, description: `From ${s.url}`, settings: recipe, auto_apply: false } })
+      await insertRecipe({ name, description: `From ${s.url}`, settings: recipe, auto_apply: false })
       setMsg(`Saved recipe "${name}" — pick it on any video's Export panel.`)
     } catch (e) { setMsg((e as Error).message) }
   }
@@ -79,7 +73,7 @@ function StyleCard({ s }: { s: Style }) {
             <button className="btn small" onClick={() => setOpen(open === 'resolve' ? null : 'resolve')}>Resolve steps</button>
             {s.ref_path && <a className="btn small" href={fileUrl(s.ref_path)} target="_blank" rel="noreferrer">Watch</a>}
             <a className="btn small" href={s.url} target="_blank" rel="noreferrer">YouTube</a>
-            <button className="btn small" onClick={() => window.confirm('Delete this style?') && void del({ variables: { id: s.id } })}>Delete</button>
+            <button className="btn small" onClick={() => window.confirm('Delete this style?') && void deleteStyle(s.id)}>Delete</button>
           </div>
           {open === 'report' && (
             <div className="stack small" style={{ gap: 4 }}>
@@ -103,27 +97,27 @@ function StyleCard({ s }: { s: Style }) {
 }
 
 export default function Styles() {
-  const { data, loading, error } = useSubscription(StylesDocument)
-  const [analyze, { loading: starting }] = useMutation(AnalyzeStyleDocument)
+  const { data, loading, error } = usePoll<Style[]>('/api/styles', 2000)
+  const [starting, setStarting] = useState(false)
   const [url, setUrl] = useState('')
   const [err, setErr] = useState<string | null>(null)
 
   const go = async () => {
     const u = url.trim()
     if (!u) return
-    setErr(null)
+    setErr(null); setStarting(true)
     try {
-      await analyze({ variables: { url: u } })
+      await analyzeStyle(u)
       setUrl('')
-    } catch (e) { setErr((e as Error).message) }
+    } catch (e) { setErr((e as Error).message) } finally { setStarting(false) }
   }
 
-  if (error) return <p className="error">Can't reach the brain: {error.message}</p>
+  if (error && !data) return <p className="error">Can't reach the app: {error}</p>
   return (
     <section className="panel stack">
       <div className="panel-head"><h2>Styles</h2><Link to="/recipes" className="muted small">Recipes</Link></div>
       <p className="muted small">
-        Paste a Short you like. The brain downloads it, measures the cuts and loudness, has Gemini watch it and break
+        Paste a Short you like. The app downloads it, measures the cuts and loudness, has Gemini watch it and break
         the edit down, then maps what it can onto a recipe and writes DaVinci Resolve steps for the rest.
       </p>
       <div className="row">
@@ -134,7 +128,7 @@ export default function Styles() {
       {err && <p className="job-error">{err}</p>}
       {loading && !data && <p className="muted">Connecting…</p>}
       <div className="stack">
-        {(data?.styles ?? []).map((s) => <StyleCard key={s.id} s={s} />)}
+        {(data ?? []).map((s) => <StyleCard key={s.id} s={s} />)}
       </div>
     </section>
   )

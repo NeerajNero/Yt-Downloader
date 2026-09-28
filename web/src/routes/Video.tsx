@@ -1,4 +1,3 @@
-import { useMutation, useSubscription } from '@apollo/client'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import Progress from '../components/Progress'
@@ -10,16 +9,12 @@ import ClipsSection from '../components/video/sections/ClipsSection'
 import EditPanel from '../components/video/sections/EditPanel'
 import Prepare from '../components/video/sections/Prepare'
 import ToolsSection from '../components/video/sections/ToolsSection'
-import {
-  DeleteVideoDocument, EnqueueDocument, UpdateVideoDocument, VideoDetailDocument,
-  type VideoDetailSubscription,
-} from '../gql/generated'
-import { fetchJson, fileUrl, type ManualCaptions, type Scenes, type Transcript } from '../lib/api'
+import { deleteVideo, enqueue, fetchJson, fileUrl, updateVideo, type ManualCaptions, type Scenes, type Transcript } from '../lib/api'
 import { bytes, duration, resolution } from '../lib/format'
+import { usePoll } from '../lib/poll'
 import { DEFAULT_SETTINGS, fromStored, type RenderSettings } from '../lib/settings'
+import type { Clip, VideoDetail } from '../lib/types'
 
-type Video = NonNullable<VideoDetailSubscription['videos_by_pk']>
-type Clip = Video['clips'][number]
 type Mode = 'prepare' | 'clips' | 'edit' | 'tools'
 const ACTIVE = new Set(['queued', 'claimed', 'running', 'cancel_requested'])
 const GUIDE_KEY = 'ytstudio.guide.video'
@@ -28,10 +23,7 @@ export default function VideoPage() {
   const { id = '' } = useParams()
   const [params, setParams] = useSearchParams()
   const nav = useNavigate()
-  const { data, loading, error } = useSubscription(VideoDetailDocument, { variables: { id } })
-  const [enqueue] = useMutation(EnqueueDocument)
-  const [updateVideo] = useMutation(UpdateVideoDocument)
-  const [deleteVideo] = useMutation(DeleteVideoDocument)
+  const { data, loading, error } = usePoll<VideoDetail>(id ? `/api/videos/${id}` : null)
 
   const videoRef = useRef<HTMLVideoElement>(null)
   const [nowTime, setNowTime] = useState(0)
@@ -52,7 +44,7 @@ export default function VideoPage() {
   const [noteDraft, setNoteDraft] = useState<string | null>(null)
   const [guide, setGuide] = useState(() => { try { return !localStorage.getItem(GUIDE_KEY) } catch { return false } })
 
-  const video = data?.videos_by_pk ?? null
+  const video = data ?? null
   const asset = (kind: string) => video?.assets.find((a) => a.kind === kind) ?? null
   const transcriptAsset = asset('transcript'); const scenesAsset = asset('scenes'); const captionsAsset = asset('captions')
   const editCopy = asset('edit_copy'); const clipPackAsset = asset('clip_pack'); const planAsset = asset('plan')
@@ -104,7 +96,7 @@ export default function VideoPage() {
   const active = (type: string) => activeJobs.find((j) => j.type === type)
   const lastError = (video?.jobs ?? []).find((j) => j.status === 'error')
 
-  if (error) return <p className="error">Can't reach the brain: {error.message}</p>
+  if (error && !data) return <p className="error">{error.startsWith('Video not found') ? <>Video not found. <Link to="/library">Back to library</Link></> : `Can't reach the app: ${error}`}</p>
   if (loading && !data) return <p className="muted">Connecting…</p>
   if (!video) return <p className="muted">Video not found. <Link to="/library">Back to library</Link></p>
 
@@ -115,7 +107,7 @@ export default function VideoPage() {
   const run = async (type: string, payload: Record<string, unknown> = {}, okMsg?: string, clipId?: string) => {
     setErr(null); setMsg(null)
     try {
-      await enqueue({ variables: { type, video_id: video.id, clip_id: clipId ?? null, payload } })
+      await enqueue(type, video.id, payload, clipId ?? null)
       if (okMsg) setMsg(okMsg)
     } catch (e) { setErr((e as Error).message) }
   }
@@ -143,16 +135,16 @@ export default function VideoPage() {
   const autoShorts = async () => {
     setErr(null)
     try {
-      await updateVideo({ variables: { id: video.id, note: video.note ?? null, pipeline: 'shorts' } })
+      await updateVideo(video.id, { pipeline: 'shorts' })
       if (transcriptAsset && scenesAsset) await run('suggest', { count: 3 }, 'Auto Shorts started — renders land in Review as they finish.')
       else { await prepareAll(); setMsg('Auto Shorts started — preparing first, then picking and rendering.') }
     } catch (e) { setErr((e as Error).message) }
   }
   const useClip = (c: Clip) => { setRange({ start: c.start_s, end: c.end_s }); setEditMode('range'); seek(c.start_s); setMode('edit') }
-  const saveNote = async () => { await updateVideo({ variables: { id: video.id, note: noteDraft?.trim() || null, pipeline: video.pipeline } }); setNoteDraft(null) }
+  const saveNote = async () => { await updateVideo(video.id, { note: noteDraft?.trim() || null }); setNoteDraft(null) }
   const remove = async () => {
     if (!window.confirm('Remove this video from the library? Files on disk are kept.')) return
-    await deleteVideo({ variables: { id: video.id } }); nav('/library')
+    await deleteVideo(video.id); nav('/library')
   }
   const dismissGuide = () => { setGuide(false); try { localStorage.setItem(GUIDE_KEY, '1') } catch { /* */ } }
 
@@ -176,7 +168,7 @@ export default function VideoPage() {
         </div>
         {video.status !== 'ready' && (
           <div className="stack" style={{ gap: 6 }}>
-            <span className={`pill ${video.status === 'failed' ? 'error' : 'running'}`}>{video.status}</span>
+            <span className={`pill ${video.status === 'failed' || video.status === 'missing' ? 'error' : 'running'}`}>{video.status === 'missing' ? 'file missing on disk' : video.status}</span>
             {active('download') && (<><Progress value={active('download')!.progress} active /><span className="muted small">{active('download')!.progress_note}</span></>)}
           </div>
         )}

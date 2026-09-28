@@ -1,6 +1,5 @@
-import { useSubscription } from '@apollo/client'
 import { NavLink } from 'react-router-dom'
-import { ReviewCountDocument } from '../gql/generated'
+import { usePoll } from '../lib/poll'
 
 const tabs = [
   { to: '/library', label: 'Library' },
@@ -11,8 +10,8 @@ const tabs = [
 ]
 
 export default function Nav() {
-  const { data } = useSubscription(ReviewCountDocument)
-  const n = data?.clips_aggregate.aggregate?.count ?? 0
+  const { data } = usePoll<{ count: number }>('/api/review/count', 3000)
+  const n = data?.count ?? 0
   return (
     <nav className="nav" aria-label="Sections">
       {tabs.map((t) => (

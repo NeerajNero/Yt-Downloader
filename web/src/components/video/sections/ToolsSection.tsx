@@ -1,9 +1,6 @@
 import { useState } from 'react'
-import type { VideoDetailSubscription } from '../../../gql/generated'
 import { timelineUrl } from '../../../lib/api'
-
-type Video = NonNullable<VideoDetailSubscription['videos_by_pk']>
-type Job = Video['jobs'][number]
+import type { Job, VideoDetail as Video } from '../../../lib/types'
 
 interface Props {
   video: Video

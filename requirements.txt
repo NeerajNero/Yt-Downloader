@@ -1,4 +1,5 @@
 fastapi
 uvicorn
+pydantic>=2.6
 yt-dlp
 faster-whisper
