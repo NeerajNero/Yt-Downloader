@@ -7,7 +7,7 @@ from unittest import mock
 
 import pytest
 
-from studio.schemas import validate_payload
+from studio.schemas import validate_payload, validate_recipe
 from studio.core import captions, encoders, gemini, render
 from studio.core.ffmpeg import Tools
 
@@ -57,6 +57,26 @@ def test_export_filter_blur_and_crop():
     crop = render.export_filter("crop", 0, width=1920, height=1080, rotate="right")
     assert crop.startswith("transpose=1,crop=min(iw\\,ih*1.77778)")
     assert "scale=1920:1080" in crop
+
+
+def test_crop_window_position_and_zoom():
+    """The Frame step's draggable box: crop window placed by crop_x/crop_y, divided by crop_zoom."""
+    moved = render.export_filter("crop", 0, width=1080, height=1920, crop_x=0.2, crop_y=0.5)
+    assert moved.startswith("crop=w=min(iw\\,ih*0.56250):h=min(ih\\,iw/0.56250):x=(iw-out_w)*0.200:y=(ih-out_h)*0.500,scale=1080:1920")
+    zoomed = render.export_filter("crop", 0, width=1080, height=1920, crop_x=1.0, crop_y=0.0, crop_zoom=1.5)
+    assert "crop=w=(min(iw\\,ih*0.56250))/1.5000:h=(min(ih\\,iw/0.56250))/1.5000:x=(iw-out_w)*1.000:y=(ih-out_h)*0.000" in zoomed
+    pad = render.export_filter("blur", 0, fg_crop=10, width=1080, height=1920, crop_x=0.3, crop_y=0.7, crop_zoom=2)
+    assert "[fgin]crop=w=(iw)/2.0000:h=(ih)/2.0000:x=(iw-out_w)*0.300:y=(ih-out_h)*0.700,crop=trunc(iw*0.8000/2)*2:ih,scale=" in pad
+    assert render.export_filter("blur", 0, width=1080, height=1920, crop_x=0.1) == render.export_filter("blur", 0, width=1080, height=1920)  # no zoom on the pad = whole picture, position irrelevant
+    s = render.RenderSettings(start=0, end=3, style="crop", crop_x=0.25, crop_zoom=1.5)
+    s.validate()
+    assert render.output_name("X", s, False) == "X_9x16_0s-3s_crop_win25-50x150.mp4"
+    with pytest.raises(ValueError, match="zoom"):
+        render.RenderSettings(start=0, end=3, crop_zoom=5).validate()
+    pl = validate_payload("render", {"start": 0, "end": 3, "crop_x": 0.1, "crop_zoom": 2})
+    assert pl["crop_x"] == 0.1 and pl["crop_y"] == 0.5 and pl["crop_zoom"] == 2.0
+    rec = validate_recipe({"style": "crop", "crop_zoom": 1.2})
+    assert rec["crop_zoom"] == 1.2
 
 
 def test_output_name_matches_v1_pattern():
@@ -192,7 +212,7 @@ def test_sequence_per_shot_transitions_and_shake():
     assert "[vx1][ax1][v2][a2]concat=n=2:v=1:a=1[vx2][ax2]" in graph
     assert "[vx2][v3]xfade=transition=wipeleft:duration=1.000:offset=6.600[vseq]" in graph
     assert "setsar=1,settb=AVTB[v2]" in graph and "crop=w=1080:h=1920:x='" in graph and "between(t,0.200,0.600)" in graph
-    assert render.output_name("X", s, False) == "X_9x16_seq4_0s-18s_mix_crop.mp4"
+    assert render.output_name("X", s, False) == "X_9x16_seq4_0s-18s_mix_crop_shake1.mp4"
     # shake filter: amplitude scales with the strongest marker, weaker ones are relative to it
     f = render._shake_filter(1080, 1920, 30.0, [{"at": 0, "duration": 0.5, "intensity": 100}, {"at": 2, "duration": 0.5, "intensity": 25}])
     assert f.startswith("scale=1208:2152,crop=w=1080:h=1920:x='64+64*(") and "*0.250*(0.6*sin" in f and f.endswith(",setsar=1")
@@ -206,6 +226,32 @@ def test_sequence_per_shot_transitions_and_shake():
     assert p["segments"][0]["shake_markers"][0] == {"at": 0.0, "duration": 0.4, "intensity": 50} and p["shake_markers"][0]["intensity"] == 70
     with pytest.raises(ValueError):
         validate_payload("render", {"start": 0, "end": 3, "shake_markers": [{"at": 0, "intensity": 0}]})
+
+
+def test_playback_reverse_and_bounce():
+    """bounce = forward then a rewind leg at reverse_speed; reverse = rewind only."""
+    assert render.playback_len(4, 1, "forward", 2) == 4 and render.playback_len(4, 1, "bounce", 2) == 6 and render.playback_len(4, 2, "reverse", 2) == 1
+    segs = [{"start": 0, "end": 4, "playback": "bounce", "reverse_speed": 2}, {"start": 10, "end": 12, "playback": "reverse"}, {"start": 14, "end": 16}]
+    s = render.RenderSettings(segments=segs, transition={"type": "cut"}, style="crop")
+    s.validate()
+    layout, total, bounds = render.sequence_layout(s.segments, s.transition)
+    assert [L["len"] for L in layout] == [6.0, 2.0, 2.0] and total == 10.0
+    _, graph, _, _ = render.sequence_graph(s, layout, bounds, 30.0, 1080, 1920, "none")
+    assert "[p0f];[p0f]split[p0a][p0b];[p0b]reverse,setpts=(PTS-STARTPTS)/2.0000,fps=30.0000[p0r];[p0a][p0r]concat=n=2:v=1:a=0,format=yuv420p" in graph
+    assert "[q0]asplit[q0a][q0b];[q0b]areverse,atempo=2.0000[q0r];[q0a][q0r]concat=n=2:v=0:a=1[r0]" in graph
+    assert ",reverse,setpts=(PTS-STARTPTS)/1.0000,fps=30.0000,format=yuv420p" in graph and "[1:a]asetpts=PTS-STARTPTS[q1];[q1]areverse[r1]" in graph
+    assert render.output_name("X", s, False) == "X_9x16_seq3_0s-16s_cut_crop_bounce.mp4"
+    with pytest.raises(ValueError, match="10 seconds or less"):
+        render.RenderSettings(segments=[{"start": 0, "end": 12, "playback": "bounce"}]).validate()
+    with pytest.raises(ValueError, match="Captions can't"):
+        render.RenderSettings(start=0, end=3, playback="reverse", captions=True).validate()
+    one = render.RenderSettings(start=0, end=3, playback="bounce", reverse_speed=3)
+    one.validate()
+    assert render.output_name("X", one, False) == "X_9x16_0s-3s_blur_bounce.mp4"
+    p = validate_payload("render", {"start": 0, "end": 3, "playback": "bounce"})
+    assert p["playback"] == "bounce" and p["reverse_speed"] == 1.0
+    with pytest.raises(ValueError):
+        validate_payload("render", {"segments": [{"start": 0, "end": 3, "playback": "loop"}]})
 
 
 def test_dialogue_lines_and_tag_shots(tmp_path):

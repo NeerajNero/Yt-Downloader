@@ -319,7 +319,10 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; }
 .step.done .step-mark { color: var(--ok); }
 
 .group { border: 1px solid var(--border); border-radius: 8px; background: var(--panel2); }
-.group-head { width: 100%; display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: center; background: none; border: 0; color: var(--text); font: inherit; padding: 10px 12px; cursor: pointer; text-align: left; }
+.group-head { display: flex; align-items: stretch; }
+.group-toggle { flex: 1; min-width: 0; display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: center; background: none; border: 0; color: var(--text); font: inherit; padding: 10px 12px; cursor: pointer; text-align: left; }
+.group-help { display: grid; place-items: center; width: 34px; margin: 6px 6px 6px 0; border-radius: 6px; color: var(--accent); text-decoration: none; font-weight: 700; border: 1px solid var(--border); }
+.group-help:hover { border-color: var(--accent); }
 .group-title { font-weight: 600; }
 .group-summary { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .group-chevron { color: var(--muted); }
@@ -416,3 +419,37 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; }
 .help-speed-track { position: relative; height: 6px; background: rgba(255,255,255,0.15); border-radius: 3px; }
 .help-speed-dot { position: absolute; top: -4px; left: 0; width: 14px; height: 14px; border-radius: 50%; background: var(--accent); animation: help-run 2s linear infinite; }
 @keyframes help-run { from { left: 0 } to { left: calc(100% - 14px) } }
+
+.help-bounce-frame { display: grid; place-items: center; }
+.help-bounce-track { position: relative; width: 80%; height: 8px; background: rgba(255,255,255,0.15); border-radius: 4px; }
+.help-bounce-dot { position: absolute; top: -5px; left: 0; width: 18px; height: 18px; border-radius: 50%; background: var(--accent); animation: help-bounce 3s infinite; }
+@keyframes help-bounce { 0% { left: 0 } 60% { left: calc(100% - 18px) } 66% { left: calc(100% - 18px) } 96% { left: 0 } 100% { left: 0 } }
+.help-bounce-label { position: absolute; top: 14px; font-size: 11px; color: var(--muted); animation: help-bounce-label 3s steps(1) infinite; }
+.help-bounce-label.fw { left: 0; } .help-bounce-label.bw { right: 0; animation-name: help-bounce-label-bw; }
+@keyframes help-bounce-label { 0% { color: var(--accent) } 60% { color: var(--muted) } 100% { color: var(--muted) } }
+@keyframes help-bounce-label-bw { 0% { color: var(--muted) } 60% { color: var(--accent) } 96% { color: var(--muted) } 100% { color: var(--muted) } }
+
+.edit-help { background: var(--panel2); border: 1px solid var(--accent); border-radius: 8px; padding: 10px 12px; }
+.edit-help-steps { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
+.edit-help a, .shot-row a, .group-body a { color: var(--accent); }
+.shot-extras { color: var(--accent); }
+
+/* ---- Edit steps ------------------------------------------------------------ */
+.stepper { display: flex; gap: 4px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: thin; }
+.step-btn { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px; background: var(--panel2); border: 1px solid var(--border); border-radius: 999px; color: var(--muted); font: inherit; font-size: 13px; padding: 4px 10px 4px 4px; cursor: pointer; }
+.step-btn .step-n { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; background: var(--border); color: var(--text); font-size: 12px; font-weight: 700; }
+.step-btn.done .step-n { background: var(--ok); color: #101317; }
+.step-btn.active { border-color: var(--accent); color: var(--text); }
+.step-btn.active .step-n { background: var(--accent); color: #101317; }
+.step-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.step-head h3 { margin: 0; font-size: 16px; }
+.step-nav { display: flex; justify-content: space-between; gap: 8px; padding-top: 4px; }
+.render-summary { display: grid; gap: 4px; }
+.render-summary .row { padding: 6px 8px; background: var(--panel2); border: 1px solid var(--border); border-radius: 6px; }
+.player-video.big { max-height: 78vh; }
+.player-wrap.cropping { cursor: default; }
+.crop-layer { position: absolute; inset: 0; pointer-events: none; overflow: hidden; border-radius: 8px; }
+.crop-box { position: absolute; box-sizing: border-box; border: 2px solid var(--accent); box-shadow: 0 0 0 4000px rgba(0,0,0,0.55); pointer-events: auto; touch-action: none; }
+.crop-box.movable { cursor: grab; }
+.crop-box.movable:active { cursor: grabbing; }
+.crop-tag { position: absolute; left: 4px; top: 4px; font-size: 11px; background: rgba(16,19,23,0.8); color: var(--accent); padding: 1px 6px; border-radius: 4px; white-space: nowrap; }

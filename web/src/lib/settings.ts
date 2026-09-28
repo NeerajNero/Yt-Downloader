@@ -27,6 +27,24 @@ export interface RenderSettings {
   sfx: SfxLayer[]
   zoom_markers: ZoomMarker[]
   shake_markers: ShakeMarker[]
+  playback: Playback
+  reverse_speed: number
+  crop_x: number      // 0..1 — where the crop window sits horizontally (0.5 = centre)
+  crop_y: number      // 0..1 — vertically
+  crop_zoom: number   // 1..3 — zoom into the crop window
+}
+
+export type Playback = 'forward' | 'reverse' | 'bounce'
+export const PLAYBACKS: { value: Playback; label: string; hint: string }[] = [
+  { value: 'forward', label: 'Play forward', hint: 'Normal playback.' },
+  { value: 'bounce', label: 'Bounce (play, then rewind)', hint: 'Plays forward, then rewinds. A boomerang. Best on a hero moment under 6 s.' },
+  { value: 'reverse', label: 'Reverse', hint: 'Plays backwards only.' },
+]
+export const REVERSE_SPEEDS = [1, 1.5, 2, 3, 4]
+/** Output seconds of a shot after speed and playback. */
+export const playbackLength = (srcLen: number, speed: number, playback: Playback, reverseSpeed: number) => {
+  const fw = srcLen / (speed || 1); const rs = Math.max(1, reverseSpeed || 1)
+  return playback === 'reverse' ? fw / rs : playback === 'bounce' ? fw + fw / rs : fw
 }
 
 export interface Watermark {
@@ -52,8 +70,14 @@ export const DEFAULT_SETTINGS: RenderSettings = {
   resolution: '1080', orientation: 'portrait', rotate: 'none', rotate_captions: false,
   loudness: false, zoom: 'none', look: 'none', look_sharp: 50, grade: 'none',
   music: '', music_gain: 60, duck: true,
-  watermark: null, sfx: [], zoom_markers: [], shake_markers: [],
+  watermark: null, sfx: [], zoom_markers: [], shake_markers: [], playback: 'forward', reverse_speed: 1,
+  crop_x: 0.5, crop_y: 0.5, crop_zoom: 1,
 }
+
+export type EditLayout = 'steps' | 'page'
+const LAYOUT_KEY = 'ytstudio.edit.layout'
+export const getEditLayout = (): EditLayout => { try { return localStorage.getItem(LAYOUT_KEY) === 'page' ? 'page' : 'steps' } catch { return 'steps' } }
+export const setEditLayout = (v: EditLayout) => { try { localStorage.setItem(LAYOUT_KEY, v) } catch { /* */ } }
 
 /** Merge stored settings (recipe / clip.render_settings) over the defaults, dropping start/end and hints. */
 export function fromStored(obj: unknown): RenderSettings {
@@ -69,6 +93,8 @@ export function summarize(s: Partial<RecipeSettings>): string {
     s.orientation === 'landscape' ? '16:9' : '9:16',
     s.resolution === '4k' ? '4K' : '1080p',
     s.style === 'crop' ? 'crop' : 'blur pad',
+    s.crop_zoom && s.crop_zoom > 1 ? `zoom ${s.crop_zoom.toFixed(1)}×` : '',
+    (s.crop_x != null && Math.abs(s.crop_x - 0.5) > 0.01) || (s.crop_y != null && Math.abs(s.crop_y - 0.5) > 0.01) ? 'moved crop' : '',
     s.rotate && s.rotate !== 'none' ? `rotate ${s.rotate}` : '',
     s.captions ? `captions ${s.caption_style ?? 'karaoke'}` : 'no captions',
     s.look === 'hdr' ? 'HDR look' : '',
@@ -77,6 +103,7 @@ export function summarize(s: Partial<RecipeSettings>): string {
     s.zoom === 'in' ? 'punch-in' : '',
     s.zoom_markers?.length ? `${s.zoom_markers.length} zoom markers` : '',
     s.shake_markers?.length ? `${s.shake_markers.length} shake${s.shake_markers.length > 1 ? 's' : ''}` : '',
+    s.playback === 'bounce' ? `bounce ${s.reverse_speed && s.reverse_speed > 1 ? `${s.reverse_speed}× rewind` : ''}`.trim() : s.playback === 'reverse' ? 'reversed' : '',
     s.watermark?.file ? 'watermark' : '',
     s.sfx?.length ? `${s.sfx.length} sfx` : '',
     s.music ? 'music' : '',

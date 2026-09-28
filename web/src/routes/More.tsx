@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { aiModels, type AiModels } from '../lib/api'
+import { getEditLayout, setEditLayout, type EditLayout } from '../lib/settings'
 import { usePoll } from '../lib/poll'
 import type { AppConfig } from '../lib/types'
 
 export default function More() {
   const [models, setModels] = useState<AiModels | null>(null)
+  const [layout, setLayout] = useState<EditLayout>(getEditLayout)
+  const changeLayout = (v: EditLayout) => { setLayout(v); setEditLayout(v) }
   const [err, setErr] = useState<string | null>(null)
   const { data: cfg } = usePoll<AppConfig>('/api/config', 5000)
   useEffect(() => {
@@ -18,6 +21,11 @@ export default function More() {
       <Link to="/recipes" className="btn">Recipes</Link>
       <Link to="/styles" className="btn">Styles — clone a Short's edit</Link>
       <Link to="/help" className="btn">Help — how the editing features work</Link>
+      <div className="row wrap">
+        <span className="muted small">Edit tab</span>
+        <label className={`choice-pill ${layout === 'steps' ? 'active' : ''}`}><input type="radio" checked={layout === 'steps'} onChange={() => changeLayout('steps')} /> Step by step</label>
+        <label className={`choice-pill ${layout === 'page' ? 'active' : ''}`}><input type="radio" checked={layout === 'page'} onChange={() => changeLayout('page')} /> Everything on one page</label>
+      </div>
 
       <div className="panel-head" style={{ marginTop: 12 }}><h2>This machine</h2></div>
       {cfg && (

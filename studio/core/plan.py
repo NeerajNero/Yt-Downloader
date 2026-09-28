@@ -11,7 +11,7 @@ from . import gemini
 from .errors import Cancelled
 from .ffmpeg import ShouldCancel, Tools
 from .gemini import _extract_keyframes, _pick_keyframe_times, compact_transcript
-from .render import TRANSITIONS
+from .render import TRANSITIONS, playback_len
 
 PLAN_SCHEMA = {
     "type": "OBJECT",
@@ -26,10 +26,11 @@ PLAN_SCHEMA = {
                       "speed": {"type": "NUMBER", "description": "1 = normal; 0.5 slow-mo for a big moment; 2-3 to rush setup"},
                       "punch": {"type": "BOOLEAN", "description": "punch-in zoom at the start of this shot"},
                       "shake": {"type": "BOOLEAN", "description": "camera shake at the start of this shot (impacts, explosions, hits)"},
+                      "playback": {"type": "STRING", "description": "forward, or bounce = play forward then rewind fast (a boomerang; at most once, on a hero moment under 6 s), or reverse"},
                       "transition": {"type": "STRING", "description": "transition INTO THE NEXT shot: default (use the montage's), cut, fade, fadeblack, fadewhite, dissolve, zoomin, slideleft, slideup, wipeleft, circleopen, pixelize, hblur"},
                       "transition_duration": {"type": "NUMBER", "description": "0.15-0.6 seconds; 0 = use the default"},
                       "why": {"type": "STRING", "description": "one short reason this shot is in"},
-                  }, "required": ["start", "end", "speed", "punch", "shake", "transition", "transition_duration", "why"]}},
+                  }, "required": ["start", "end", "speed", "punch", "shake", "playback", "transition", "transition_duration", "why"]}},
         "transition": {"type": "STRING", "description": "one of: cut, fade, fadeblack, fadewhite, dissolve, zoomin, slideleft, slideup, wipeleft, circleopen, pixelize, hblur"},
         "transition_duration": {"type": "NUMBER", "description": "0.15-0.6 seconds"},
         "caption_style": {"type": "STRING", "description": "karaoke, typewriter, pop, minimal or none"},
@@ -81,6 +82,7 @@ Plan the edit:
 - Open with the strongest moment as the hook, even if it happens late in the source; then the setup, then the payoff.
 - Every shot: exact start/end in source seconds within [0, {duration:.0f}], ≥ 1.5 s; use speed 0.5 for a hero moment, 2-3 to compress boring setup, else 1.
 - Use punch-ins sparingly for emphasis (impacts, reactions, punchlines); camera shake only on real impacts.
+- "bounce" playback (forward, then a fast rewind) is a strong effect: at most one shot, under 6 s, on the hero moment; otherwise "forward".
 - Pick a transition that suits the energy (hard cuts for gameplay, crossfades for calm, zoomin/flash for hype).
   That is the montage default; give a shot its own transition (into the next shot) only where it helps —
   e.g. fadewhite into the hero moment, fadeblack before the payoff — otherwise say "default".
@@ -107,15 +109,19 @@ Explain each shot in a few words."""
         if ot in TRANSITIONS and ot != "default":
             od = float(sh.get("transition_duration") or 0) or 0.3
             own = {"type": ot, "duration": round(min(2.0, max(0.1, od)), 2)}
+        pb = str(sh.get("playback") or "forward").lower()
+        if pb not in ("forward", "reverse", "bounce") or (pb != "forward" and (b - a) / sp > 10):
+            pb = "forward"
         shots.append({"start": round(a, 2), "end": round(b, 2), "speed": round(sp, 2),
                       "punch": bool(sh.get("punch")), "shake": bool(sh.get("shake")),
+                      "playback": pb, "reverse_speed": 2.0 if pb != "forward" else 1.0,
                       "transition": own, "why": sh.get("why", "")})
     trans = result.get("transition", "cut")
     if trans not in TRANSITIONS:
         trans = "cut"
     has_speech = bool(transcript) and sum(len(s.get("words") or []) for s in transcript.get("segments", [])) >= 20
     cap = result.get("caption_style", "none")
-    out_len = sum((s["end"] - s["start"]) / s["speed"] for s in shots)
+    out_len = sum(playback_len(s["end"] - s["start"], s["speed"], s["playback"], s["reverse_speed"]) for s in shots)
     return {
         "src": None,
         "model": gemini.last_used_model,

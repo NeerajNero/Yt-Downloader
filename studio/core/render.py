@@ -124,6 +124,42 @@ def _shake_filter(width, height, fps, markers):
             f"crop=w={width}:h={height}:x='{px}+{px}*({'+'.join(xs)})':y='{py}+{py}*({'+'.join(ys)})',setsar=1")
 
 
+PLAYBACKS = ("forward", "reverse", "bounce")
+MAX_REVERSE_SECONDS = 10.0   # ffmpeg's reverse filter buffers every frame
+
+
+def playback_len(src_len: float, speed: float, playback: str, reverse_speed: float) -> float:
+    """Output seconds of a shot: forward length, the rewind leg at its own speed, or both."""
+    fw = src_len / (speed or 1.0)
+    rs = max(1.0, float(reverse_speed or 1.0))
+    if playback == "reverse":
+        return fw / rs
+    if playback == "bounce":
+        return fw + fw / rs
+    return fw
+
+
+def _bounce_video(prefix: str, playback: str, reverse_speed: float, fps: float) -> str:
+    """Chain fragment appended after framing: plays the shot backwards
+    (`reverse`) or forward then backwards (`bounce`), the rewind leg at
+    `reverse_speed`. Ends unlabeled so more filters can follow with a comma."""
+    rs = max(1.0, float(reverse_speed or 1.0))
+    rev = f"reverse,setpts=(PTS-STARTPTS)/{rs:.4f},fps={fps:.4f}"
+    if playback == "reverse":
+        return "," + rev
+    return (f"[{prefix}f];[{prefix}f]split[{prefix}a][{prefix}b];[{prefix}b]{rev}[{prefix}r];"
+            f"[{prefix}a][{prefix}r]concat=n=2:v=1:a=0")
+
+
+def _bounce_audio(in_label: str, out_label: str, prefix: str, playback: str, reverse_speed: float) -> str:
+    rs = max(1.0, float(reverse_speed or 1.0))
+    rev = "areverse" + ("," + _atempo_chain(rs) if rs > 1.0001 else "")
+    if playback == "reverse":
+        return f"[{in_label}]{rev}[{out_label}]"
+    return (f"[{in_label}]asplit[{prefix}a][{prefix}b];[{prefix}b]{rev}[{prefix}r];"
+            f"[{prefix}a][{prefix}r]concat=n=2:v=0:a=1[{out_label}]")
+
+
 WATERMARK_POSITIONS = {
     "top_left": "{m}:{m}",
     "top_right": "W-w-{m}:{m}",
@@ -178,10 +214,22 @@ _ROTATE_FILTER = {
 }
 
 
+def _window(w_expr: str, h_expr: str, crop_x: float, crop_y: float, crop_zoom: float) -> str:
+    """A crop of `w_expr` × `h_expr` (divided by the zoom) placed by crop_x /
+    crop_y across the free room — the draggable box in the Frame step."""
+    z = max(1.0, float(crop_zoom or 1.0))
+    cx, cy = min(1.0, max(0.0, float(crop_x))), min(1.0, max(0.0, float(crop_y)))
+    wz = f"({w_expr})/{z:.4f}" if z > 1.0001 else w_expr
+    hz = f"({h_expr})/{z:.4f}" if z > 1.0001 else h_expr
+    return f"crop=w={wz}:h={hz}:x=(iw-out_w)*{cx:.3f}:y=(ih-out_h)*{cy:.3f}"
+
+
 def export_filter(style, vivid_amount, trim_x=0.0, trim_y=0.0, fg_crop=0.0,
                   width=1080, height=1920, rotate="none", look="none",
-                  look_sharp=50, grade="none", in_label="0:v", pre_chain=""):
+                  look_sharp=50, grade="none", in_label="0:v", pre_chain="",
+                  crop_x=0.5, crop_y=0.5, crop_zoom=1.0):
     rot = _ROTATE_FILTER.get(rotate)
+    windowed = float(crop_zoom or 1.0) > 1.0001 or abs(float(crop_x) - 0.5) > 0.001 or abs(float(crop_y) - 0.5) > 0.001
     pre = _pre_crop(trim_x, trim_y)
     # Source-prep chain applied first: (segment timing), rotate, then border trim.
     prep = ",".join(p for p in (pre_chain, rot, pre) if p)
@@ -204,8 +252,11 @@ def export_filter(style, vivid_amount, trim_x=0.0, trim_y=0.0, fg_crop=0.0,
         # scaled to fit and overlaid centered. fg_crop trims the video's
         # sides so it sits taller in the frame; the blur stays full-frame.
         fg = ""
+        if float(crop_zoom or 1.0) > 1.0001:
+            # zoom into the picture on the pad: a window of the picture's own aspect
+            fg = _window("iw", "ih", crop_x, crop_y, crop_zoom) + ","
         if fg_crop:
-            fg = f"crop=trunc(iw*{(100 - 2 * fg_crop) / 100:.4f}/2)*2:ih,"
+            fg += f"crop=trunc(iw*{(100 - 2 * fg_crop) / 100:.4f}/2)*2:ih,"
         fg += (f"scale={width}:{height}:force_original_aspect_ratio=decrease"
                ":force_divisible_by=2")
         fg += grade_chain
@@ -216,9 +267,12 @@ def export_filter(style, vivid_amount, trim_x=0.0, trim_y=0.0, fg_crop=0.0,
             f"crop={width}:{height},gblur=sigma={sigma},eq=brightness=-0.08[bg];"
             f"[fgin]{fg}[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2"
         )
-    # Center crop to the target aspect, then scale.
-    vf = (f"crop=min(iw\\,ih*{ar:.5f}):min(ih\\,iw/{ar:.5f}),"
-          f"scale={width}:{height}")
+    # Crop to the target aspect (centred unless the window was moved / zoomed), then scale.
+    if windowed:
+        vf = _window(f"min(iw\\,ih*{ar:.5f})", f"min(ih\\,iw/{ar:.5f})", crop_x, crop_y, crop_zoom) + f",scale={width}:{height}"
+    else:
+        vf = (f"crop=min(iw\\,ih*{ar:.5f}):min(ih\\,iw/{ar:.5f}),"
+              f"scale={width}:{height}")
     if prep:
         vf = prep + "," + vf
     vf += grade_chain
@@ -271,6 +325,11 @@ class RenderSettings:
     sfx: list = field(default_factory=list)          # [{"file", "at", "gain"}] clip-relative seconds
     zoom_markers: list = field(default_factory=list) # [{"at", "duration", "zoom"}]
     shake_markers: list = field(default_factory=list) # [{"at", "duration", "intensity"}]
+    playback: str = "forward"        # forward | reverse | bounce (forward, then rewind)
+    reverse_speed: float = 1.0       # speed of the rewind leg
+    crop_x: float = 0.5              # crop window position (0..1) and zoom (1..3)
+    crop_y: float = 0.5
+    crop_zoom: float = 1.0
     extra: dict = field(default_factory=dict)
 
     @property
@@ -296,6 +355,11 @@ class RenderSettings:
                 sp = float(seg.get("speed", 1.0) or 1.0)
                 if not (0.25 <= sp <= 4.0):
                     raise ValueError(f"Segment {i}: speed must be between 0.25 and 4.")
+                pb = seg.get("playback", "forward") or "forward"
+                if pb not in PLAYBACKS:
+                    raise ValueError(f"Segment {i}: playback must be forward, reverse or bounce.")
+                if pb != "forward" and (b - a) / sp > MAX_REVERSE_SECONDS:
+                    raise ValueError(f"Segment {i}: reverse and bounce need a shot of {MAX_REVERSE_SECONDS:.0f} seconds or less (after speed).")
                 own = seg.get("transition")
                 if own:
                     if own.get("type", "cut") not in TRANSITIONS:
@@ -312,10 +376,20 @@ class RenderSettings:
         else:
             if self.start is None or self.end is None or self.start < 0 or self.end <= self.start:
                 raise ValueError("End time must be after start time.")
+            if self.playback not in PLAYBACKS:
+                raise ValueError("Playback must be forward, reverse or bounce.")
+            if self.playback != "forward" and self.end - self.start > MAX_REVERSE_SECONDS:
+                raise ValueError(f"Reverse and bounce need a range of {MAX_REVERSE_SECONDS:.0f} seconds or less.")
+            if self.playback == "reverse" and self.captions:
+                raise ValueError("Captions can't follow a reversed clip — turn them off or use bounce.")
         if not (0 <= self.trim_x <= 40 and 0 <= self.trim_y <= 40):
             raise ValueError("Trim must be between 0 and 40 percent.")
         if not (0 <= self.fg_crop <= 40):
             raise ValueError("Video crop must be between 0 and 40 percent.")
+        if not (0 <= self.crop_x <= 1 and 0 <= self.crop_y <= 1):
+            raise ValueError("Crop position must be between 0 and 1.")
+        if not (1 <= self.crop_zoom <= 3):
+            raise ValueError("Crop zoom must be between 1 and 3.")
         if self.caption_source not in CAPTION_SOURCES:
             raise ValueError("Caption source must be 'auto' or 'manual'.")
         if self.caption_pos not in CAPTION_POS_NAMES:
@@ -348,6 +422,8 @@ def output_name(stem: str, s: RenderSettings, has_music: bool) -> str:
         suffix += "_trim"
     if s.fg_crop:
         suffix += f"_z{int(s.fg_crop)}"
+    if s.crop_zoom > 1.0001 or abs(s.crop_x - 0.5) > 0.001 or abs(s.crop_y - 0.5) > 0.001:
+        suffix += f"_win{int(round(s.crop_x * 100))}-{int(round(s.crop_y * 100))}" + (f"x{s.crop_zoom:.2f}".replace(".", "") if s.crop_zoom > 1.0001 else "")
     if s.captions:
         suffix += "_cap"
         if s.caption_source == "manual":
@@ -378,6 +454,13 @@ def output_name(stem: str, s: RenderSettings, has_music: bool) -> str:
         suffix += "_sfx"
     if s.zoom_markers:
         suffix += f"_punch{len(s.zoom_markers)}"
+    if s.shake_markers:
+        suffix += f"_shake{len(s.shake_markers)}"
+    if s.segments:
+        if any((seg.get("playback") or "forward") != "forward" for seg in s.segments):
+            suffix += "_bounce"
+    elif s.playback != "forward":
+        suffix += "_bounce" if s.playback == "bounce" else "_rev"
     aspect = "16x9" if s.orientation == "landscape" else "9x16"
     if s.segments:
         t = (s.transition or {}).get("type", "cut")
@@ -426,13 +509,17 @@ def run_export(src: Path, out_path: Path, s: RenderSettings, tools: Tools, encod
         source_rotate, composite_rotate = s.rotate, "none"
 
     filt = export_filter(s.style, amount, s.trim_x, s.trim_y, s.fg_crop,
-                         build_w, build_h, source_rotate, s.look, s.look_sharp, s.grade)
+                         build_w, build_h, source_rotate, s.look, s.look_sharp, s.grade,
+                         crop_x=s.crop_x, crop_y=s.crop_y, crop_zoom=s.crop_zoom)
+    out_len = playback_len(end - start, 1.0, s.playback, s.reverse_speed)
+    if s.playback != "forward":
+        filt += _bounce_video("pb", s.playback, s.reverse_speed, tools.probe_fps(src))
     # Zoom the framed video before captions/rotation so captions don't zoom.
     if s.zoom_markers:
-        filt += "," + _punch_filter(build_w, build_h, tools.probe_fps(src), end - start, s.zoom_markers,
+        filt += "," + _punch_filter(build_w, build_h, tools.probe_fps(src), out_len, s.zoom_markers,
                                     base_target=1.12 if s.zoom == "in" else None)
     elif s.zoom == "in":
-        filt += "," + _zoom_filter(build_w, build_h, tools.probe_fps(src), end - start)
+        filt += "," + _zoom_filter(build_w, build_h, tools.probe_fps(src), out_len)
     if s.shake_markers:
         filt += "," + _shake_filter(build_w, build_h, tools.probe_fps(src), s.shake_markers)
 
@@ -481,7 +568,12 @@ def run_export(src: Path, out_path: Path, s: RenderSettings, tools: Tools, encod
     use_music = bool(music_path and Path(music_path).is_file())
     sfx_paths = [(p, at, g) for p, at, g in (sfx_paths or []) if Path(p).is_file()]
     aparts: list[str] = []
-    mix_inputs = ["[0:a]"]
+    asrc = "[0:a]"
+    if s.playback != "forward":
+        # the source audio gets the same rewind as the picture
+        aparts.append(_bounce_audio("0:a", "asrc", "qb", s.playback, s.reverse_speed))
+        asrc = "[asrc]"
+    mix_inputs = [asrc]
     if use_music:
         gain = round(max(0.0, min(s.music_gain, 100.0)) / 100.0 * 1.2, 3)
         inputs += ["-stream_loop", "-1", "-i", str(music_path)]
@@ -489,7 +581,13 @@ def run_export(src: Path, out_path: Path, s: RenderSettings, tools: Tools, encod
         next_input += 1
         if s.duck:
             # Duck the music under speech via sidechain compression.
-            aparts.append("[mus][0:a]sidechaincompress=threshold=0.02:ratio=8:attack=15:release=350[duckmus]")
+            if asrc != "[0:a]":
+                aparts[0] = aparts[0].replace("[asrc]", "[asrc0]")
+                aparts.insert(1, "[asrc0]asplit=2[asrc][asrcB]")
+                mix_inputs = ["[asrc]"]
+                aparts.append("[mus][asrcB]sidechaincompress=threshold=0.02:ratio=8:attack=15:release=350[duckmus]")
+            else:
+                aparts.append("[mus][0:a]sidechaincompress=threshold=0.02:ratio=8:attack=15:release=350[duckmus]")
             mix_inputs.append("[duckmus]")
         else:
             mix_inputs.append("[mus]")
@@ -509,6 +607,9 @@ def run_export(src: Path, out_path: Path, s: RenderSettings, tools: Tools, encod
         aparts.append(f"[amix]{loudnorm}[a]" if s.loudness else "[amix]anull[a]")
         graph = vgraph + ";" + ";".join(aparts)
         av_args = ["-filter_complex", graph, "-map", "[v]", "-map", "[a]"]
+    elif asrc != "[0:a]":
+        aparts.append(f"[asrc]{loudnorm}[a]" if s.loudness else "[asrc]anull[a]")
+        av_args = ["-filter_complex", vgraph + ";" + ";".join(aparts), "-map", "[v]", "-map", "[a]"]
     else:
         av_args = ["-filter_complex", vgraph, "-map", "[v]", "-map", "0:a?"] + (["-af", loudnorm] if s.loudness else [])
 
@@ -519,7 +620,7 @@ def run_export(src: Path, out_path: Path, s: RenderSettings, tools: Tools, encod
         str(out_path),
     ]
     try:
-        tools.run_progress(cmd, end - start, report, should_cancel, note="rendering")
+        tools.run_progress(cmd, out_len, report, should_cancel, note="rendering")
         return out_path
     except BaseException:
         out_path.unlink(missing_ok=True)
@@ -563,7 +664,8 @@ def sequence_layout(segments: list[dict], transition: dict) -> tuple[list[dict],
     lens = []
     for seg in segments:
         sp = float(seg.get("speed", 1.0) or 1.0)
-        lens.append((float(seg["end"]) - float(seg["start"])) / sp)
+        lens.append(playback_len(float(seg["end"]) - float(seg["start"]), sp,
+                                 seg.get("playback", "forward") or "forward", float(seg.get("reverse_speed", 1.0) or 1.0)))
     bounds = []
     for k in range(1, len(segments)):
         b = boundary_transition(segments[k - 1], transition)
@@ -575,7 +677,9 @@ def sequence_layout(segments: list[dict], transition: dict) -> tuple[list[dict],
         layout.append({"start": float(seg["start"]), "end": float(seg["end"]),
                        "speed": float(seg.get("speed", 1.0) or 1.0), "len": ln, "offset": offset,
                        "zoom_markers": list(seg.get("zoom_markers") or []),
-                       "shake_markers": list(seg.get("shake_markers") or [])})
+                       "shake_markers": list(seg.get("shake_markers") or []),
+                       "playback": seg.get("playback", "forward") or "forward",
+                       "reverse_speed": float(seg.get("reverse_speed", 1.0) or 1.0)})
         offset += ln - (bounds[k]["d"] if k < len(bounds) else 0.0)
     total = (layout[-1]["offset"] + layout[-1]["len"]) if layout else 0.0
     return layout, total, bounds
@@ -625,8 +729,12 @@ def sequence_graph(s: RenderSettings, layout: list[dict], bounds: list[dict], fp
         inputs += ["-ss", f"{L['start']:.3f}", "-to", f"{L['end']:.3f}", "-i", "{SRC}"]
         pre = f"setpts=(PTS-STARTPTS)/{L['speed']:.4f},fps={fps:.4f}"
         filt = export_filter(s.style, int(s.vivid_amount), s.trim_x, s.trim_y, s.fg_crop, build_w, build_h,
-                             source_rotate, s.look, s.look_sharp, s.grade, in_label=f"{k}:v", pre_chain=pre)
+                             source_rotate, s.look, s.look_sharp, s.grade, in_label=f"{k}:v", pre_chain=pre,
+                             crop_x=s.crop_x, crop_y=s.crop_y, crop_zoom=s.crop_zoom)
         chain = filt if s.style == "blur" else f"[{k}:v]{filt}"
+        pb = L.get("playback", "forward")
+        if pb != "forward":
+            chain += _bounce_video(f"p{k}", pb, L.get("reverse_speed", 1.0), fps)
         if L["zoom_markers"]:
             chain += "," + _punch_filter(build_w, build_h, fps, L["len"], L["zoom_markers"])
         if L.get("shake_markers"):
@@ -635,6 +743,10 @@ def sequence_graph(s: RenderSettings, layout: list[dict], bounds: list[dict], fp
         a = f"[{k}:a]asetpts=PTS-STARTPTS"
         if abs(L["speed"] - 1.0) > 1e-3:
             a += "," + _atempo_chain(L["speed"])
+        if pb != "forward":
+            parts.append(f"{a}[q{k}]")
+            parts.append(_bounce_audio(f"q{k}", f"r{k}", f"q{k}", pb, L.get("reverse_speed", 1.0)))
+            a = f"[r{k}]anull"
         parts.append(f"{a},aformat=sample_rates=48000:channel_layouts=stereo,asettb=AVTB[a{k}]")
 
     if n == 1:

@@ -12,7 +12,7 @@ SCENES = {"duration": 60.0, "scenes": [10.0, 20.0, 30.0]}
 FAKE = {"title": "T", "hook": "H", "summary": "S", "transition": "zoomin", "transition_duration": 0.4,
         "caption_style": "pop", "caption_pos": "middle", "grade": "teal_orange", "vivid": 40,
         "music_vibe": "phonk", "sfx_ideas": ["hit on shot 2"], "resolve_notes": ["speed ramp shot 3"],
-        "shots": [{"start": 40, "end": 46, "speed": 1, "punch": True, "shake": True, "transition": "fadewhite", "transition_duration": 0.2, "why": "hook"},
+        "shots": [{"start": 40, "end": 46, "speed": 1, "punch": True, "shake": True, "playback": "bounce", "transition": "fadewhite", "transition_duration": 0.2, "why": "hook"},
                   {"start": 2, "end": 2.3, "speed": 1, "punch": False, "why": "too short"},
                   {"start": 10, "end": 90, "speed": 9, "punch": False, "transition": "default", "transition_duration": 0, "why": "clamped"}]}
 
@@ -28,8 +28,9 @@ def test_make_plan_cleans_and_maps():
     assert out["transition"] == {"type": "zoomin", "duration": 0.4}
     assert out["shots"][0]["shake"] is True and out["shots"][0]["transition"] == {"type": "fadewhite", "duration": 0.2}
     assert out["shots"][1]["shake"] is False and out["shots"][1]["transition"] is None
+    assert out["shots"][0]["playback"] == "bounce" and out["shots"][0]["reverse_speed"] == 2.0 and out["shots"][1]["playback"] == "forward"
     assert out["captions"] is True and out["caption_style"] == "pop" and out["grade"] == "teal_orange"
-    assert out["out_length"] == round(6 + 50 / 4, 1)
+    assert out["out_length"] == round(6 + 3 + 50 / 4, 1)   # the bounce shot adds a 2x rewind
 
 
 def test_make_plan_no_speech_disables_captions_and_unknowns_fall_back():

@@ -31,6 +31,7 @@ export default function VideoPage() {
   const [range, setRange] = useState({ start: 0, end: 15 })
   const [editMode, setEditMode] = useState<'range' | 'montage'>('range')
   const [montageShots, setMontageShots] = useState<{ start: number; end: number; active?: boolean }[] | null>(null)
+  const [editStep, setEditStep] = useState<string>('cut')
   const [settings, setSettings] = useState<RenderSettings>(DEFAULT_SETTINGS)
   const [recipeId, setRecipeId] = useState<string | null>(null)
   const [tweakClip, setTweakClip] = useState<string | null>(null)
@@ -202,7 +203,10 @@ export default function VideoPage() {
 
         <Player ref={videoRef} src={src} nowTime={nowTime} onTime={setNowTime} onError={() => setPlayError(true)}
                 captions={{ enabled: previewCaps && settings.captions, source: settings.caption_source, pos: settings.caption_pos, style: settings.caption_style }}
-                transcript={transcript} manual={manual} />
+                transcript={transcript} manual={manual} big={mode === 'edit' && editStep === 'frame'}
+                crop={mode === 'edit' && editStep === 'frame' ? { style: settings.style, orientation: settings.orientation, fg_crop: settings.fg_crop, trim_x: settings.trim_x, trim_y: settings.trim_y,
+                                                                 x: settings.crop_x, y: settings.crop_y, zoom: settings.crop_zoom,
+                                                                 onChange: (c) => setSettings((s) => ({ ...s, crop_x: c.x, crop_y: c.y, crop_zoom: c.zoom })) } : null} />
         {playError && !editCopy && <p className="muted small">This file may not play here — Prepare → Preview copy makes one that does.</p>}
         <Timeline videoDuration={vidDuration} nowTime={nowTime} scenes={scenes?.scenes ?? []}
                   dialogue={dialogue?.lines ?? []} closeups={tags?.shots.filter((s) => s.closeup) ?? []}
@@ -237,7 +241,7 @@ export default function VideoPage() {
                      borders={borders} active={active} run={(t, pl, ok) => void run(t, pl, ok)}
                      previewCaps={previewCaps} onPreviewCaps={setPreviewCaps} recipeId={recipeId} onRecipe={setRecipeId}
                      onRender={() => renderRange()} onRenderSequence={renderSequence} onMontageShots={setMontageShots}
-                     tweakingClip={tweakClip} />
+                     tweakingClip={tweakClip} onStep={setEditStep} shotCount={montageShots?.length ?? 0} />
         )}
         {mode === 'tools' && <ToolsSection video={video} range={range} active={active} run={(t, pl, ok) => void run(t, pl, ok)} onRemove={() => void remove()} />}
       </section>

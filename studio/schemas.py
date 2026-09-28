@@ -75,6 +75,9 @@ class Transition(BaseModel):
     duration: float = Field(0.35, ge=0.1, le=2.0)
 
 
+PLAYBACK = Literal["forward", "reverse", "bounce"]   # bounce = forward, then rewind
+
+
 class Segment(BaseModel):
     """One shot of a sequence render. Times in source seconds; zoom / shake
     markers are relative to the shot's own (retimed) start. `transition` is
@@ -85,6 +88,8 @@ class Segment(BaseModel):
     zoom_markers: list[ZoomMarker] = Field(default_factory=list, max_length=20)
     shake_markers: list[ShakeMarker] = Field(default_factory=list, max_length=20)
     transition: Transition | None = None
+    playback: PLAYBACK = "forward"
+    reverse_speed: float = Field(1.0, ge=1.0, le=4.0)   # speed of the rewind leg (reverse / bounce)
 
     @model_validator(mode="after")
     def _range(self):
@@ -128,6 +133,11 @@ class RenderPayload(BaseModel):
     sfx: list[SfxLayer] = Field(default_factory=list, max_length=20)
     zoom_markers: list[ZoomMarker] = Field(default_factory=list, max_length=50)
     shake_markers: list[ShakeMarker] = Field(default_factory=list, max_length=50)
+    playback: PLAYBACK = "forward"
+    reverse_speed: float = Field(1.0, ge=1.0, le=4.0)
+    crop_x: float = Field(0.5, ge=0.0, le=1.0)      # where the crop window sits (0 = left/top, 1 = right/bottom)
+    crop_y: float = Field(0.5, ge=0.0, le=1.0)
+    crop_zoom: float = Field(1.0, ge=1.0, le=3.0)   # zoom into the crop window
     recipe_id: str | None = None    # recorded on the clips row when set
 
     @model_validator(mode="after")
