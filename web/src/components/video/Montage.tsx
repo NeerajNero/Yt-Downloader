@@ -78,6 +78,7 @@ interface Props {
   onRender: (segments: Segment[], transition: Transition) => void
   onShotsChange?: (shots: { start: number; end: number; active?: boolean }[] | null) => void
   disabled: boolean
+  revision?: number   // bump to re-read the saved montage (after Tweak wrote one)
 }
 
 const key = (id: string) => `ytstudio.montage.${id}`
@@ -101,6 +102,18 @@ function load(videoId: string): { shots: Shot[]; transition: Transition } {
     }
   } catch { /* ignore */ }
   return { shots: [], transition: DEFAULT_TRANSITION }
+}
+
+/** Render-payload segments (a rendered clip's `render_settings`) → builder shots. Tweak uses this. */
+export function shotsFromSegments(segments: Partial<Segment>[]): Shot[] {
+  return segments.map((g) => ({
+    ...mk(g.start ?? 0, g.end ?? 0), speed: g.speed ?? 1,
+    punch: (g.zoom_markers?.length ?? 0) > 0, shake: (g.shake_markers?.length ?? 0) > 0,
+    transition: g.transition ?? null, playback: g.playback ?? 'forward', reverse_speed: g.reverse_speed && g.reverse_speed > 1 ? g.reverse_speed : 2,
+  }))
+}
+export function saveMontage(videoId: string, shots: Shot[], transition: Transition) {
+  try { localStorage.setItem(key(videoId), JSON.stringify({ shots, transition })) } catch { /* ignore */ }
 }
 
 /** Output length: each shot's retimed length minus each boundary's overlap
@@ -128,7 +141,7 @@ const extras = (s: Shot, last: boolean): string[] => {
   return out
 }
 
-export default function Montage({ video, view = 'all', plan, onApplyPlanLook, scenes, dialogue, tags, clipPack, rangeStart, rangeEnd, seek, playhead, onRangeChange, onRender, onShotsChange, disabled }: Props) {
+export default function Montage({ video, view = 'all', plan, onApplyPlanLook, scenes, dialogue, tags, clipPack, rangeStart, rangeEnd, seek, playhead, onRangeChange, onRender, onShotsChange, disabled, revision = 0 }: Props) {
   const [shots, setShots] = useState<Shot[]>(() => load(video.id).shots)
   const [transition, setTransition] = useState<Transition>(() => load(video.id).transition)
   const [msg, setMsg] = useState<string | null>(null)
@@ -141,6 +154,13 @@ export default function Montage({ video, view = 'all', plan, onApplyPlanLook, sc
     if (loadedFor === video.id) return
     const saved = load(video.id); setShots(saved.shots); setTransition(saved.transition); setLoadedFor(video.id)
   }, [video.id, loadedFor])
+  // Tweak (Review) wrote a rendered clip's shots into storage: pick them up.
+  const [seenRevision, setSeenRevision] = useState(revision)
+  useEffect(() => {
+    if (revision === seenRevision) return
+    const saved = load(video.id); setShots(saved.shots); setTransition(saved.transition); setEditingId(null); setSeenRevision(revision)
+    setMsg(`${saved.shots.length} shots loaded from the rendered clip.`)
+  }, [revision, seenRevision, video.id])
   useEffect(() => {
     if (loadedFor !== video.id) return
     try { localStorage.setItem(key(video.id), JSON.stringify({ shots, transition })) } catch { /* ignore */ }
@@ -231,7 +251,7 @@ export default function Montage({ video, view = 'all', plan, onApplyPlanLook, sc
       })),
       transition,
     )
-    setMsg('Montage render queued — it lands in Clips and Review.')
+    setMsg('Montage render queued — watch it on the Jobs tab.')
   }
 
   const showCut = view === 'cut' || view === 'all'
