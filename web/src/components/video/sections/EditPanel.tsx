@@ -6,6 +6,7 @@ import { usePoll } from '../../../lib/poll'
 import { DEFAULT_SETTINGS, PLAYBACKS, REVERSE_SPEEDS, fromStored, getEditLayout, playbackLength, summarize, type RenderSettings, type SfxLayer, type ShakeMarker, type ZoomMarker } from '../../../lib/settings'
 import type { Job, Recipe, VideoDetail as Video } from '../../../lib/types'
 import Group from '../../ui/Group'
+import TimeInput from '../../ui/TimeInput'
 import CaptionEditor from '../CaptionEditor'
 import Montage, { type MontageView, type Plan, type Segment, type Transition } from '../Montage'
 
@@ -55,19 +56,6 @@ const STEPS: { id: EditStep; title: string; blurb: string; help: string; montage
   { id: 'render', title: 'Render', blurb: 'Check the summary, save the look if you like it, render.', help: 'review' },
 ]
 const stepKey = (id: string) => `ytstudio.edit.step.${id}`
-
-function TimeInput({ value, onCommit, label }: { value: number; onCommit: (v: number) => void; label: string }) {
-  const [text, setText] = useState(duration(value))
-  useEffect(() => setText(duration(value)), [value])
-  const commit = () => {
-    const t = text.trim()
-    const secs = /^\d+(\.\d+)?$/.test(t) ? parseFloat(t) : t.split(':').reduce((a, n) => a * 60 + Number(n), 0)
-    if (!Number.isNaN(secs)) onCommit(secs)
-    else setText(duration(value))
-  }
-  return <input type="text" inputMode="decimal" value={text} aria-label={label} onChange={(e) => setText(e.target.value)}
-                onBlur={commit} onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()} style={{ width: 64 }} />
-}
 
 const EDIT_GUIDE_KEY = 'ytstudio.guide.edit'
 
@@ -164,7 +152,7 @@ export default function EditPanel(p: Props) {
 
   const montage = (view: MontageView) => (
     <Montage video={p.video} view={view} plan={p.plan} scenes={p.scenes} dialogue={p.dialogue} tags={p.tags} clipPack={p.clipPack} rangeStart={p.range.start} rangeEnd={p.range.end}
-             seek={p.seek} onRender={p.onRenderSequence} disabled={!ready} onShotsChange={p.onMontageShots}
+             seek={p.seek} playhead={p.playhead} onRangeChange={p.onRange} onRender={p.onRenderSequence} disabled={!ready} onShotsChange={p.onMontageShots}
              onApplyPlanLook={(pl) => p.onChange({ ...s, captions: pl.captions, caption_style: pl.caption_style as RenderSettings['caption_style'],
                                                     caption_pos: pl.caption_pos as RenderSettings['caption_pos'], grade: pl.grade as RenderSettings['grade'], vivid_amount: pl.vivid })} />
   )
