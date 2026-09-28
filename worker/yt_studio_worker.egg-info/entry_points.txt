@@ -1,2 +1,0 @@
-[console_scripts]
-yt-worker = worker.agent.main:main
