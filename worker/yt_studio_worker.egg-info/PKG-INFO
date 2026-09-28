@@ -1,0 +1,14 @@
+Metadata-Version: 2.4
+Name: yt-studio-worker
+Version: 2.0.0
+Summary: YT Studio v2 worker: claims jobs from the brain's Postgres and runs media tasks
+Requires-Python: >=3.11
+Requires-Dist: psycopg[binary]>=3.2
+Requires-Dist: requests>=2.32
+Requires-Dist: pydantic>=2.6
+Provides-Extra: transcribe
+Requires-Dist: faster-whisper>=1.1; extra == "transcribe"
+Provides-Extra: download
+Requires-Dist: yt-dlp>=2025.1.1; extra == "download"
+Provides-Extra: dev
+Requires-Dist: pytest>=8; extra == "dev"
