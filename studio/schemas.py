@@ -56,19 +56,12 @@ class ZoomMarker(BaseModel):
     zoom: float = Field(1.15, ge=1.0, le=3.0)
 
 
-class Segment(BaseModel):
-    """One shot of a sequence render. Times in source seconds; zoom markers
-    are relative to the shot's own (retimed) start."""
-    start: float = Field(ge=0)
-    end: float
-    speed: float = Field(1.0, ge=0.25, le=4.0)
-    zoom_markers: list[ZoomMarker] = Field(default_factory=list, max_length=20)
-
-    @model_validator(mode="after")
-    def _range(self):
-        if self.end <= self.start:
-            raise ValueError("End time must be after start time.")
-        return self
+class ShakeMarker(BaseModel):
+    """Camera shake: the frame jitters for `duration` seconds from `at`, easing
+    out. `intensity` 1-100 = how far it moves (100 ≈ 6 % of the frame)."""
+    at: float = Field(ge=0)
+    duration: float = Field(0.4, ge=0.1, le=5)
+    intensity: int = Field(50, ge=1, le=100)
 
 
 TRANSITION_TYPES = Literal["cut", "fade", "fadeblack", "fadewhite", "dissolve", "wipeleft", "wiperight",
@@ -80,6 +73,24 @@ TRANSITION_TYPES = Literal["cut", "fade", "fadeblack", "fadewhite", "dissolve", 
 class Transition(BaseModel):
     type: TRANSITION_TYPES = "cut"
     duration: float = Field(0.35, ge=0.1, le=2.0)
+
+
+class Segment(BaseModel):
+    """One shot of a sequence render. Times in source seconds; zoom / shake
+    markers are relative to the shot's own (retimed) start. `transition` is
+    the transition INTO THE NEXT shot; None = the montage's default."""
+    start: float = Field(ge=0)
+    end: float
+    speed: float = Field(1.0, ge=0.25, le=4.0)
+    zoom_markers: list[ZoomMarker] = Field(default_factory=list, max_length=20)
+    shake_markers: list[ShakeMarker] = Field(default_factory=list, max_length=20)
+    transition: Transition | None = None
+
+    @model_validator(mode="after")
+    def _range(self):
+        if self.end <= self.start:
+            raise ValueError("End time must be after start time.")
+        return self
 
 
 class RenderPayload(BaseModel):
@@ -116,6 +127,7 @@ class RenderPayload(BaseModel):
     watermark: Watermark | None = None
     sfx: list[SfxLayer] = Field(default_factory=list, max_length=20)
     zoom_markers: list[ZoomMarker] = Field(default_factory=list, max_length=50)
+    shake_markers: list[ShakeMarker] = Field(default_factory=list, max_length=50)
     recipe_id: str | None = None    # recorded on the clips row when set
 
     @model_validator(mode="after")
@@ -167,6 +179,18 @@ class SuggestPayload(BaseModel):
     count: int = Field(5, ge=1, le=12)
 
 
+class DialoguePayload(BaseModel):
+    """Speech runs from the transcript's word timing (or silence detection
+    when there is no transcript)."""
+    gap: float = Field(0.8, ge=0.2, le=5.0)        # a pause longer than this ends a line
+    min_len: float = Field(0.6, ge=0.1, le=10.0)   # drop lines shorter than this
+
+
+class TagsPayload(BaseModel):
+    """Gemini labels every scene interval (closeup / gameplay / cutscene ...)."""
+    pass
+
+
 class PostkitPayload(BaseModel):
     pass
 
@@ -196,11 +220,13 @@ PAYLOADS: dict[str, type[BaseModel]] = {
     "postkit": PostkitPayload,
     "style": StylePayload,
     "plan": PlanPayload,
+    "dialogue": DialoguePayload,
+    "tags": TagsPayload,
 }
 
 # Job types that need a video_id.
 NEEDS_VIDEO = {"transcribe", "scenes", "borders", "convert", "render", "clippack",
-               "tighten", "suggest", "postkit", "plan"}
+               "tighten", "suggest", "postkit", "plan", "dialogue", "tags"}
 
 
 def _explain(e: ValidationError) -> str:

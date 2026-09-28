@@ -24,6 +24,7 @@ studio/            the app (python -m studio)
   store.py         JSON state: <library>/.ytstudio/{videos,recipes,styles}.json + <stem>.clips.json
   queue.py         in-memory job queue, heavy (ffmpeg/whisper, 1 at a time) + light lanes
   jobs/            adapters: payload → studio.core function → files + store updates
+                   (dialogue = speech lines from the transcript; tags = Gemini shot labels per scene)
   pipeline.py      the automatic chain (prepare / shorts) after downloads and finished jobs
   routes/          JSON API (state.py reads, actions.py writes, files.py, ingest.py)
   core/            pure media functions (ffmpeg, yt-dlp, whisper, Gemini) — no app state
@@ -38,6 +39,9 @@ web/               React + Vite + TS PWA; polls the API every second (lib/poll.t
 - **Assets are files.** A transcript exists when `<stem>.transcript.json` exists — there is no
   registry. Derived artifacts go next to the media (v1 sidecar layout). Clips + review status are
   `<stem>.clips.json`; app-level state is `<library>/.ytstudio/`.
+- Montage segments may carry their own `transition` (into the next shot) and `shake_markers`;
+  `render.sequence_layout` returns one bounds entry per boundary (kind + clamped overlap) and the
+  graph mixes `concat` (cut) with `xfade`. Every shot chain ends in `setsar=1` — concat needs it.
 - Jobs: `queued → running → done | error | cancelled`; cancel = `cancel_requested`, the handler's
   `should_cancel()` notices. Jobs die with the process — that is the design.
 - `studio/core/` functions take `report(percent, note)` + `should_cancel()` and never touch the

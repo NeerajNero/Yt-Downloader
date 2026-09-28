@@ -17,6 +17,7 @@ export default function More() {
       <div className="panel-head"><h2>More</h2></div>
       <Link to="/recipes" className="btn">Recipes</Link>
       <Link to="/styles" className="btn">Styles — clone a Short's edit</Link>
+      <Link to="/help" className="btn">Help — how the editing features work</Link>
 
       <div className="panel-head" style={{ marginTop: 12 }}><h2>This machine</h2></div>
       {cfg && (

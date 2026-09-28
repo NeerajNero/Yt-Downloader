@@ -1,4 +1,4 @@
-import { BrowserRouter, Route, Routes } from 'react-router-dom'
+import { BrowserRouter, Link, Route, Routes } from 'react-router-dom'
 import Nav from './components/Nav'
 import Jobs from './routes/Jobs'
 import Library from './routes/Library'
@@ -8,6 +8,7 @@ import Recipes from './routes/Recipes'
 import Review from './routes/Review'
 import Styles from './routes/Styles'
 import Video from './routes/Video'
+import Help from './routes/Help'
 
 export default function App() {
   return (
@@ -18,7 +19,7 @@ export default function App() {
             <span className="rec-dot" aria-hidden="true" />
             <h1>YT Studio</h1>
           </div>
-          <span className="mono muted">v3</span>
+          <Link to="/help" className="btn small" title="How the editing features work">? Help</Link>
         </header>
         <main className="stack">
           <Routes>
@@ -30,6 +31,7 @@ export default function App() {
             <Route path="/review" element={<Review />} />
             <Route path="/styles" element={<Styles />} />
             <Route path="/more" element={<More />} />
+            <Route path="/help" element={<Help />} />
           </Routes>
         </main>
         <Nav />
