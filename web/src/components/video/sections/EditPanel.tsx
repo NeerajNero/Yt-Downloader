@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
-import { deleteRecipe, insertRecipe, listMusic, listOverlays, updateRecipe, uploadMusic, uploadOverlay, type ManualCaptions } from '../../../lib/api'
+import { deleteRecipe, insertRecipe, listMusic, listOverlays, updateRecipe, uploadMusic, uploadOverlay, type DialogueLine, type ManualCaptions, type TaggedShot } from '../../../lib/api'
 import { duration } from '../../../lib/format'
 import { usePoll } from '../../../lib/poll'
-import { fromStored, summarize, type RenderSettings, type SfxLayer, type ZoomMarker } from '../../../lib/settings'
+import { fromStored, summarize, type RenderSettings, type SfxLayer, type ShakeMarker, type ZoomMarker } from '../../../lib/settings'
 import type { Job, Recipe, VideoDetail as Video } from '../../../lib/types'
 import Group from '../../ui/Group'
 import CaptionEditor from '../CaptionEditor'
-import Montage, { type Plan, type Transition } from '../Montage'
+import Montage, { type Plan, type Segment, type Transition } from '../Montage'
 
 interface Props {
   video: Video
@@ -20,6 +20,8 @@ interface Props {
   seek: (t: number) => void
   plan: Plan | null
   scenes: number[] | null
+  dialogue: DialogueLine[] | null
+  tags: TaggedShot[] | null
   clipPack: { file: string; start: number; end: number }[] | null
   manual: ManualCaptions | null
   hasTranscript: boolean
@@ -31,7 +33,7 @@ interface Props {
   recipeId: string | null
   onRecipe: (id: string | null) => void
   onRender: () => void
-  onRenderSequence: (segments: { start: number; end: number; speed: number; zoom_markers: ZoomMarker[] }[], transition: Transition) => void
+  onRenderSequence: (segments: Segment[], transition: Transition) => void
   onMontageShots: (shots: { start: number; end: number; active?: boolean }[] | null) => void
   tweakingClip: string | null
 }
@@ -93,6 +95,7 @@ export default function EditPanel(p: Props) {
     p.onChange({ ...s, watermark: patch === null ? null : { file: '', position: 'top_right', scale: 0.15, opacity: 0.85, margin: 0.03, ...(wm ?? {}), ...patch } })
   const setSfx = (list: SfxLayer[]) => set('sfx', list)
   const setMarkers = (list: ZoomMarker[]) => set('zoom_markers', list)
+  const setShakes = (list: ShakeMarker[]) => set('shake_markers', list)
   const onPickMusic = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0]; e.target.value = ''
     if (!f) return
@@ -110,7 +113,8 @@ export default function EditPanel(p: Props) {
   const formatSummary = [s.orientation === 'landscape' ? '16:9' : '9:16', s.resolution === '4k' ? '4K' : '1080p', s.style === 'blur' ? 'blur pad' : 'crop',
     s.rotate !== 'none' ? `rotate ${s.rotate}` : '', s.trim_x || s.trim_y ? `trim ${s.trim_y}/${s.trim_x}%` : ''].filter(Boolean).join(' · ')
   const lookSummary = [s.grade !== 'none' ? s.grade.replace('_', ' & ') : 'natural', s.vivid_amount ? `vivid ${s.vivid_amount}` : '', s.look === 'hdr' ? 'HDR look' : '',
-    s.zoom === 'in' ? 'slow zoom' : '', s.zoom_markers.length ? `${s.zoom_markers.length} punch-in${s.zoom_markers.length > 1 ? 's' : ''}` : ''].filter(Boolean).join(' · ')
+    s.zoom === 'in' ? 'slow zoom' : '', s.zoom_markers.length ? `${s.zoom_markers.length} punch-in${s.zoom_markers.length > 1 ? 's' : ''}` : '',
+    s.shake_markers.length ? `${s.shake_markers.length} shake${s.shake_markers.length > 1 ? 's' : ''}` : ''].filter(Boolean).join(' · ')
   const capSummary = s.captions ? `${s.caption_style} · ${s.caption_pos}${s.caption_source === 'manual' ? ' · manual' : ''}` : 'off'
   const soundSummary = [s.music ? `music ${s.music}${s.duck ? ' (ducked)' : ''}` : 'original audio', s.sfx.length ? `${s.sfx.length} sfx` : '', s.loudness ? '-14 LUFS' : ''].filter(Boolean).join(' · ')
   const brandSummary = wm?.file ? `${wm.file} · ${wm.position.replace('_', ' ')}` : 'no watermark'
@@ -145,7 +149,7 @@ export default function EditPanel(p: Props) {
             <span className="muted small">or drag the handles on the timeline</span>
           </div>
         ) : (
-          <Montage video={p.video} plan={p.plan} scenes={p.scenes} clipPack={p.clipPack} rangeStart={p.range.start} rangeEnd={p.range.end}
+          <Montage video={p.video} plan={p.plan} scenes={p.scenes} dialogue={p.dialogue} tags={p.tags} clipPack={p.clipPack} rangeStart={p.range.start} rangeEnd={p.range.end}
                    seek={p.seek} onRender={p.onRenderSequence} disabled={!ready} onShotsChange={p.onMontageShots}
                    onApplyPlanLook={(pl) => p.onChange({ ...s, captions: pl.captions, caption_style: pl.caption_style as RenderSettings['caption_style'],
                                                           caption_pos: pl.caption_pos as RenderSettings['caption_pos'], grade: pl.grade as RenderSettings['grade'], vivid_amount: pl.vivid })} />
@@ -182,7 +186,7 @@ export default function EditPanel(p: Props) {
       </Group>
 
       <Group title="Look" summary={lookSummary}
-             info="Colour and motion. Grades are film looks; vivid boosts saturation; HDR look adds crunchy local contrast. Punch-ins are quick zooms at moments you mark.">
+             info="Colour and motion. Grades are film looks; vivid boosts saturation; HDR look adds crunchy local contrast. Punch-ins are quick zooms and shakes are camera jolts at moments you mark.">
         <div className="row wrap">
           <select value={s.grade} onChange={(e) => set('grade', e.target.value as RenderSettings['grade'])} aria-label="Colour grade">
             <option value="none">Natural colour</option><option value="teal_orange">Teal & orange</option><option value="moody">Moody</option>
@@ -212,6 +216,21 @@ export default function EditPanel(p: Props) {
               <input type="range" min={105} max={200} step={5} value={Math.round(m.zoom * 100)} onChange={(e) => setMarkers(s.zoom_markers.map((x, j) => (j === i ? { ...x, zoom: Number(e.target.value) / 100 } : x)))} />
               <span className="mono small">{m.zoom.toFixed(2)}×</span></label>
             <button className="btn small" onClick={() => setMarkers(s.zoom_markers.filter((_, j) => j !== i))} aria-label="Remove">✕</button>
+          </div>
+        ))}
+        <div className="row wrap">
+          <span className="muted small">Shakes</span>
+          <button className="btn small" onClick={() => setShakes([...s.shake_markers, { at: rel(), duration: 0.4, intensity: 60 }].sort((a, b) => a.at - b.at))}>Add at playhead</button>
+          {s.shake_markers.length > 0 && <button className="btn small" onClick={() => setShakes([])}>Clear</button>}
+        </div>
+        {s.shake_markers.map((m, i) => (
+          <div key={i} className="row wrap small">
+            <span className="mono muted">{duration(p.range.start + m.at)}</span>
+            <label className="num"><input type="text" inputMode="decimal" value={m.duration} onChange={(e) => setShakes(s.shake_markers.map((x, j) => (j === i ? { ...x, duration: Number(e.target.value) || 0.4 } : x)))} aria-label="Duration" /> s</label>
+            <label className="slider"><span className="muted small">strength</span>
+              <input type="range" min={5} max={100} step={5} value={m.intensity} onChange={(e) => setShakes(s.shake_markers.map((x, j) => (j === i ? { ...x, intensity: Number(e.target.value) } : x)))} />
+              <span className="mono small">{m.intensity}</span></label>
+            <button className="btn small" onClick={() => setShakes(s.shake_markers.filter((_, j) => j !== i))} aria-label="Remove">✕</button>
           </div>
         ))}
       </Group>

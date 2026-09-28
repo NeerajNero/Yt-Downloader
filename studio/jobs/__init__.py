@@ -106,7 +106,7 @@ class JobContext:
 Handler = Callable[[JobContext], dict[str, Any]]
 
 JOB_TYPES = ["download", "transcribe", "scenes", "borders", "convert", "render",
-             "clippack", "tighten", "suggest", "postkit", "style", "plan", "noop"]
+             "clippack", "tighten", "suggest", "postkit", "style", "plan", "dialogue", "tags", "noop"]
 
 
 def get_handler(job_type: str) -> Handler:

@@ -148,23 +148,28 @@ def clip_pack(src: Path, out_dir: Path, scenes: dict, tools: Tools, encoder: str
     return data
 
 
+def detect_silences(src: Path, tools: Tools, threshold_db: float = -30.0, min_silence: float = 0.5) -> list[tuple[float, float]]:
+    """ffmpeg silencedetect → [(start, end), ...] in source seconds (audio-only decode)."""
+    det = subprocess.run(
+        [tools.ffmpeg, "-i", str(src), "-vn",
+         "-af", f"silencedetect=n={threshold_db}dB:d={min_silence}",
+         "-f", "null", "-"],
+        capture_output=True, text=True,
+    )
+    starts = [float(m) for m in re.findall(r"silence_start: ([0-9.]+)", det.stderr)]
+    ends = [float(m) for m in re.findall(r"silence_end: ([0-9.]+)", det.stderr)]
+    return list(zip(starts, ends))
+
+
 def tighten(src: Path, out_path: Path, tools: Tools, encoder: str,
             report: Report, should_cancel: ShouldCancel,
             threshold_db: float = -30.0, min_silence: float = 0.5, pad: float = 0.06) -> dict:
     """Silence removal: silencedetect → trim/concat graph → `<stem>_tight.mp4`."""
     duration = tools.probe_duration(src) or 0
     report(None, "finding silences")
-    det = subprocess.run(
-        [tools.ffmpeg, "-i", str(src),
-         "-af", f"silencedetect=n={threshold_db}dB:d={min_silence}",
-         "-f", "null", "-"],
-        capture_output=True, text=True,
-    )
+    silences = detect_silences(src, tools, threshold_db, min_silence)
     if should_cancel():
         raise Cancelled()
-    starts = [float(m) for m in re.findall(r"silence_start: ([0-9.]+)", det.stderr)]
-    ends = [float(m) for m in re.findall(r"silence_end: ([0-9.]+)", det.stderr)]
-    silences = list(zip(starts, ends))
 
     # Build keep segments (complement), padding so cuts aren't abrupt.
     keeps = []

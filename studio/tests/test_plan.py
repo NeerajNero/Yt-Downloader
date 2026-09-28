@@ -12,9 +12,9 @@ SCENES = {"duration": 60.0, "scenes": [10.0, 20.0, 30.0]}
 FAKE = {"title": "T", "hook": "H", "summary": "S", "transition": "zoomin", "transition_duration": 0.4,
         "caption_style": "pop", "caption_pos": "middle", "grade": "teal_orange", "vivid": 40,
         "music_vibe": "phonk", "sfx_ideas": ["hit on shot 2"], "resolve_notes": ["speed ramp shot 3"],
-        "shots": [{"start": 40, "end": 46, "speed": 1, "punch": True, "why": "hook"},
+        "shots": [{"start": 40, "end": 46, "speed": 1, "punch": True, "shake": True, "transition": "fadewhite", "transition_duration": 0.2, "why": "hook"},
                   {"start": 2, "end": 2.3, "speed": 1, "punch": False, "why": "too short"},
-                  {"start": 10, "end": 90, "speed": 9, "punch": False, "why": "clamped"}]}
+                  {"start": 10, "end": 90, "speed": 9, "punch": False, "transition": "default", "transition_duration": 0, "why": "clamped"}]}
 
 
 def test_make_plan_cleans_and_maps():
@@ -26,6 +26,8 @@ def test_make_plan_cleans_and_maps():
     assert [s["start"] for s in out["shots"]] == [40.0, 10.0]
     assert out["shots"][1]["end"] == 60.0 and out["shots"][1]["speed"] == 4.0
     assert out["transition"] == {"type": "zoomin", "duration": 0.4}
+    assert out["shots"][0]["shake"] is True and out["shots"][0]["transition"] == {"type": "fadewhite", "duration": 0.2}
+    assert out["shots"][1]["shake"] is False and out["shots"][1]["transition"] is None
     assert out["captions"] is True and out["caption_style"] == "pop" and out["grade"] == "teal_orange"
     assert out["out_length"] == round(6 + 50 / 4, 1)
 

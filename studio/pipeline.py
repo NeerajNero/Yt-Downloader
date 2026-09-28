@@ -4,7 +4,8 @@
 video becomes ready (download done / file uploaded)
     prepare|shorts : transcribe + scenes (+ borders for shorts)
 job done
-    transcribe            : postkit
+    transcribe            : postkit + dialogue (speech lines)
+    scenes                : tags (Gemini shot labels: closeups, gameplay, cutscenes)
     transcribe|scenes     : suggest + plan once both exist
     suggest (shorts only) : render every proposed AI clip with each auto-apply
                             recipe (or the Auto Shorts defaults)
@@ -53,6 +54,10 @@ def on_video_ready(video: dict) -> list[dict]:
         made.append(enqueue("scenes", vid))
     if pipeline == "shorts" and "borders" not in have:
         made.append(enqueue("borders", vid))
+    if "transcript" in have and "dialogue" not in have:
+        made.append(enqueue("dialogue", vid))
+    if "scenes" in have and "tags" not in have:
+        made.append(enqueue("tags", vid))
     if "transcript" in have and "scenes" in have:
         made.append(enqueue("suggest", vid))
         made.append(enqueue("postkit", vid))
@@ -121,6 +126,10 @@ def on_job_done(job: dict) -> list[dict]:
     made: list[dict | None] = []
     if job["type"] == "transcribe" and "postkit" not in have:
         made.append(enqueue("postkit", vid, parent_job_id=job["id"]))
+    if job["type"] == "transcribe":
+        made.append(enqueue("dialogue", vid, parent_job_id=job["id"]))
+    if job["type"] == "scenes":
+        made.append(enqueue("tags", vid, parent_job_id=job["id"]))
     if job["type"] in ("transcribe", "scenes") and "transcript" in have and "scenes" in have:
         newest = max(have["transcript"]["created_at"], have["scenes"]["created_at"])
         already = any(j["type"] == "suggest" and j["created_at"] >= newest for j in context.app.queue.for_video(vid))

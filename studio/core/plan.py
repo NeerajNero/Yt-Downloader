@@ -25,8 +25,11 @@ PLAN_SCHEMA = {
                       "end": {"type": "NUMBER", "description": "source end, seconds"},
                       "speed": {"type": "NUMBER", "description": "1 = normal; 0.5 slow-mo for a big moment; 2-3 to rush setup"},
                       "punch": {"type": "BOOLEAN", "description": "punch-in zoom at the start of this shot"},
+                      "shake": {"type": "BOOLEAN", "description": "camera shake at the start of this shot (impacts, explosions, hits)"},
+                      "transition": {"type": "STRING", "description": "transition INTO THE NEXT shot: default (use the montage's), cut, fade, fadeblack, fadewhite, dissolve, zoomin, slideleft, slideup, wipeleft, circleopen, pixelize, hblur"},
+                      "transition_duration": {"type": "NUMBER", "description": "0.15-0.6 seconds; 0 = use the default"},
                       "why": {"type": "STRING", "description": "one short reason this shot is in"},
-                  }, "required": ["start", "end", "speed", "punch", "why"]}},
+                  }, "required": ["start", "end", "speed", "punch", "shake", "transition", "transition_duration", "why"]}},
         "transition": {"type": "STRING", "description": "one of: cut, fade, fadeblack, fadewhite, dissolve, zoomin, slideleft, slideup, wipeleft, circleopen, pixelize, hblur"},
         "transition_duration": {"type": "NUMBER", "description": "0.15-0.6 seconds"},
         "caption_style": {"type": "STRING", "description": "karaoke, typewriter, pop, minimal or none"},
@@ -77,8 +80,10 @@ The frames below are sampled at these timestamps (seconds): {", ".join(f"{t:.1f}
 Plan the edit:
 - Open with the strongest moment as the hook, even if it happens late in the source; then the setup, then the payoff.
 - Every shot: exact start/end in source seconds within [0, {duration:.0f}], ≥ 1.5 s; use speed 0.5 for a hero moment, 2-3 to compress boring setup, else 1.
-- Use punch-ins sparingly for emphasis (impacts, reactions, punchlines).
+- Use punch-ins sparingly for emphasis (impacts, reactions, punchlines); camera shake only on real impacts.
 - Pick a transition that suits the energy (hard cuts for gameplay, crossfades for calm, zoomin/flash for hype).
+  That is the montage default; give a shot its own transition (into the next shot) only where it helps —
+  e.g. fadewhite into the hero moment, fadeblack before the payoff — otherwise say "default".
 - Captions only if there is speech; pick the caption style and colour grade that match the content.
 Explain each shot in a few words."""
         parts.append({"text": prompt})
@@ -97,8 +102,14 @@ Explain each shot in a few words."""
             continue
         sp = float(sh.get("speed") or 1.0)
         sp = min(4.0, max(0.25, sp))
+        own = None
+        ot = str(sh.get("transition") or "default").lower()
+        if ot in TRANSITIONS and ot != "default":
+            od = float(sh.get("transition_duration") or 0) or 0.3
+            own = {"type": ot, "duration": round(min(2.0, max(0.1, od)), 2)}
         shots.append({"start": round(a, 2), "end": round(b, 2), "speed": round(sp, 2),
-                      "punch": bool(sh.get("punch")), "why": sh.get("why", "")})
+                      "punch": bool(sh.get("punch")), "shake": bool(sh.get("shake")),
+                      "transition": own, "why": sh.get("why", "")})
     trans = result.get("transition", "cut")
     if trans not in TRANSITIONS:
         trans = "cut"

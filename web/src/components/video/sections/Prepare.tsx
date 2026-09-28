@@ -13,6 +13,9 @@ export default function Prepare({ video, active, run, prepareAll }: Props) {
   const asset = (kind: string) => video.assets.find((a) => a.kind === kind) ?? null
   const transcript = asset('transcript'); const scenes = asset('scenes'); const borders = asset('borders')
   const editCopy = asset('edit_copy'); const postkit = asset('postkit')
+  const dialogue = asset('dialogue'); const tags = asset('tags')
+  const dlg = dialogue?.data as { lines?: number; source?: string; speech_seconds?: number } | null
+  const tg = tags?.data as { shots?: number; closeups?: number; dialogue?: number; kinds?: Record<string, number> } | null
   const words = (transcript?.data as { words?: number } | null)?.words
   const cuts = (scenes?.data as { scenes?: number } | null)?.scenes
   const trim = borders?.data as { trim_x?: number; trim_y?: number } | null
@@ -23,6 +26,11 @@ export default function Prepare({ video, active, run, prepareAll }: Props) {
       done: Boolean(transcript), status: transcript ? `${words ?? 0} words` : null, redo: 'Re-transcribe' },
     { type: 'scenes', name: 'Scene cuts', what: 'Finds where the picture changes. Needed for the montage builder, clip pack and AI.',
       done: Boolean(scenes), status: scenes ? `${cuts ?? 0} cuts` : null, redo: 'Detect again' },
+    { type: 'dialogue', name: 'Dialogue lines', what: 'Where someone is talking, line by line, from the transcript\'s word timing (or from sound when there is no transcript). A montage source and a timeline track.',
+      done: Boolean(dialogue), status: dlg ? `${dlg.lines ?? 0} lines · ${Math.round(dlg.speech_seconds ?? 0)}s${dlg.source === 'silence' ? ' (from sound)' : ''}` : null, redo: 'Detect again' },
+    { type: 'tags', name: 'Shot tags', what: 'AI labels every scene: closeup, gameplay, cutscene, menu, wide — plus whether it has dialogue. Lets the montage builder pick just the closeups or the gameplay.',
+      done: Boolean(tags), status: tg ? `${tg.shots ?? 0} scenes · ${tg.closeups ?? 0} closeups · ${Object.entries(tg.kinds ?? {}).filter(([k]) => k !== 'closeup').map(([k, n]) => `${n} ${k}`).join(', ')}` : null,
+      redo: 'Tag again', needs: scenes ? null : 'needs scene cuts' },
     { type: 'borders', name: 'Black bars', what: 'Measures letterbox bars so renders can trim them automatically.',
       done: Boolean(borders), status: trim ? (trim.trim_x || trim.trim_y ? `${trim.trim_y}% top/bottom, ${trim.trim_x}% sides` : 'none found') : null, redo: 'Measure again' },
     { type: 'convert', name: 'Preview copy', what: 'A browser-friendly copy so the player above works for mkv / AV1 sources. Also handy for Resolve.',

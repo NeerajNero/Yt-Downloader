@@ -30,10 +30,14 @@ The old code is at git tag `v2-multimachine` (and `v1-last` for the original app
 
 1. `run.bat` on the gaming PC. Browser opens at `http://127.0.0.1:8765`.
 2. Add a link (or upload / drop a folder into the library + Rescan). Pick *Just download*,
-   *Prepare* (transcript, scenes, AI clip picks, edit plan, post kit) or *Auto Shorts* (also render
-   every pick with each auto-apply recipe).
+   *Prepare* (transcript, scenes, dialogue lines, shot tags, AI clip picks, edit plan, post kit) or
+   *Auto Shorts* (also render every pick with each auto-apply recipe).
 3. Open the video: **Prepare** checklist → **Clips** (AI picks, plan, your own ranges) → **Edit**
-   (recipe, format, look, captions, sound, brand; one range or a montage) → Render.
+   (recipe, format, look, captions, sound, brand; one range or a montage) → Render. The montage
+   builder takes shots from scene cuts, dialogue lines, tagged scenes (closeups / dialogue /
+   gameplay / cutscenes), the clip pack, the AI plan or suggested clips; each shot has speed,
+   punch, shake and its own transition + length into the next shot. **Help** (header) explains
+   every feature with live demos.
 4. **Review**: approve / reject / tweak / mark posted; post kit ready to paste.
 5. Resolve hand-off: FCPXML timeline of the clips from **Tools**.
 

@@ -26,6 +26,7 @@ export interface RenderSettings {
   watermark: Watermark | null
   sfx: SfxLayer[]
   zoom_markers: ZoomMarker[]
+  shake_markers: ShakeMarker[]
 }
 
 export interface Watermark {
@@ -37,6 +38,7 @@ export interface Watermark {
 }
 export interface SfxLayer { file: string; at: number; gain: number }
 export interface ZoomMarker { at: number; duration: number; zoom: number }
+export interface ShakeMarker { at: number; duration: number; intensity: number }
 
 /** Recipe = RenderSettings + auto-apply hints. */
 export interface RecipeSettings extends RenderSettings {
@@ -50,7 +52,7 @@ export const DEFAULT_SETTINGS: RenderSettings = {
   resolution: '1080', orientation: 'portrait', rotate: 'none', rotate_captions: false,
   loudness: false, zoom: 'none', look: 'none', look_sharp: 50, grade: 'none',
   music: '', music_gain: 60, duck: true,
-  watermark: null, sfx: [], zoom_markers: [],
+  watermark: null, sfx: [], zoom_markers: [], shake_markers: [],
 }
 
 /** Merge stored settings (recipe / clip.render_settings) over the defaults, dropping start/end and hints. */
@@ -74,6 +76,7 @@ export function summarize(s: Partial<RecipeSettings>): string {
     s.vivid_amount ? `vivid ${s.vivid_amount}` : '',
     s.zoom === 'in' ? 'punch-in' : '',
     s.zoom_markers?.length ? `${s.zoom_markers.length} zoom markers` : '',
+    s.shake_markers?.length ? `${s.shake_markers.length} shake${s.shake_markers.length > 1 ? 's' : ''}` : '',
     s.watermark?.file ? 'watermark' : '',
     s.sfx?.length ? `${s.sfx.length} sfx` : '',
     s.music ? 'music' : '',

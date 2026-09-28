@@ -106,6 +106,11 @@ export interface Transcript {
   segments: { start: number; end: number; text: string; words: { w: string; s: number; e: number }[] }[]
 }
 export interface Scenes { scenes: number[]; duration: number | null }
+export interface DialogueLine { start: number; end: number; text: string; words: number }
+export interface Dialogue { source: 'transcript' | 'silence'; lines: DialogueLine[]; duration: number | null }
+export type TagKind = 'closeup' | 'medium' | 'wide' | 'gameplay' | 'cutscene' | 'menu' | 'other'
+export interface TaggedShot { start: number; end: number; kind: TagKind; closeup: boolean; subject: string; energy: number; dialogue: boolean; speech: number }
+export interface Tags { model: string | null; shots: TaggedShot[] }
 export interface ManualCaptions { speed: number; items: { text: string; start: number; duration: number }[] }
 
 export const timelineUrl = (videoId: string, status: 'all' | 'rendered' | 'approved') =>

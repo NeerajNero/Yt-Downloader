@@ -9,7 +9,7 @@ import ClipsSection from '../components/video/sections/ClipsSection'
 import EditPanel from '../components/video/sections/EditPanel'
 import Prepare from '../components/video/sections/Prepare'
 import ToolsSection from '../components/video/sections/ToolsSection'
-import { deleteVideo, enqueue, fetchJson, fileUrl, updateVideo, type ManualCaptions, type Scenes, type Transcript } from '../lib/api'
+import { deleteVideo, enqueue, fetchJson, fileUrl, updateVideo, type Dialogue, type ManualCaptions, type Scenes, type Tags, type Transcript } from '../lib/api'
 import { bytes, duration, resolution } from '../lib/format'
 import { usePoll } from '../lib/poll'
 import { DEFAULT_SETTINGS, fromStored, type RenderSettings } from '../lib/settings'
@@ -37,6 +37,8 @@ export default function VideoPage() {
   const [previewCaps, setPreviewCaps] = useState(false)
   const [transcript, setTranscript] = useState<Transcript | null>(null)
   const [scenes, setScenes] = useState<Scenes | null>(null)
+  const [dialogue, setDialogue] = useState<Dialogue | null>(null)
+  const [tags, setTags] = useState<Tags | null>(null)
   const [manual, setManual] = useState<ManualCaptions | null>(null)
   const [clipPack, setClipPack] = useState<{ file: string; start: number; end: number }[] | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
@@ -48,6 +50,7 @@ export default function VideoPage() {
   const asset = (kind: string) => video?.assets.find((a) => a.kind === kind) ?? null
   const transcriptAsset = asset('transcript'); const scenesAsset = asset('scenes'); const captionsAsset = asset('captions')
   const editCopy = asset('edit_copy'); const clipPackAsset = asset('clip_pack'); const planAsset = asset('plan')
+  const dialogueAsset = asset('dialogue'); const tagsAsset = asset('tags')
   const plan = (planAsset?.data ?? null) as Plan | null
   const borders = (asset('borders')?.data ?? null) as { trim_x: number; trim_y: number } | null
 
@@ -63,6 +66,14 @@ export default function VideoPage() {
     if (scenesAsset?.path) fetchJson<Scenes>(scenesAsset.path).then(setScenes).catch(() => setScenes(null))
     else setScenes(null)
   }, [scenesAsset?.path, scenesAsset?.created_at])
+  useEffect(() => {
+    if (dialogueAsset?.path) fetchJson<Dialogue>(dialogueAsset.path).then(setDialogue).catch(() => setDialogue(null))
+    else setDialogue(null)
+  }, [dialogueAsset?.path, dialogueAsset?.created_at])
+  useEffect(() => {
+    if (tagsAsset?.path) fetchJson<Tags>(tagsAsset.path).then(setTags).catch(() => setTags(null))
+    else setTags(null)
+  }, [tagsAsset?.path, tagsAsset?.created_at])
   useEffect(() => {
     if (captionsAsset?.path) fetchJson<ManualCaptions>(captionsAsset.path).then(setManual).catch(() => setManual(null))
     else setManual(null)
@@ -128,9 +139,13 @@ export default function VideoPage() {
     void run('render', { ...basePayload(), segments, transition }, 'Montage queued — watch it on the Jobs tab.')
 
   const prepareAll = async () => {
+    // "prepare" lets the pipeline chain the rest (dialogue after the transcript, tags after scenes, post kit, AI picks + plan).
+    if (video.pipeline === 'none') { try { await updateVideo(video.id, { pipeline: 'prepare' }) } catch (e) { setErr((e as Error).message) } }
     for (const t of ['transcribe', 'scenes', 'borders'] as const) if (!asset(t === 'transcribe' ? 'transcript' : t)) await run(t)
+    if (transcriptAsset && !dialogueAsset) await run('dialogue')
+    if (scenesAsset && !tagsAsset) await run('tags')
     if (!editCopy) await run('convert')
-    setMsg('Preparing — transcript, scene cuts and bars are queued; the post kit follows the transcript.')
+    setMsg('Preparing — transcript, scene cuts and bars are queued; dialogue lines, shot tags, the post kit and AI picks follow.')
   }
   const autoShorts = async () => {
     setErr(null)
@@ -148,7 +163,7 @@ export default function VideoPage() {
   }
   const dismissGuide = () => { setGuide(false); try { localStorage.setItem(GUIDE_KEY, '1') } catch { /* */ } }
 
-  const prepCount = ['transcript', 'scenes'].filter((k) => !asset(k)).length
+  const prepCount = ['transcript', 'scenes', 'dialogue', 'tags'].filter((k) => !asset(k)).length
   const tabs: { value: Mode; label: string; badge?: string | number | null }[] = [
     { value: 'prepare', label: 'Prepare', badge: prepCount || null },
     { value: 'clips', label: 'Clips', badge: video.clips.length || null },
@@ -190,6 +205,7 @@ export default function VideoPage() {
                 transcript={transcript} manual={manual} />
         {playError && !editCopy && <p className="muted small">This file may not play here — Prepare → Preview copy makes one that does.</p>}
         <Timeline videoDuration={vidDuration} nowTime={nowTime} scenes={scenes?.scenes ?? []}
+                  dialogue={dialogue?.lines ?? []} closeups={tags?.shots.filter((s) => s.closeup) ?? []}
                   range={mode === 'edit' && editMode === 'range' ? range : null} onRange={setRange}
                   shots={mode === 'edit' && editMode === 'montage' ? montageShots ?? undefined : undefined} onSeek={seek} />
 
@@ -217,7 +233,7 @@ export default function VideoPage() {
         {mode === 'edit' && (
           <EditPanel video={video} settings={settings} onChange={setSettings} range={range} onRange={setRange}
                      mode={editMode} onMode={setEditMode} playhead={playhead} seek={seek} plan={plan}
-                     scenes={scenes?.scenes ?? null} clipPack={clipPack} manual={manual} hasTranscript={Boolean(transcriptAsset)}
+                     scenes={scenes?.scenes ?? null} dialogue={dialogue?.lines ?? null} tags={tags?.shots ?? null} clipPack={clipPack} manual={manual} hasTranscript={Boolean(transcriptAsset)}
                      borders={borders} active={active} run={(t, pl, ok) => void run(t, pl, ok)}
                      previewCaps={previewCaps} onPreviewCaps={setPreviewCaps} recipeId={recipeId} onRecipe={setRecipeId}
                      onRender={() => renderRange()} onRenderSequence={renderSequence} onMontageShots={setMontageShots}

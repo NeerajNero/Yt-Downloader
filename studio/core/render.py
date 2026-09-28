@@ -103,6 +103,27 @@ def _punch_filter(width, height, fps, duration, markers, base_target=None):
     )
 
 
+def _shake_filter(width, height, fps, markers):
+    """Camera shake markers: the framed picture is scaled up a little and
+    cropped back with a time-driven offset — a decaying mix of two sines per
+    axis so it reads as an impact, not noise. `intensity` 1-100 → up to 6 %
+    of the frame. One scale + crop pass; captions/watermark come after."""
+    top = max(int(m.get("intensity", 50)) for m in markers)
+    amp = 0.06 * max(1, min(top, 100)) / 100.0
+    px = max(2, int(round(width * amp / 2) * 2))
+    py = max(2, int(round(height * amp / 2) * 2))
+    xs, ys = [], []
+    for m in markers:
+        at = max(0.0, float(m["at"]))
+        dur = max(0.1, float(m.get("duration", 0.4)))
+        k = max(1, min(int(m.get("intensity", 50)), 100)) / max(top, 1)
+        env = f"between(t,{at:.3f},{at + dur:.3f})*(1-(t-{at:.3f})/{dur:.3f})*{k:.3f}"
+        xs.append(f"{env}*(0.6*sin(t*47)+0.4*sin(t*89))")
+        ys.append(f"{env}*(0.6*cos(t*53)+0.4*sin(t*67))")
+    return (f"scale={width + 2 * px}:{height + 2 * py},"
+            f"crop=w={width}:h={height}:x='{px}+{px}*({'+'.join(xs)})':y='{py}+{py}*({'+'.join(ys)})',setsar=1")
+
+
 WATERMARK_POSITIONS = {
     "top_left": "{m}:{m}",
     "top_right": "W-w-{m}:{m}",
@@ -249,6 +270,7 @@ class RenderSettings:
     watermark: dict | None = None      # {"file", "position", "scale", "opacity", "margin"}
     sfx: list = field(default_factory=list)          # [{"file", "at", "gain"}] clip-relative seconds
     zoom_markers: list = field(default_factory=list) # [{"at", "duration", "zoom"}]
+    shake_markers: list = field(default_factory=list) # [{"at", "duration", "intensity"}]
     extra: dict = field(default_factory=dict)
 
     @property
@@ -274,6 +296,13 @@ class RenderSettings:
                 sp = float(seg.get("speed", 1.0) or 1.0)
                 if not (0.25 <= sp <= 4.0):
                     raise ValueError(f"Segment {i}: speed must be between 0.25 and 4.")
+                own = seg.get("transition")
+                if own:
+                    if own.get("type", "cut") not in TRANSITIONS:
+                        raise ValueError(f"Segment {i}: unknown transition {own.get('type')!r}.")
+                    od = float(own.get("duration", 0.35) or 0.35)
+                    if not (0.1 <= od <= 2.0):
+                        raise ValueError(f"Segment {i}: transition length must be between 0.1 and 2 seconds.")
             t = (self.transition or {}).get("type", "cut")
             if t not in TRANSITIONS:
                 raise ValueError("Unknown transition: " + str(t))
@@ -352,6 +381,9 @@ def output_name(stem: str, s: RenderSettings, has_music: bool) -> str:
     aspect = "16x9" if s.orientation == "landscape" else "9x16"
     if s.segments:
         t = (s.transition or {}).get("type", "cut")
+        own = {(seg.get("transition") or {}).get("type") for seg in s.segments[:-1] if seg.get("transition")}
+        if own - {t}:
+            t = "mix"
         return f"{stem}_{aspect}_seq{len(s.segments)}_{int(s.range_start)}s-{int(s.range_end)}s_{t}_{s.style}{suffix}.mp4"
     return f"{stem}_{aspect}_{int(s.start)}s-{int(s.end)}s_{s.style}{suffix}.mp4"
 
@@ -401,6 +433,8 @@ def run_export(src: Path, out_path: Path, s: RenderSettings, tools: Tools, encod
                                     base_target=1.12 if s.zoom == "in" else None)
     elif s.zoom == "in":
         filt += "," + _zoom_filter(build_w, build_h, tools.probe_fps(src), end - start)
+    if s.shake_markers:
+        filt += "," + _shake_filter(build_w, build_h, tools.probe_fps(src), s.shake_markers)
 
     ass_file = None
     if s.captions:
@@ -509,26 +543,42 @@ def _atempo_chain(speed: float) -> str:
     return ",".join(parts)
 
 
-def sequence_layout(segments: list[dict], transition: dict) -> tuple[list[dict], float, float]:
+def boundary_transition(prev_seg: dict, default: dict) -> dict:
+    """The transition between `prev_seg` and the shot after it: the shot's own
+    `transition` when set, else the montage default. Returns {"type", "kind"
+    (ffmpeg xfade name or None for a cut), "d"}."""
+    t = prev_seg.get("transition") or default or {}
+    typ = t.get("type", "cut") if t else "cut"
+    kind = TRANSITIONS.get(typ)
+    d = float(t.get("duration", 0.35) or 0.35) if kind else 0.0
+    return {"type": typ if kind else "cut", "kind": kind, "d": d}
+
+
+def sequence_layout(segments: list[dict], transition: dict) -> tuple[list[dict], float, list[dict]]:
     """Output-time layout: for each segment its speed, output length and start
-    offset in the assembled clip (transitions overlap by `d`). Returns
-    (layout, total_len, d)."""
-    kind = (transition or {}).get("type", "cut")
-    d = float((transition or {}).get("duration", 0.35) or 0.35) if TRANSITIONS.get(kind) else 0.0
+    offset in the assembled clip. Boundary k (between shot k and k+1) has its
+    own transition — the shot's `transition` or the montage default — and its
+    overlap `d` is clamped to half of the shorter neighbour. Returns
+    (layout, total_len, bounds) with one bounds entry per boundary."""
     lens = []
     for seg in segments:
         sp = float(seg.get("speed", 1.0) or 1.0)
         lens.append((float(seg["end"]) - float(seg["start"])) / sp)
-    if d and len(segments) > 1:
-        d = min(d, min(lens) / 2.0)   # a transition can't be longer than half the shortest shot
+    bounds = []
+    for k in range(1, len(segments)):
+        b = boundary_transition(segments[k - 1], transition)
+        if b["d"]:
+            b["d"] = min(b["d"], lens[k - 1] / 2.0, lens[k] / 2.0)
+        bounds.append(b)
     layout, offset = [], 0.0
-    for seg, ln in zip(segments, lens):
+    for k, (seg, ln) in enumerate(zip(segments, lens)):
         layout.append({"start": float(seg["start"]), "end": float(seg["end"]),
                        "speed": float(seg.get("speed", 1.0) or 1.0), "len": ln, "offset": offset,
-                       "zoom_markers": list(seg.get("zoom_markers") or [])})
-        offset += ln - d
-    total = offset + d if d else offset
-    return layout, total, d
+                       "zoom_markers": list(seg.get("zoom_markers") or []),
+                       "shake_markers": list(seg.get("shake_markers") or [])})
+        offset += ln - (bounds[k]["d"] if k < len(bounds) else 0.0)
+    total = (layout[-1]["offset"] + layout[-1]["len"]) if layout else 0.0
+    return layout, total, bounds
 
 
 def remap_transcript(transcript: dict, layout: list[dict]) -> dict:
@@ -562,11 +612,12 @@ def remap_manual(manual: dict, layout: list[dict]) -> dict:
     return {**manual, "items": items}
 
 
-def sequence_graph(s: RenderSettings, layout: list[dict], d: float, fps: float, build_w: int, build_h: int,
+def sequence_graph(s: RenderSettings, layout: list[dict], bounds: list[dict], fps: float, build_w: int, build_h: int,
                    source_rotate: str) -> tuple[list[str], str, str, str]:
     """Build (per-input args, filter graph up to [vseq]/[aseq], vlabel, alabel)
     for the segments: seek each range as its own input, retime, frame, punch,
-    then xfade/acrossfade (or concat for hard cuts)."""
+    shake, then join shot by shot — xfade/acrossfade for a transition, concat
+    for a hard cut — using each boundary's own transition."""
     inputs: list[str] = []
     parts: list[str] = []
     n = len(layout)
@@ -578,26 +629,29 @@ def sequence_graph(s: RenderSettings, layout: list[dict], d: float, fps: float, 
         chain = filt if s.style == "blur" else f"[{k}:v]{filt}"
         if L["zoom_markers"]:
             chain += "," + _punch_filter(build_w, build_h, fps, L["len"], L["zoom_markers"])
-        parts.append(f"{chain},format=yuv420p,settb=AVTB[v{k}]")
+        if L.get("shake_markers"):
+            chain += "," + _shake_filter(build_w, build_h, fps, L["shake_markers"])
+        parts.append(f"{chain},format=yuv420p,setsar=1,settb=AVTB[v{k}]")
         a = f"[{k}:a]asetpts=PTS-STARTPTS"
         if abs(L["speed"] - 1.0) > 1e-3:
             a += "," + _atempo_chain(L["speed"])
         parts.append(f"{a},aformat=sample_rates=48000:channel_layouts=stereo,asettb=AVTB[a{k}]")
 
-    kind = TRANSITIONS.get((s.transition or {}).get("type", "cut"))
     if n == 1:
         parts.append("[v0]null[vseq];[a0]anull[aseq]")
-    elif not kind:
-        parts.append("".join(f"[v{k}][a{k}]" for k in range(n)) + f"concat=n={n}:v=1:a=1[vseq][aseq]")
-    else:
-        vprev, aprev = "v0", "a0"
-        for k in range(1, n):
+        return inputs, ";".join(parts), "vseq", "aseq"
+    vprev, aprev = "v0", "a0"
+    for k in range(1, n):
+        b = bounds[k - 1]
+        vout = "vseq" if k == n - 1 else f"vx{k}"
+        aout = "aseq" if k == n - 1 else f"ax{k}"
+        if b["kind"]:
             off = layout[k]["offset"]
-            vout = "vseq" if k == n - 1 else f"vx{k}"
-            aout = "aseq" if k == n - 1 else f"ax{k}"
-            parts.append(f"[{vprev}][v{k}]xfade=transition={kind}:duration={d:.3f}:offset={off:.3f}[{vout}]")
-            parts.append(f"[{aprev}][a{k}]acrossfade=d={d:.3f}:c1=tri:c2=tri[{aout}]")
-            vprev, aprev = vout, aout
+            parts.append(f"[{vprev}][v{k}]xfade=transition={b['kind']}:duration={b['d']:.3f}:offset={off:.3f}[{vout}]")
+            parts.append(f"[{aprev}][a{k}]acrossfade=d={b['d']:.3f}:c1=tri:c2=tri[{aout}]")
+        else:
+            parts.append(f"[{vprev}][{aprev}][v{k}][a{k}]concat=n=2:v=1:a=1[{vout}][{aout}]")
+        vprev, aprev = vout, aout
     return inputs, ";".join(parts), "vseq", "aseq"
 
 
@@ -609,7 +663,7 @@ def run_sequence(src: Path, out_path: Path, s: RenderSettings, tools: Tools, enc
     """Assemble several ranges of the source into one clip with transitions,
     per-segment speed and punch-ins, then the usual captions / zoom / rotation /
     watermark / music / sfx on the composite."""
-    layout, total, d = sequence_layout(s.segments, s.transition)
+    layout, total, bounds = sequence_layout(s.segments, s.transition)
     fps = tools.probe_fps(src)
     final_w, final_h = _dims(s.resolution, s.orientation)
     match_rotate = bool(s.rotate_captions) and s.rotate != "none"
@@ -626,7 +680,7 @@ def run_sequence(src: Path, out_path: Path, s: RenderSettings, tools: Tools, enc
         build_orient = s.orientation
         source_rotate, composite_rotate = s.rotate, "none"
 
-    seg_inputs, graph, vlab, alab = sequence_graph(s, layout, d, fps, build_w, build_h, source_rotate)
+    seg_inputs, graph, vlab, alab = sequence_graph(s, layout, bounds, fps, build_w, build_h, source_rotate)
     inputs = [x.replace("{SRC}", str(src)) for x in seg_inputs]
     next_input = len(layout)
 
@@ -637,6 +691,8 @@ def run_sequence(src: Path, out_path: Path, s: RenderSettings, tools: Tools, enc
                                   base_target=1.12 if s.zoom == "in" else None))
     elif s.zoom == "in":
         comp.append(_zoom_filter(build_w, build_h, fps, total))
+    if s.shake_markers:
+        comp.append(_shake_filter(build_w, build_h, fps, s.shake_markers))
 
     ass_file = None
     if s.captions:

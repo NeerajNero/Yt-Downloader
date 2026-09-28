@@ -38,6 +38,8 @@ SIDECAR_SUFFIX = {
     "postkit": ".postkit.json",
     "borders": ".borders.json",
     "plan": ".plan.json",
+    "dialogue": ".dialogue.json",
+    "tags": ".tags.json",
     "clips": ".clips.json",
 }
 # asset kind -> how to find it next to <stem>. None = handled specially below.
@@ -49,6 +51,8 @@ ASSET_FILES = {
     "postkit": "{stem}.postkit.json",
     "borders": "{stem}.borders.json",
     "plan": "{stem}.plan.json",
+    "dialogue": "{stem}.dialogue.json",
+    "tags": "{stem}.tags.json",
     "edit_copy": "{stem}_edit.mp4",
     "tight": "{stem}_tight.mp4",
     "clip_pack": "clips/clippack.json",
@@ -79,6 +83,17 @@ def summarize_asset(kind: str, obj: dict) -> dict | None:
         return {"clips": len(obj.get("clips") or []), "model": obj.get("model")}
     if kind == "clip_pack":
         return {k: obj.get(k) for k in ("count", "max_len", "capped")}
+    if kind == "dialogue":
+        lines = obj.get("lines") or []
+        return {"lines": len(lines), "source": obj.get("source"),
+                "speech_seconds": round(sum(float(l["end"]) - float(l["start"]) for l in lines), 1)}
+    if kind == "tags":
+        shots = obj.get("shots") or []
+        counts: dict[str, int] = {}
+        for sh in shots:
+            counts[sh.get("kind", "other")] = counts.get(sh.get("kind", "other"), 0) + 1
+        return {"shots": len(shots), "closeups": sum(1 for sh in shots if sh.get("closeup")),
+                "dialogue": sum(1 for sh in shots if sh.get("dialogue")), "kinds": counts, "model": obj.get("model")}
     if kind in ("borders", "plan"):
         return obj
     return None
