@@ -32,6 +32,36 @@ export interface RenderSettings {
   crop_x: number      // 0..1 — where the crop window sits horizontally (0.5 = centre)
   crop_y: number      // 0..1 — vertically
   crop_zoom: number   // 1..3 — zoom into the crop window
+  effects: Effects
+  fx: FxLayer[]
+}
+
+export type FxBlend = 'screen' | 'addition' | 'lighten' | 'overlay' | 'softlight'
+/** An overlay clip from <library>/.fx (lens flare, light leak, dust) blended over the picture from `at` seconds. */
+export interface FxLayer { file: string; at: number; opacity: number; blend: FxBlend; flip: boolean; speed: number }
+export const FX_BLENDS: { value: FxBlend; label: string }[] = [
+  { value: 'screen', label: 'Screen (light only)' }, { value: 'addition', label: 'Add (hotter)' }, { value: 'lighten', label: 'Lighten' },
+  { value: 'overlay', label: 'Overlay (contrast)' }, { value: 'softlight', label: 'Soft light' },
+]
+
+export type Letterbox = 'none' | 'thin' | 'cinema' | 'wide'
+/** Generated looks (studio/core/render.py effects_filter). 0 / false / none = off. */
+export interface Effects { vignette: number; grain: number; glow: number; aberration: number; halation: number; sharpen: number; vhs: boolean; letterbox: Letterbox }
+export const DEFAULT_EFFECTS: Effects = { vignette: 0, grain: 0, glow: 0, aberration: 0, halation: 0, sharpen: 0, vhs: false, letterbox: 'none' }
+export const EFFECT_SLIDERS: { key: keyof Effects; label: string; hint: string }[] = [
+  { key: 'vignette', label: 'Vignette', hint: 'Darkens the corners; pulls the eye to the middle.' },
+  { key: 'grain', label: 'Grain', hint: 'Film grain. A little hides compression; a lot is a look.' },
+  { key: 'glow', label: 'Glow', hint: 'Bloom: bright parts bleed softly. Trailer / dream look.' },
+  { key: 'aberration', label: 'Aberration', hint: 'Red and blue fringes pulled apart at the edges. Gaming-edit staple.' },
+  { key: 'halation', label: 'Halation', hint: 'Warm red glow around highlights, like film stock.' },
+  { key: 'sharpen', label: 'Sharpen', hint: 'Crisper edges and HUD text.' },
+]
+export const effectsSummary = (e: Effects | undefined): string => {
+  if (!e) return ''
+  const on = EFFECT_SLIDERS.filter((x) => (e[x.key] as number) > 0).map((x) => `${x.label.toLowerCase()} ${e[x.key]}`)
+  if (e.vhs) on.push('VHS')
+  if (e.letterbox !== 'none') on.push(`${e.letterbox} bars`)
+  return on.join(' · ')
 }
 
 export type Playback = 'forward' | 'reverse' | 'bounce'
@@ -71,7 +101,7 @@ export const DEFAULT_SETTINGS: RenderSettings = {
   loudness: false, zoom: 'none', look: 'none', look_sharp: 50, grade: 'none',
   music: '', music_gain: 60, duck: true,
   watermark: null, sfx: [], zoom_markers: [], shake_markers: [], playback: 'forward', reverse_speed: 1,
-  crop_x: 0.5, crop_y: 0.5, crop_zoom: 1,
+  crop_x: 0.5, crop_y: 0.5, crop_zoom: 1, effects: { ...DEFAULT_EFFECTS }, fx: [],
 }
 
 export type EditLayout = 'steps' | 'page'
@@ -85,6 +115,7 @@ export function fromStored(obj: unknown): RenderSettings {
   const out: Record<string, unknown> = { ...DEFAULT_SETTINGS }
   for (const k of Object.keys(DEFAULT_SETTINGS)) if (k in o && o[k] !== undefined) out[k] = o[k]
   if (!out.watermark) out.watermark = null
+  out.effects = { ...DEFAULT_EFFECTS, ...((o.effects && typeof o.effects === 'object' ? o.effects : {}) as Partial<Effects>) }
   return out as unknown as RenderSettings
 }
 
@@ -104,6 +135,8 @@ export function summarize(s: Partial<RecipeSettings>): string {
     s.zoom_markers?.length ? `${s.zoom_markers.length} zoom markers` : '',
     s.shake_markers?.length ? `${s.shake_markers.length} shake${s.shake_markers.length > 1 ? 's' : ''}` : '',
     s.playback === 'bounce' ? `bounce ${s.reverse_speed && s.reverse_speed > 1 ? `${s.reverse_speed}× rewind` : ''}`.trim() : s.playback === 'reverse' ? 'reversed' : '',
+    effectsSummary(s.effects),
+    s.fx?.length ? `${s.fx.length} overlay${s.fx.length > 1 ? 's' : ''}` : '',
     s.watermark?.file ? 'watermark' : '',
     s.sfx?.length ? `${s.sfx.length} sfx` : '',
     s.music ? 'music' : '',

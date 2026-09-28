@@ -4,6 +4,7 @@ beds and watermark images.
   POST /api/upload?filename=&note=&pipeline=   -> video record (status ready)
   GET/POST /api/music                           <library>/.music
   GET/POST /api/overlays                        <library>/.overlays
+  GET/POST /api/fx                              <library>/.fx  (overlay effect clips)
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ from .common import fail
 router = APIRouter(prefix="/api", tags=["ingest"])
 AUDIO_EXTS = {".mp3", ".m4a", ".aac", ".wav", ".ogg", ".opus", ".flac"}
 IMAGE_EXTS_OK = {".png", ".webp"}
+FX_EXTS = {".mp4", ".mov", ".webm", ".mkv", ".m4v"}
 
 
 @router.post("/upload")
@@ -80,6 +82,19 @@ def music_list():
 @router.post("/music")
 async def music_upload(request: Request, filename: str = Query(...)):
     name = await _store_upload(request, context.app.lib.music_dir(), filename, AUDIO_EXTS, "Not a supported audio file.")
+    return {"ok": True, "name": name}
+
+
+@router.get("/fx")
+def fx_list():
+    d = context.app.lib.fx_dir()
+    return sorted(f.name for f in d.iterdir() if f.suffix.lower() in FX_EXTS) if d.is_dir() else []
+
+
+@router.post("/fx")
+async def fx_upload(request: Request, filename: str = Query(...)):
+    name = await _store_upload(request, context.app.lib.fx_dir(), filename, FX_EXTS,
+                               "Use a video clip (mp4, mov, webm) — flares and light leaks on a black background.")
     return {"ok": True, "name": name}
 
 

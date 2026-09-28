@@ -124,6 +124,70 @@ def _shake_filter(width, height, fps, markers):
             f"crop=w={width}:h={height}:x='{px}+{px}*({'+'.join(xs)})':y='{py}+{py}*({'+'.join(ys)})',setsar=1")
 
 
+LETTERBOX_BARS = {"none": 0.0, "thin": 0.06, "cinema": 0.12, "wide": 0.20}
+EFFECT_KEYS = ("vignette", "grain", "glow", "aberration", "halation", "sharpen", "vhs", "letterbox")
+
+
+def _k(effects: dict, key: str) -> float:
+    try:
+        return max(0.0, min(float(effects.get(key) or 0), 100.0)) / 100.0
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def effects_active(effects: dict | None) -> bool:
+    e = effects or {}
+    return any(_k(e, k) > 0 for k in ("vignette", "grain", "glow", "aberration", "halation", "sharpen")) \
+        or bool(e.get("vhs")) or LETTERBOX_BARS.get(str(e.get("letterbox", "none")), 0.0) > 0
+
+
+def effects_filter(effects: dict | None, width: int, height: int, prefix: str = "fx") -> str:
+    """Generated looks on the framed WxH picture, as a chain fragment that starts
+    with a comma and ends unlabeled (so captions etc. can follow). Order:
+    aberration → glow → halation → grain → vhs → sharpen → vignette → letterbox.
+    Glow and halation split the picture, isolate the highlights, blur them and
+    screen-blend them back."""
+    e = effects or {}
+    if not effects_active(e):
+        return ""
+    scale = min(width, height) / 1080.0
+    parts: list[str] = []
+    k = _k(e, "aberration")
+    if k:
+        px = max(1, int(round(k * 14 * scale)))
+        parts.append(f"rgbashift=rh={px}:bh={-px}")
+    k = _k(e, "glow")
+    if k:
+        sig = round(14 + 26 * k, 1) * max(scale, 0.4)
+        parts.append(f"split[{prefix}g0][{prefix}g1];[{prefix}g1]colorlevels=rimin=0.55:gimin=0.55:bimin=0.55,"
+                     f"gblur=sigma={sig:.1f}[{prefix}gb];[{prefix}g0][{prefix}gb]blend=all_mode=screen:all_opacity={0.25 + 0.75 * k:.3f}")
+    k = _k(e, "halation")
+    if k:
+        sig = round(8 + 14 * k, 1) * max(scale, 0.4)
+        parts.append(f"split[{prefix}h0][{prefix}h1];[{prefix}h1]colorlevels=rimin=0.62:gimin=0.62:bimin=0.62,"
+                     f"gblur=sigma={sig:.1f},colorchannelmixer=rr=1:gg=0.35:bb=0.2[{prefix}hb];"
+                     f"[{prefix}h0][{prefix}hb]blend=all_mode=screen:all_opacity={0.3 + 0.7 * k:.3f}")
+    k = _k(e, "grain")
+    if k:
+        parts.append(f"noise=alls={int(round(6 + 44 * k))}:allf=t+u")
+    if e.get("vhs"):
+        parts.append(f"gblur=sigma={1.0 * max(scale, 0.5):.2f},rgbashift=rh={max(1, int(round(2 * scale)))}:bh={-max(1, int(round(2 * scale)))},"
+                     "noise=alls=14:allf=t+u,drawgrid=w=iw:h=4:t=1:c=black@0.28,eq=saturation=0.82:contrast=1.04")
+    k = _k(e, "sharpen")
+    if k:
+        parts.append(f"unsharp=5:5:{0.3 + 1.4 * k:.2f}:5:5:0")
+    k = _k(e, "vignette")
+    if k:
+        # ffmpeg's lens angle: PI/2 = no darkening, smaller = stronger
+        ang = 1.5708 - k * (1.5708 - 0.35)
+        parts.append(f"vignette=angle={ang:.3f}")
+    bars = LETTERBOX_BARS.get(str(e.get("letterbox", "none")), 0.0)
+    if bars:
+        h = max(2, int(round(height * bars / 2) * 2))
+        parts.append(f"drawbox=x=0:y=0:w=iw:h={h}:color=black:t=fill,drawbox=x=0:y=ih-{h}:w=iw:h={h}:color=black:t=fill")
+    return "," + ",".join(parts)
+
+
 PLAYBACKS = ("forward", "reverse", "bounce")
 MAX_REVERSE_SECONDS = 10.0   # ffmpeg's reverse filter buffers every frame
 
@@ -168,6 +232,37 @@ WATERMARK_POSITIONS = {
     "top_center": "(W-w)/2:{m}",
     "bottom_center": "(W-w)/2:H-h-{m}",
 }
+
+
+FX_BLENDS = ("screen", "addition", "lighten", "overlay", "softlight")
+
+
+def _fx_chain(width, height, fps: float, layers: list[tuple], in_label: str, first_input: int) -> tuple[str, str, list[str]]:
+    """Overlay-effect clips (flares, leaks, dust) blended over the framed video.
+    `layers` = [(path, at, opacity_0_100, blend, flip, speed)]. Each clip is
+    scaled to cover the frame, retimed, padded with black to start at `at` and
+    to run to the end (black is invisible in screen / add / lighten), then
+    blended. Returns (graph fragment, out label, extra ffmpeg inputs)."""
+    # Blend in RGB: ffmpeg's blend works per plane, and screen/add on the
+    # chroma planes of YUV would push colours toward grey (a magenta cast).
+    parts, inputs = [f"[{in_label}]format=gbrp[fxbase]"], []
+    cur = "fxbase"
+    for i, (path, at, opacity, blend, flip, speed) in enumerate(layers):
+        idx = first_input + i
+        inputs += ["-i", str(path)]
+        mode = blend if blend in FX_BLENDS else "screen"
+        op = max(0.05, min(float(opacity) / 100.0, 1.0))
+        sp = max(0.25, min(float(speed or 1.0), 4.0))
+        pre = f"[{idx}:v]scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},setsar=1"
+        if flip:
+            pre += ",hflip"
+        pre += (f",setpts=(PTS-STARTPTS)/{sp:.4f},fps={fps:.4f},format=gbrp,"
+                f"tpad=start_duration={max(0.0, float(at)):.3f}:start_mode=add:color=black:stop=-1:stop_mode=add,settb=AVTB[fx{i}]")
+        parts.append(pre)
+        parts.append(f"[{cur}][fx{i}]blend=all_mode={mode}:all_opacity={op:.3f}:shortest=1[vfx{i}]")
+        cur = f"vfx{i}"
+    parts.append(f"[{cur}]format=yuv420p[vfxout]")
+    return ";".join(parts), "vfxout", inputs
 
 
 def _watermark_chain(width, height, wm: dict, in_label: str, wm_input: int) -> tuple[str, str]:
@@ -330,6 +425,8 @@ class RenderSettings:
     crop_x: float = 0.5              # crop window position (0..1) and zoom (1..3)
     crop_y: float = 0.5
     crop_zoom: float = 1.0
+    effects: dict = field(default_factory=dict)   # see effects_filter()
+    fx: list = field(default_factory=list)         # [{"file","at","opacity","blend","flip","speed"}] resolved by the adapter
     extra: dict = field(default_factory=dict)
 
     @property
@@ -390,6 +487,12 @@ class RenderSettings:
             raise ValueError("Crop position must be between 0 and 1.")
         if not (1 <= self.crop_zoom <= 3):
             raise ValueError("Crop zoom must be between 1 and 3.")
+        for key in ("vignette", "grain", "glow", "aberration", "halation", "sharpen"):
+            v = (self.effects or {}).get(key, 0) or 0
+            if not (0 <= float(v) <= 100):
+                raise ValueError(f"Effect {key} must be between 0 and 100.")
+        if str((self.effects or {}).get("letterbox", "none")) not in LETTERBOX_BARS:
+            raise ValueError("Letterbox must be none, thin, cinema or wide.")
         if self.caption_source not in CAPTION_SOURCES:
             raise ValueError("Caption source must be 'auto' or 'manual'.")
         if self.caption_pos not in CAPTION_POS_NAMES:
@@ -456,6 +559,11 @@ def output_name(stem: str, s: RenderSettings, has_music: bool) -> str:
         suffix += f"_punch{len(s.zoom_markers)}"
     if s.shake_markers:
         suffix += f"_shake{len(s.shake_markers)}"
+    if effects_active(s.effects):
+        on = [k for k in EFFECT_KEYS if (s.effects or {}).get(k) not in (0, None, False, "none")]
+        suffix += "_fx-" + "-".join(x[:4] for x in on)
+    if s.fx:
+        suffix += f"_ovl{len(s.fx)}"
     if s.segments:
         if any((seg.get("playback") or "forward") != "forward" for seg in s.segments):
             suffix += "_bounce"
@@ -475,9 +583,11 @@ def run_export(src: Path, out_path: Path, s: RenderSettings, tools: Tools, encod
                report: Report, should_cancel: ShouldCancel,
                transcript: dict | None = None, manual_captions: dict | None = None,
                music_path: Path | None = None, watermark_path: Path | None = None,
-               sfx_paths: list[tuple[Path, float, float]] | None = None) -> Path:
+               sfx_paths: list[tuple[Path, float, float]] | None = None,
+               fx_paths: list[tuple] | None = None) -> Path:
     """Render one clip (portrait 9:16 or landscape 16:9) to `out_path`.
-    `sfx_paths` = [(file, at_seconds, gain_0_100)]. Raises Cancelled /
+    `sfx_paths` = [(file, at_seconds, gain_0_100)]; `fx_paths` = overlay
+    effect clips [(file, at, opacity, blend, flip, speed)]. Raises Cancelled /
     RuntimeError. Returns out_path."""
     s.validate()
     src = Path(src)
@@ -486,7 +596,7 @@ def run_export(src: Path, out_path: Path, s: RenderSettings, tools: Tools, encod
     if s.is_sequence:
         return run_sequence(src, out_path, s, tools, encoder, report, should_cancel,
                             transcript=transcript, manual_captions=manual_captions, music_path=music_path,
-                            watermark_path=watermark_path, sfx_paths=sfx_paths)
+                            watermark_path=watermark_path, sfx_paths=sfx_paths, fx_paths=fx_paths)
     start, end = float(s.start), float(s.end)
     amount = int(s.vivid_amount)
 
@@ -522,6 +632,7 @@ def run_export(src: Path, out_path: Path, s: RenderSettings, tools: Tools, encod
         filt += "," + _zoom_filter(build_w, build_h, tools.probe_fps(src), out_len)
     if s.shake_markers:
         filt += "," + _shake_filter(build_w, build_h, tools.probe_fps(src), s.shake_markers)
+    filt += effects_filter(s.effects, build_w, build_h)
 
     ass_file = None
     if s.captions:
@@ -555,14 +666,7 @@ def run_export(src: Path, out_path: Path, s: RenderSettings, tools: Tools, encod
 
     # ---- video graph: always a filter_complex ending in [v] ----------------
     vgraph = filt if s.style == "blur" else f"[0:v]{filt}"
-    if watermark_path and Path(watermark_path).is_file() and s.watermark:
-        vgraph += "[vbase];"
-        frag, vlabel = _watermark_chain(final_w, final_h, s.watermark, "vbase", next_input)
-        inputs += ["-i", str(watermark_path)]
-        next_input += 1
-        vgraph += frag.replace("[vwm]", "[v]")
-    else:
-        vgraph += "[v]"
+    vgraph, next_input = _finish_video(vgraph, inputs, next_input, final_w, final_h, tools.probe_fps(src), s, watermark_path, fx_paths)
 
     # ---- audio graph: source (+ ducked music bed) (+ sfx layers) -----------
     use_music = bool(music_path and Path(music_path).is_file())
@@ -767,11 +871,40 @@ def sequence_graph(s: RenderSettings, layout: list[dict], bounds: list[dict], fp
     return inputs, ";".join(parts), "vseq", "aseq"
 
 
+def _finish_video(vgraph: str, inputs: list[str], next_input: int, width: int, height: int, fps: float,
+                  s: RenderSettings, watermark_path, fx_paths) -> tuple[str, int]:
+    """Close the video graph: overlay-effect clips (blended), then the
+    watermark, ending in [v]. `vgraph` arrives unlabeled."""
+    layers = [l for l in (fx_paths or []) if Path(l[0]).is_file()]
+    cur = None
+    if layers:
+        vgraph += "[vpre]"
+        frag, cur, extra = _fx_chain(width, height, fps, layers, "vpre", next_input)
+        inputs += extra
+        next_input += len(layers)
+        vgraph += ";" + frag
+    if watermark_path and Path(watermark_path).is_file() and s.watermark:
+        if cur:
+            vgraph += ";"
+        else:
+            vgraph += "[vbase];"
+        frag, _ = _watermark_chain(width, height, s.watermark, cur or "vbase", next_input)
+        inputs += ["-i", str(watermark_path)]
+        next_input += 1
+        vgraph += frag.replace("[vwm]", "[v]")
+    elif cur:
+        vgraph += f";[{cur}]null[v]"
+    else:
+        vgraph += "[v]"
+    return vgraph, next_input
+
+
 def run_sequence(src: Path, out_path: Path, s: RenderSettings, tools: Tools, encoder: str,
                  report: Report, should_cancel: ShouldCancel,
                  transcript: dict | None = None, manual_captions: dict | None = None,
                  music_path: Path | None = None, watermark_path: Path | None = None,
-                 sfx_paths: list[tuple[Path, float, float]] | None = None) -> Path:
+                 sfx_paths: list[tuple[Path, float, float]] | None = None,
+                 fx_paths: list[tuple] | None = None) -> Path:
     """Assemble several ranges of the source into one clip with transitions,
     per-segment speed and punch-ins, then the usual captions / zoom / rotation /
     watermark / music / sfx on the composite."""
@@ -805,6 +938,9 @@ def run_sequence(src: Path, out_path: Path, s: RenderSettings, tools: Tools, enc
         comp.append(_zoom_filter(build_w, build_h, fps, total))
     if s.shake_markers:
         comp.append(_shake_filter(build_w, build_h, fps, s.shake_markers))
+    fx = effects_filter(s.effects, build_w, build_h)
+    if fx:
+        comp.append(fx[1:])
 
     ass_file = None
     if s.captions:
@@ -828,14 +964,7 @@ def run_sequence(src: Path, out_path: Path, s: RenderSettings, tools: Tools, enc
         comp.append(_ROTATE_FILTER[composite_rotate])
 
     vgraph = f"[{vlab}]" + (",".join(comp) if comp else "null")
-    if watermark_path and Path(watermark_path).is_file() and s.watermark:
-        vgraph += "[vbase];"
-        frag, _ = _watermark_chain(final_w, final_h, s.watermark, "vbase", next_input)
-        inputs += ["-i", str(watermark_path)]
-        next_input += 1
-        vgraph += frag.replace("[vwm]", "[v]")
-    else:
-        vgraph += "[v]"
+    vgraph, next_input = _finish_video(vgraph, inputs, next_input, final_w, final_h, fps, s, watermark_path, fx_paths)
 
     # composite audio: sequence audio (+ music bed) (+ sfx)
     loudnorm = "loudnorm=I=-14:TP=-1.5:LRA=11"

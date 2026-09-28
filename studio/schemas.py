@@ -98,6 +98,38 @@ class Segment(BaseModel):
         return self
 
 
+LETTERBOX = Literal["none", "thin", "cinema", "wide"]   # bar height: 6 % / 12 % / 20 % of the frame, top and bottom
+
+
+class Effects(BaseModel):
+    """Generated looks layered on the framed picture (before captions). 0 = off."""
+    model_config = ConfigDict(extra="forbid")
+
+    vignette: int = Field(0, ge=0, le=100)     # darkened corners
+    grain: int = Field(0, ge=0, le=100)        # film grain
+    glow: int = Field(0, ge=0, le=100)         # bloom on the highlights
+    aberration: int = Field(0, ge=0, le=100)   # chromatic aberration (red/blue fringes)
+    halation: int = Field(0, ge=0, le=100)     # warm red glow around highlights
+    sharpen: int = Field(0, ge=0, le=100)
+    vhs: bool = False                          # soft, bleeding, scanlined tape look
+    letterbox: LETTERBOX = "none"
+
+
+FX_BLENDS = Literal["screen", "addition", "lighten", "overlay", "softlight"]
+
+
+class FxLayer(BaseModel):
+    """An overlay clip (lens flare, light leak, dust…) from <library>/.fx,
+    blended over the picture from `at` seconds for the clip's own length.
+    Black in the overlay disappears with screen / addition / lighten."""
+    file: str
+    at: float = Field(0.0, ge=0)
+    opacity: int = Field(80, ge=5, le=100)
+    blend: FX_BLENDS = "screen"
+    flip: bool = False        # mirror horizontally (a second use of the same flare)
+    speed: float = Field(1.0, ge=0.25, le=4.0)
+
+
 class RenderPayload(BaseModel):
     """v1 ExportBody minus `path` (the job's video_id / clip_id say what to render),
     plus the Phase 3 recipe extras. Either start/end (one range) or `segments`
@@ -138,6 +170,8 @@ class RenderPayload(BaseModel):
     crop_x: float = Field(0.5, ge=0.0, le=1.0)      # where the crop window sits (0 = left/top, 1 = right/bottom)
     crop_y: float = Field(0.5, ge=0.0, le=1.0)
     crop_zoom: float = Field(1.0, ge=1.0, le=3.0)   # zoom into the crop window
+    effects: Effects = Field(default_factory=Effects)
+    fx: list[FxLayer] = Field(default_factory=list, max_length=12)
     recipe_id: str | None = None    # recorded on the clips row when set
 
     @model_validator(mode="after")

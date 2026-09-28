@@ -370,7 +370,7 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; }
 .help-flow-n { width: 22px; height: 22px; border-radius: 50%; background: var(--accent); color: #101317; font-weight: 700; font-size: 12px; display: grid; place-items: center; }
 .help-flow-arrow { position: absolute; right: -11px; top: 50%; transform: translateY(-50%); color: var(--accent); font-weight: 700; z-index: 1; }
 @media (max-width: 640px) { .help-flow-arrow { display: none; } }
-.help-svg { width: 100%; height: auto; display: block; }
+.help-svg { width: 100%; max-width: 760px; height: auto; display: block; }
 .help-svg-label { fill: #e7ebef; font-size: 11px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
 .help-svg-tiny { fill: #8c97a3; font-size: 9.5px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
 
@@ -497,3 +497,26 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; }
 .video-layout { gap: 12px; }
 .shot-row.trimming { outline: 1px solid var(--accent); }
 .add-shot { background: var(--panel); border: 1px dashed var(--border); border-radius: 6px; padding: 6px 8px; }
+
+.fx-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 6px 14px; }
+.fx-slider { display: grid; grid-template-columns: 78px 1fr 34px; align-items: center; gap: 6px; }
+.fx-slider input[type="range"] { width: 100%; }
+.fx-slider select { padding: 3px 6px; font-size: 12px; }
+
+/* effect previews (CSS approximations) */
+.fxv { position: relative; overflow: hidden; }
+.fxv-scene { position: absolute; inset: 0; background: radial-gradient(circle at 35% 40%, #ffe9a8 0, #f2a33c 12%, #2a5c8f 40%, #101820 100%); display: grid; place-items: center; font-weight: 800; color: #fff; letter-spacing: 1px; }
+.fxv::after { content: ''; position: absolute; inset: 0; pointer-events: none; }
+.fxv-vignette::after { background: radial-gradient(ellipse at center, transparent 45%, rgba(0,0,0,0.85) 100%); }
+.fxv-grain::after { background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E"); mix-blend-mode: overlay; }
+.fxv-glow .fxv-scene { filter: brightness(1.05); }
+.fxv-glow::after { background: radial-gradient(circle at 35% 40%, rgba(255,240,200,0.8) 0, rgba(255,220,150,0.35) 18%, transparent 40%); filter: blur(10px); }
+.fxv-aberration .fxv-scene span { text-shadow: -3px 0 rgba(255,0,0,0.9), 3px 0 rgba(0,120,255,0.9); }
+.fxv-aberration::after { background: linear-gradient(90deg, rgba(255,0,0,0.25), transparent 15%, transparent 85%, rgba(0,120,255,0.25)); mix-blend-mode: screen; }
+.fxv-halation::after { background: radial-gradient(circle at 35% 40%, rgba(255,90,60,0.7) 0, rgba(255,90,60,0.25) 14%, transparent 32%); filter: blur(8px); mix-blend-mode: screen; }
+.fxv-sharpen .fxv-scene { filter: contrast(1.25) saturate(1.05); }
+.fxv-sharpen .fxv-scene span { text-shadow: 0 0 1px #fff; }
+.fxv-vhs .fxv-scene { filter: blur(0.8px) saturate(0.8); }
+.fxv-vhs .fxv-scene span { text-shadow: -2px 0 rgba(255,0,80,0.7), 2px 0 rgba(0,200,255,0.7); }
+.fxv-vhs::after { background: repeating-linear-gradient(0deg, rgba(0,0,0,0.3) 0 1px, transparent 1px 4px); }
+.fxv-bars::after { background: linear-gradient(180deg, #000 0 12%, transparent 12% 88%, #000 88%); }
