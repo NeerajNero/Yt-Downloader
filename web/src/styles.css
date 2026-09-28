@@ -32,6 +32,15 @@ body {
   margin: 0 auto;
   padding: 16px;
 }
+/* Desktop: use the whole window; the video page splits into player | controls. */
+@media (min-width: 1100px) {
+  .shell { max-width: none; padding: 16px 28px 80px; }
+  .video-layout { display: grid; grid-template-columns: minmax(0, 3fr) minmax(420px, 2fr); gap: 20px; align-items: start; }
+  .video-main { position: sticky; top: 12px; }
+  .video-main .player-video { max-height: calc(100vh - 330px); min-height: 300px; }
+  .video-main .player-video.big { max-height: calc(100vh - 250px); }
+  .video-side { min-width: 0; }
+}
 
 .header {
   display: flex;
@@ -226,7 +235,7 @@ textarea { resize: vertical; }
 .video-h { font-size: 16px; color: var(--text); overflow-wrap: anywhere; }
 
 .player-wrap { position: relative; }
-.player-video { width: 100%; max-height: 60vh; background: #000; border-radius: 8px; display: block; }
+.player-video { width: 100%; max-height: 70vh; background: #000; border-radius: 8px; display: block; object-fit: contain; }
 .player-empty { display: grid; place-items: center; aspect-ratio: 16 / 9; }
 .cap-preview {
   position: absolute; left: 8%; right: 8%; text-align: center; pointer-events: none;
@@ -453,3 +462,7 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; }
 .crop-box.movable { cursor: grab; }
 .crop-box.movable:active { cursor: grabbing; }
 .crop-tag { position: absolute; left: 4px; top: 4px; font-size: 11px; background: rgba(16,19,23,0.8); color: var(--accent); padding: 1px 6px; border-radius: 4px; white-space: nowrap; }
+
+.video-layout { gap: 12px; }
+.shot-row.trimming { outline: 1px solid var(--accent); }
+.add-shot { background: var(--panel); border: 1px dashed var(--border); border-radius: 6px; padding: 6px 8px; }

@@ -174,7 +174,8 @@ export default function VideoPage() {
 
   return (
     <div className="stack">
-      <section className="panel stack">
+      <section className="panel video-layout">
+       <div className="video-main stack">
         <div className="panel-head">
           <h2 className="video-h">{video.title}</h2>
           <Link to="/library" className="btn small">Library</Link>
@@ -210,9 +211,11 @@ export default function VideoPage() {
         {playError && !editCopy && <p className="muted small">This file may not play here — Prepare → Preview copy makes one that does.</p>}
         <Timeline videoDuration={vidDuration} nowTime={nowTime} scenes={scenes?.scenes ?? []}
                   dialogue={dialogue?.lines ?? []} closeups={tags?.shots.filter((s) => s.closeup) ?? []}
-                  range={mode === 'edit' && editMode === 'range' ? range : null} onRange={setRange}
+                  range={mode === 'edit' ? range : null} onRange={setRange}
                   shots={mode === 'edit' && editMode === 'montage' ? montageShots ?? undefined : undefined} onSeek={seek} />
 
+       </div>
+       <div className="video-side stack">
         {guide && (
           <div className="guide">
             <span className="small"><strong>How it works:</strong> 1 Prepare the video → 2 pick Clips (or let AI) → 3 Edit the look and Render → review on the Review tab.</span>
@@ -244,6 +247,7 @@ export default function VideoPage() {
                      tweakingClip={tweakClip} onStep={setEditStep} shotCount={montageShots?.length ?? 0} />
         )}
         {mode === 'tools' && <ToolsSection video={video} range={range} active={active} run={(t, pl, ok) => void run(t, pl, ok)} onRemove={() => void remove()} />}
+       </div>
       </section>
     </div>
   )

@@ -4,6 +4,7 @@ import type { DialogueLine, TaggedShot, TagKind } from '../../lib/api'
 import { duration } from '../../lib/format'
 import { PLAYBACKS, REVERSE_SPEEDS, playbackLength, type Playback, type ShakeMarker, type ZoomMarker } from '../../lib/settings'
 import type { VideoDetail as Video } from '../../lib/types'
+import TimeInput from '../ui/TimeInput'
 
 export interface Transition { type: string; duration: number }
 
@@ -72,6 +73,8 @@ interface Props {
   rangeStart: number | null
   rangeEnd: number | null
   seek: (t: number) => void
+  playhead?: () => number
+  onRangeChange?: (r: { start: number; end: number }) => void   // moves the timeline's handles
   onRender: (segments: Segment[], transition: Transition) => void
   onShotsChange?: (shots: { start: number; end: number; active?: boolean }[] | null) => void
   disabled: boolean
@@ -125,12 +128,13 @@ const extras = (s: Shot, last: boolean): string[] => {
   return out
 }
 
-export default function Montage({ video, view = 'all', plan, onApplyPlanLook, scenes, dialogue, tags, clipPack, rangeStart, rangeEnd, seek, onRender, onShotsChange, disabled }: Props) {
+export default function Montage({ video, view = 'all', plan, onApplyPlanLook, scenes, dialogue, tags, clipPack, rangeStart, rangeEnd, seek, playhead, onRangeChange, onRender, onShotsChange, disabled }: Props) {
   const [shots, setShots] = useState<Shot[]>(() => load(video.id).shots)
   const [transition, setTransition] = useState<Transition>(() => load(video.id).transition)
   const [msg, setMsg] = useState<string | null>(null)
   const [showPlan, setShowPlan] = useState(false)
   const [loadedFor, setLoadedFor] = useState(video.id)
+  const [editingId, setEditingId] = useState<string | null>(null)   // the shot whose in/out the timeline handles are editing
 
   // Another video while mounted: swap to its saved builder.
   useEffect(() => {
@@ -140,8 +144,17 @@ export default function Montage({ video, view = 'all', plan, onApplyPlanLook, sc
   useEffect(() => {
     if (loadedFor !== video.id) return
     try { localStorage.setItem(key(video.id), JSON.stringify({ shots, transition })) } catch { /* ignore */ }
-    onShotsChange?.(shots.length ? shots.filter((x) => x.include).map((x) => ({ start: x.start, end: x.end })) : null)
-  }, [shots, transition, video.id, loadedFor]) // eslint-disable-line react-hooks/exhaustive-deps
+    onShotsChange?.(shots.length ? shots.filter((x) => x.include).map((x) => ({ start: x.start, end: x.end, active: x.id === editingId })) : null)
+  }, [shots, transition, video.id, loadedFor, editingId]) // eslint-disable-line react-hooks/exhaustive-deps
+  // While a shot is being trimmed, the timeline's handles (rangeStart/End) drive its in/out.
+  useEffect(() => {
+    if (!editingId || rangeStart == null || rangeEnd == null || rangeEnd <= rangeStart) return
+    setShots((list) => list.map((x) => (x.id === editingId && (x.start !== rangeStart || x.end !== rangeEnd)
+      ? { ...x, start: Math.round(rangeStart * 100) / 100, end: Math.round(rangeEnd * 100) / 100 } : x)))
+  }, [editingId, rangeStart, rangeEnd])
+  const startTrim = (s: Shot) => { setEditingId(s.id); onRangeChange?.({ start: s.start, end: s.end }); seek(s.start) }
+  const stopTrim = () => setEditingId(null)
+  const setRange = (start: number, end: number) => onRangeChange?.({ start: Math.max(0, start), end: Math.max(start + 0.3, end) })
 
   const replace = (next: Shot[], what: string) => {
     if (!next.length) return setMsg(`Nothing matched ${what}.`)
@@ -184,7 +197,10 @@ export default function Montage({ video, view = 'all', plan, onApplyPlanLook, sc
   }
   const addRange = () => {
     if (rangeStart == null || rangeEnd == null || rangeEnd <= rangeStart) return setMsg('Set a valid start/end first.')
-    setShots((s) => [...s, mk(rangeStart, rangeEnd)])
+    if (editingId) stopTrim()
+    const shot = mk(rangeStart, rangeEnd)
+    setShots((s) => [...s, shot])
+    setMsg(`Added ${duration(rangeStart)}–${duration(rangeEnd)} as shot ${shots.length + 1}. Tap ✎ on any shot to trim it.`)
   }
 
   const patch = (id: string, p: Partial<Shot>) => setShots((s) => s.map((x) => (x.id === id ? { ...x, ...p } : x)))
@@ -193,7 +209,7 @@ export default function Montage({ video, view = 'all', plan, onApplyPlanLook, sc
     if (j < 0 || j >= s.length) return s
     const next = [...s]; [next[i], next[j]] = [next[j], next[i]]; return next
   })
-  const remove = (id: string) => setShots((s) => s.filter((x) => x.id !== id))
+  const remove = (id: string) => { if (id === editingId) stopTrim(); setShots((s) => s.filter((x) => x.id !== id)) }
   const clearOwn = () => setShots((s) => s.map((x) => ({ ...x, transition: null })))
 
   const included = shots.filter((s) => s.include && s.end > s.start)
@@ -245,9 +261,22 @@ export default function Montage({ video, view = 'all', plan, onApplyPlanLook, sc
             <button className="btn small" onClick={fromClipPack} disabled={!clipPack?.length} title={clipPack ? 'The shredded clips' : 'Run Shred to clips first'}>Clip pack{clipPack ? ` (${clipPack.length})` : ''}</button>
             <button className="btn small accent" onClick={fromPlan} disabled={!plan} title={plan ? plan.summary : 'Run "Plan an edit" first'}>AI plan{plan ? ` (${plan.shots.length})` : ''}</button>
             <button className="btn small" onClick={fromSuggested} disabled={!video.clips.length}>Suggested clips{video.clips.length ? ` (${video.clips.length})` : ''}</button>
-            <button className="btn small" onClick={addRange} title="Adds the timeline's current range as a shot">Add current range</button>
             {shots.length > 0 && <button className="btn small" onClick={() => window.confirm('Clear the montage?') && setShots([])}>Clear</button>}
           </div>
+          {rangeStart != null && rangeEnd != null && !editingId && (
+            <div className="row wrap add-shot">
+              <span className="muted small">Add a shot</span>
+              <span className="muted small">from</span>
+              <TimeInput value={rangeStart} label="Shot start" onCommit={(v) => setRange(v, Math.max(rangeEnd, v + 0.5))} />
+              {playhead && <button className="btn small" onClick={() => setRange(playhead(), Math.max(rangeEnd, playhead() + 0.5))} title="Start at the player's position">◀ playhead</button>}
+              <span className="muted small">to</span>
+              <TimeInput value={rangeEnd} label="Shot end" onCommit={(v) => setRange(Math.min(rangeStart, v - 0.5), v)} />
+              {playhead && <button className="btn small" onClick={() => setRange(Math.min(rangeStart, playhead() - 0.5), playhead())} title="End at the player's position">playhead ▶</button>}
+              <span className="mono muted small">{duration(rangeEnd - rangeStart)}</span>
+              <button className="btn small accent" onClick={addRange}>Add shot</button>
+              <span className="muted small">or drag the amber handles on the timeline</span>
+            </div>
+          )}
           {shots.length === 0 && (
             <p className="muted small" style={{ margin: 0 }}>Start with a source above — <strong>Scene cuts</strong> gives one shot per scene, <strong>AI plan</strong> a finished edit. Then untick what you don't want and reorder. <Link to="/help#montage">How the montage works →</Link></p>
           )}
@@ -278,20 +307,35 @@ export default function Montage({ video, view = 'all', plan, onApplyPlanLook, sc
           )}
           {shots.length > 0 && (
             <div className="stack" style={{ gap: 4 }}>
-              <span className="muted small">tick = include · tap a time to preview · speed per shot · ↑ ↓ reorder</span>
-              {shots.map((s, i) => (
-                <div key={s.id} className={`shot-row ${s.include ? '' : 'off'}`}>
-                  <input type="checkbox" checked={s.include} onChange={(e) => patch(s.id, { include: e.target.checked })} aria-label="Include shot" />
-                  {timeButton(s, i)}
-                  {labelSpan(s, i === shots.length - 1, view !== 'all')}
-                  <select value={s.speed} onChange={(e) => patch(s.id, { speed: Number(e.target.value) })} aria-label="Speed" title="Playback speed of this shot">
-                    {SPEEDS.map((v) => <option key={v} value={v}>{v}×</option>)}
-                  </select>
-                  <button className="btn small" onClick={() => move(i, -1)} disabled={i === 0} aria-label="Move up">↑</button>
-                  <button className="btn small" onClick={() => move(i, 1)} disabled={i === shots.length - 1} aria-label="Move down">↓</button>
-                  <button className="btn small" onClick={() => remove(s.id)} aria-label="Remove shot">✕</button>
-                </div>
-              ))}
+              <span className="muted small">tick = include · tap a time to preview · ✎ trim · speed per shot · ↑ ↓ reorder</span>
+              {shots.map((s, i) => {
+                const trimming = s.id === editingId
+                return (
+                  <div key={s.id} className={`shot-row ${s.include ? '' : 'off'} ${trimming ? 'trimming' : ''}`}>
+                    <input type="checkbox" checked={s.include} onChange={(e) => patch(s.id, { include: e.target.checked })} aria-label="Include shot" />
+                    {timeButton(s, i)}
+                    {labelSpan(s, i === shots.length - 1, view !== 'all')}
+                    <select value={s.speed} onChange={(e) => patch(s.id, { speed: Number(e.target.value) })} aria-label="Speed" title="Playback speed of this shot">
+                      {SPEEDS.map((v) => <option key={v} value={v}>{v}×</option>)}
+                    </select>
+                    <button className={`btn small ${trimming ? 'accent' : ''}`} onClick={() => (trimming ? stopTrim() : startTrim(s))} aria-label="Trim shot" title="Trim: drag the handles on the timeline or type the times">{trimming ? 'Done' : '✎'}</button>
+                    <button className="btn small" onClick={() => move(i, -1)} disabled={i === 0} aria-label="Move up">↑</button>
+                    <button className="btn small" onClick={() => move(i, 1)} disabled={i === shots.length - 1} aria-label="Move down">↓</button>
+                    <button className="btn small" onClick={() => remove(s.id)} aria-label="Remove shot">✕</button>
+                    {trimming && (
+                      <div className="shot-next">
+                        <span className="muted small">trim · from</span>
+                        <TimeInput value={s.start} label="Shot start" onCommit={(v) => setRange(v, Math.max(s.end, v + 0.5))} />
+                        {playhead && <button className="btn small" onClick={() => setRange(playhead(), Math.max(s.end, playhead() + 0.5))}>◀ playhead</button>}
+                        <span className="muted small">to</span>
+                        <TimeInput value={s.end} label="Shot end" onCommit={(v) => setRange(Math.min(s.start, v - 0.5), v)} />
+                        {playhead && <button className="btn small" onClick={() => setRange(Math.min(s.start, playhead() - 0.5), playhead())}>playhead ▶</button>}
+                        <span className="muted small">or drag the amber handles on the timeline</span>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
               <span className="mono muted small">{countLine}</span>
             </div>
           )}
