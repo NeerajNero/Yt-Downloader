@@ -96,7 +96,9 @@ class Segment(BaseModel):
     the transition INTO THE NEXT shot; None = the montage's default."""
     start: float = Field(ge=0)
     end: float
-    speed: float = Field(1.0, ge=0.25, le=4.0)
+    speed: float = Field(1.0, ge=0.1, le=4.0)
+    reverse: bool = False          # play this shot backwards (same output length as forward at this speed)
+    smooth: bool = False           # slow-mo (< 1x) with motion interpolation on the final render only
     zoom_markers: list[ZoomMarker] = Field(default_factory=list, max_length=20)
     shake_markers: list[ShakeMarker] = Field(default_factory=list, max_length=20)
     transition: Transition | None = None
@@ -109,6 +111,8 @@ class Segment(BaseModel):
     def _range(self):
         if self.end <= self.start:
             raise ValueError("End time must be after start time.")
+        if self.reverse and self.end - self.start > 6.0:
+            raise ValueError(f"A reversed shot can be at most 6 s of source ({self.end - self.start:.1f} s).")
         return self
 
 

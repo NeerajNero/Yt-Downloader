@@ -72,6 +72,9 @@ def handle(ctx: JobContext) -> dict:
     notes = core.audio_notes(settings)
     if notes:
         music_info["audio_notes"] = notes
+    motion = core.motion_notes(settings)
+    if motion:
+        music_info["motion_notes"] = motion
     if music_path is not None:
         music_info["music_drop_aligned"] = plan["aligned"]
         if plan["aligned"]:

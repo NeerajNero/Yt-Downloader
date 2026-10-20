@@ -189,7 +189,34 @@ def effects_filter(effects: dict | None, width: int, height: int, prefix: str = 
 
 
 PLAYBACKS = ("forward", "reverse", "bounce")
-MAX_REVERSE_SECONDS = 10.0   # ffmpeg's reverse filter buffers every frame
+MAX_REVERSE_SECONDS = 10.0   # ffmpeg's reverse filter buffers every frame (bounce / legacy playback)
+MAX_REVERSE_SHOT_S = 6.0     # a montage shot with reverse=true
+SHOT_SPEED_MIN, SHOT_SPEED_MAX = 0.1, 4.0
+MINTERPOLATE = "minterpolate=fps={fps:.4f}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1"
+
+
+def shot_retime(seg: dict, fps: float, preview: bool = False) -> str:
+    """The per-shot source-prep chain: `reverse` (on the trimmed segment, before
+    setpts) → setpts for the speed → the output rate, which is minterpolate for a
+    smooth slow-mo on a final render and a plain fps filter otherwise (previews
+    always duplicate frames so they stay fast)."""
+    speed = float(seg.get("speed", 1.0) or 1.0)
+    parts = []
+    if seg.get("reverse"):
+        parts.append("reverse")
+    parts.append(f"setpts=(PTS-STARTPTS)/{speed:.4f}")
+    if seg.get("smooth") and speed < 1.0 and not preview:
+        parts.append(MINTERPOLATE.format(fps=fps))
+    else:
+        parts.append(f"fps={fps:.4f}")
+    return ",".join(parts)
+
+
+def motion_notes(s: "RenderSettings") -> list[str]:
+    """What the job result reports about motion: smooth slow-mo only exists on the final render."""
+    if any(seg.get("smooth") and float(seg.get("speed", 1.0) or 1.0) < 1.0 for seg in s.segments):
+        return ["smooth slow-mo applied on final render only"]
+    return []
 
 # ---- audio rules (docs: CLAUDE.md "Audio") -------------------------------------------
 # Music ducking under the mixed source audio: sidechaincompress threshold / ratio / attack ms / release ms.
@@ -542,8 +569,10 @@ class RenderSettings:
                 if a < 0 or b <= a:
                     raise ValueError(f"Segment {i}: end time must be after start time.")
                 sp = float(seg.get("speed", 1.0) or 1.0)
-                if not (0.25 <= sp <= 4.0):
-                    raise ValueError(f"Segment {i}: speed must be between 0.25 and 4.")
+                if not (SHOT_SPEED_MIN <= sp <= SHOT_SPEED_MAX):
+                    raise ValueError(f"Segment {i}: speed must be between {SHOT_SPEED_MIN:g} and {SHOT_SPEED_MAX:g}.")
+                if seg.get("reverse") and b - a > MAX_REVERSE_SHOT_S:
+                    raise ValueError(f"Shot {i}: a reversed shot can be at most {MAX_REVERSE_SHOT_S:g} s of source ({b - a:.1f} s).")
                 pb = seg.get("playback", "forward") or "forward"
                 if pb not in PLAYBACKS:
                     raise ValueError(f"Segment {i}: playback must be forward, reverse or bounce.")
@@ -715,7 +744,10 @@ def source_to_output(t_source: float, layout: list[dict]) -> float | None:
     t = float(t_source)
     for L in layout:
         if float(L["start"]) <= t <= float(L["end"]):
-            return float(L["offset"]) + (t - float(L["start"])) / float(L.get("speed", 1.0) or 1.0)
+            sp = float(L.get("speed", 1.0) or 1.0)
+            if L.get("reverse"):   # time runs backwards inside a reversed shot
+                return float(L["offset"]) + (float(L["end"]) - t) / sp
+            return float(L["offset"]) + (t - float(L["start"])) / sp
     return None
 
 
@@ -992,7 +1024,8 @@ def sequence_layout(segments: list[dict], transition: dict) -> tuple[list[dict],
                        "zoom_markers": list(seg.get("zoom_markers") or []),
                        "shake_markers": list(seg.get("shake_markers") or []),
                        "playback": seg.get("playback", "forward") or "forward",
-                       "reverse_speed": float(seg.get("reverse_speed", 1.0) or 1.0)})
+                       "reverse_speed": float(seg.get("reverse_speed", 1.0) or 1.0),
+                       "reverse": bool(seg.get("reverse")), "smooth": bool(seg.get("smooth"))})
         offset += ln - (bounds[k]["d"] if k < len(bounds) else 0.0)
     total = (layout[-1]["offset"] + layout[-1]["len"]) if layout else 0.0
     return layout, total, bounds
@@ -1006,6 +1039,8 @@ def remap_transcript(transcript: dict, layout: list[dict]) -> dict:
         words_out = []
         for w in seg.get("words") or []:
             for L in layout:
+                if L.get("reverse"):
+                    continue   # backwards speech is noise: no captions inside a reversed shot
                 if L["start"] <= w["s"] < L["end"]:
                     ns = L["offset"] + (w["s"] - L["start"]) / L["speed"]
                     ne = L["offset"] + (min(w["e"], L["end"]) - L["start"]) / L["speed"]
@@ -1022,6 +1057,8 @@ def remap_manual(manual: dict, layout: list[dict]) -> dict:
     for it in manual.get("items", []):
         st = float(it["start"])
         for L in layout:
+            if L.get("reverse"):
+                continue
             if L["start"] <= st < L["end"]:
                 items.append({"text": it["text"], "start": round(L["offset"] + (st - L["start"]) / L["speed"], 2),
                               "duration": round(float(it.get("duration", 3)) / L["speed"], 2)})
@@ -1030,7 +1067,7 @@ def remap_manual(manual: dict, layout: list[dict]) -> dict:
 
 
 def sequence_graph(s: RenderSettings, layout: list[dict], bounds: list[dict], fps: float, build_w: int, build_h: int,
-                   source_rotate: str) -> tuple[list[str], str, str, str]:
+                   source_rotate: str, preview: bool = False) -> tuple[list[str], str, str, str]:
     """Build (per-input args, filter graph up to [vseq]/[aseq], vlabel, alabel)
     for the segments: seek each range as its own input, retime, frame, punch,
     shake, then join shot by shot — xfade/acrossfade for a transition, concat
@@ -1040,7 +1077,7 @@ def sequence_graph(s: RenderSettings, layout: list[dict], bounds: list[dict], fp
     n = len(layout)
     for k, L in enumerate(layout):
         inputs += ["-ss", f"{L['start']:.3f}", "-to", f"{L['end']:.3f}", "-i", "{SRC}"]
-        pre = f"setpts=(PTS-STARTPTS)/{L['speed']:.4f},fps={fps:.4f}"
+        pre = shot_retime(L, fps, preview)
         filt = export_filter(s.style, int(s.vivid_amount), s.trim_x, s.trim_y, s.fg_crop, build_w, build_h,
                              source_rotate, s.look, s.look_sharp, s.grade, in_label=f"{k}:v", pre_chain=pre,
                              crop_x=s.crop_x, crop_y=s.crop_y, crop_zoom=s.crop_zoom)
@@ -1144,7 +1181,7 @@ def run_sequence(src: Path, out_path: Path, s: RenderSettings, tools: Tools, enc
         build_orient = s.orientation
         source_rotate, composite_rotate = s.rotate, "none"
 
-    seg_inputs, graph, vlab, alab = sequence_graph(s, layout, bounds, fps, build_w, build_h, source_rotate)
+    seg_inputs, graph, vlab, alab = sequence_graph(s, layout, bounds, fps, build_w, build_h, source_rotate, preview=preview)
     inputs = [x.replace("{SRC}", str(src)) for x in seg_inputs]
     next_input = len(layout)
 

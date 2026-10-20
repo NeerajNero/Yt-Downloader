@@ -74,6 +74,11 @@ docs/PLAYBOOK.md   the Shorts rules the Phase 1 features implement (peak, drop, 
   (`DUCK_PRESETS`, sidechaincompress threshold / ratio / attack / release: light 0.05 / 4 / 20 / 400,
   medium 0.02 / 8 / 15 / 350, heavy 0.01 / 16 / 10 / 300; the old boolean maps true → medium). Per-shot
   audio never enters a recipe; `duck` and `music_gain` do.
+- Motion per montage shot (`core/render.shot_retime`): `speed` 0.1–4×, `reverse` (the `reverse`
+  filter on the trimmed segment before `setpts`, ≤ 6 s of source, same output length as forward,
+  audio muted), `smooth` (minterpolate mci/aobmc/bidir at the output fps for speed < 1 on final
+  renders only; previews always duplicate frames, `motion_notes` says so). `source_to_output` runs
+  backwards inside a reversed shot, so the peak / drop and caption timing follow it; snap.ts mirrors it.
 - Previews (`studio/preview.py`, `jobs/preview.py`): the render payload at 540 px, fps ≤ 30, `proxy`
   profile, no loudnorm, on its own queue lane, cached under `work/preview/<video_id>/<hash>.mp4`
   (LRU of 30). Never an asset, never on a clip row.

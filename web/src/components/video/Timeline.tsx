@@ -9,7 +9,7 @@ interface Props {
   closeups?: { start: number; end: number; subject?: string }[]
   range: { start: number; end: number } | null
   onRange: (r: { start: number; end: number }) => void
-  shots?: { start: number; end: number; active?: boolean }[]
+  shots?: { start: number; end: number; active?: boolean; reverse?: boolean }[]
   onSeek: (t: number) => void
   /** Beat grid in source seconds (lib/snap.ticksForTimeline): thin beats, thick amber downbeats. */
   ticks?: { beats: number[]; downbeats: number[] } | null
@@ -55,7 +55,7 @@ export default function Timeline({ videoDuration, nowTime, scenes, dialogue, clo
           <div key={`d${i}`} className="tl-dialogue" style={{ left: `${pct(d.start)}%`, width: `${pct(d.end) - pct(d.start)}%` }} title={d.text || 'dialogue'} />
         ))}
         {shots?.map((s, i) => (
-          <div key={i} className={`tl-shot ${s.active ? 'active' : ''}`} style={{ left: `${pct(s.start)}%`, width: `${pct(s.end) - pct(s.start)}%` }} />
+          <div key={i} className={`tl-shot ${s.active ? 'active' : ''} ${s.reverse ? 'reverse' : ''}`} style={{ left: `${pct(s.start)}%`, width: `${pct(s.end) - pct(s.start)}%` }} title={s.reverse ? 'plays backwards' : undefined} />
         ))}
         {ticks?.beats.map((t) => <div key={`b${t}`} className="tl-beat" style={{ left: `${pct(t)}%` }} />)}
         {ticks?.downbeats.map((t) => <div key={`db${t}`} className="tl-downbeat" style={{ left: `${pct(t)}%` }} title={`downbeat ${duration(t)}`} />)}

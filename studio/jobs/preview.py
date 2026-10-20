@@ -31,6 +31,9 @@ def handle(ctx: JobContext) -> dict:
                     music_drop_s=pl.music_drop_s, preview=True, **inputs)
     music = core.music_plan(settings, pl.music_drop_s, has_music=inputs["music_path"] is not None)
     out = {"url": pl.url, "hash": pl.hash, "cached": False, "encoder": ctx.encoder, "evicted": len(evicted)}
+    for key, notes in (("audio_notes", core.audio_notes(settings)), ("motion_notes", core.motion_notes(settings))):
+        if notes:
+            out[key] = notes
     if inputs["music_path"] is not None:
         out["music_drop_aligned"] = music["aligned"]
         if not music["aligned"]:
