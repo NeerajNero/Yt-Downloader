@@ -4,6 +4,7 @@ render payload are rejected so a typo can't silently drop a setting."""
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
@@ -244,6 +245,19 @@ class StylePayload(BaseModel):
     url: str | None = None
 
 
+class BeatsPayload(BaseModel):
+    """Beat grid for one track in <library>/.music (file name, no path)."""
+    name: str
+
+    @model_validator(mode="after")
+    def _plain_name(self):
+        n = self.name.strip()
+        if not n or n != Path(n).name or n.startswith("."):
+            raise ValueError("name must be a file in the music folder.")
+        self.name = n
+        return self
+
+
 class PlanPayload(BaseModel):
     target_length: float = Field(30.0, ge=8, le=180)
     max_shots: int = Field(8, ge=2, le=12)
@@ -266,6 +280,7 @@ PAYLOADS: dict[str, type[BaseModel]] = {
     "plan": PlanPayload,
     "dialogue": DialoguePayload,
     "tags": TagsPayload,
+    "beats": BeatsPayload,
 }
 
 # Job types that need a video_id.

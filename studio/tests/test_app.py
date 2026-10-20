@@ -191,6 +191,58 @@ def test_api_library_jobs_clips_recipes(client: TestClient):
     assert client.get("/api/videos").json() == []
 
 
+def test_music_upload_queues_beats_and_keeps_manual_drop(client: TestClient, monkeypatch):
+    from studio.core import beats
+
+    def fake_analyze(path, tools, should_cancel, report=None, name=None, load=None):
+        return {**beats.empty_grid(name or Path(path).name, 30.0), "bpm": 120.0,
+                "beats": [0.5, 1.0, 1.5, 2.0], "downbeats": [0.5], "drop_s": 1.5}
+
+    monkeypatch.setattr(beats, "analyze_track", fake_analyze)
+    r = client.post("/api/music?filename=song.mp3", content=b"\x00" * 100)
+    assert r.status_code == 200 and r.json()["name"] == "song.mp3"
+    job_id = r.json()["beats_job_id"]
+    assert job_id and wait_for(client, job_id)["status"] == "done"
+    assert client.get("/api/music").json() == ["song.mp3"]
+    g = client.get("/api/music/song.mp3/beats").json()
+    assert g["bpm"] == 120.0 and g["drop_s"] == 1.5 and g["drop_effective"] == 1.5 and g["current"] is True
+    assert g["drop_s_manual"] is None and g["downbeats_method"] == "onset_phase_4_4"
+    lib = context.app.lib
+    assert (lib.root / ".music" / "song.mp3.beats.json").is_file()
+    assert "song.mp3.beats.json" not in client.get("/api/music").json()
+    # manual drop wins and survives a re-analysis after a version bump
+    g = client.patch("/api/music/song.mp3/beats", json={"drop_s_manual": 9.25}).json()
+    assert g["drop_s_manual"] == 9.25 and g["drop_effective"] == 9.25
+    assert client.patch("/api/music/song.mp3/beats", json={"drop_s_manual": -1}).status_code == 400
+    assert client.patch("/api/music/nope.mp3/beats", json={"drop_s_manual": 1}).status_code == 404
+    stale = lib.read_beats("song.mp3")
+    stale["version"] = 0
+    lib.put_json(lib.beats_rel("song.mp3"), stale)
+    assert client.get("/api/music/song.mp3/beats").json()["current"] is False
+    r = client.post("/api/library/rescan").json()
+    assert r["beats_queued"] == 1 and r["videos"] == 1
+    job = next(j for j in client.get("/api/jobs").json() if j["type"] == "beats" and j["status"] != "done")
+    assert wait_for(client, job["id"])["status"] == "done"
+    g = client.get("/api/music/song.mp3/beats").json()
+    assert g["current"] is True and g["drop_s"] == 1.5 and g["drop_s_manual"] == 9.25 and g["drop_effective"] == 9.25
+    # nothing to do now: rescan queues no beats job, and a track never analysed gets one
+    assert client.post("/api/library/rescan").json()["beats_queued"] == 0
+    (lib.music_dir() / "other.wav").write_bytes(b"\x00" * 10)
+    assert client.post("/api/music/beats/rescan").json()["queued"] == 1
+    assert client.post("/api/music/beats/rescan").json()["queued"] == 0  # already active: deduped on name
+    # clearing the override
+    g = client.patch("/api/music/song.mp3/beats", json={"drop_s_manual": None}).json()
+    assert g["drop_s_manual"] is None and g["drop_effective"] == 1.5
+    # setting a drop before any analysis writes a stub and queues the job
+    (lib.music_dir() / "third.mp3").write_bytes(b"\x00" * 10)
+    g = client.patch("/api/music/third.mp3/beats", json={"drop_s_manual": 4.0}).json()
+    assert g["current"] is False and g["drop_effective"] == 4.0
+    assert sum(1 for j in client.get("/api/jobs").json() if j["type"] == "beats") == 4  # song x2, other, third
+    for j in client.get("/api/jobs").json():
+        if j["status"] in ("queued", "running"):
+            client.post(f"/api/jobs/{j['id']}/cancel")
+
+
 def test_pipeline_fans_out(client: TestClient, tmp_path):
     app = context.app
     v = app.store.list_videos()[0]

@@ -163,7 +163,8 @@ def delete_video(video_id: str):
 
 @router.post("/library/rescan")
 def rescan():
-    return context.app.store.reconcile()
+    stats = context.app.store.reconcile()
+    return {**stats, "beats_queued": len(pipeline.ensure_beats())}
 
 
 # ---- clips --------------------------------------------------------------------------

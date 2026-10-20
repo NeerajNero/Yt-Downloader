@@ -40,7 +40,8 @@ def handle(ctx: JobContext) -> dict:
         measured = core.measure(ref_local, ctx.tools, ctx.report, ctx.should_cancel)
         ctx.report(None, "asking gemini to watch it")
         report = core.analyze(ref_local, info.get("title") or row.get("title") or url, measured,
-                              ctx.tools, scratch, ctx.should_cancel, on_retry=lambda n: ctx.report(None, n))
+                              ctx.tools, scratch, ctx.should_cancel, encoder=ctx.encoder,
+                              on_retry=lambda n: ctx.report(None, n))
         recipe = core.to_recipe(report, measured)
         notes = core.resolve_markdown(report, measured)
         report["chips"] = core.chips(report, measured)
