@@ -16,7 +16,7 @@ from pathlib import Path
 
 from . import encoders
 from .captions import (CAPTION_POS_NAMES, CAPTION_STYLES, subtitles_filter_path,
-                       write_captions_ass, write_manual_captions_ass)
+                       write_captions_ass, write_manual_captions_ass, write_overlay_ass)
 from .ffmpeg import Report, ShouldCancel, Tools
 
 
@@ -428,7 +428,13 @@ class RenderSettings:
     effects: dict = field(default_factory=dict)   # see effects_filter()
     fx: list = field(default_factory=list)         # [{"file","at","opacity","blend","flip","speed"}] resolved by the adapter
     peak_s: float | None = None      # the moment, source seconds (docs/PLAYBOOK.md); the music drop is aligned to it
+    hook_text: str | None = None     # burned on frame 1 (Hook style); never filled from Gemini on the backend
+    payoff_text: str | None = None   # burned on the peak (Payoff style)
     extra: dict = field(default_factory=dict)
+
+    @property
+    def has_overlay_text(self) -> bool:
+        return bool((self.hook_text or "").strip() or (self.payoff_text or "").strip())
 
     @property
     def is_sequence(self) -> bool:
@@ -549,6 +555,8 @@ def output_name(stem: str, s: RenderSettings, has_music: bool, aligned: bool = F
             suffix += f"-{s.caption_style[:4]}"
         if s.caption_pos != "bottom":
             suffix += f"-{s.caption_pos[:3]}"
+    if s.has_overlay_text:
+        suffix += "_hook"
     if s.resolution != "1080":
         suffix += f"_{s.resolution}"
     if s.rotate != "none":
@@ -713,24 +721,29 @@ def run_export(src: Path, out_path: Path, s: RenderSettings, tools: Tools, encod
     filt += effects_filter(s.effects, build_w, build_h)
 
     ass_file = None
-    if s.captions:
+    peak_out = source_to_output(float(s.peak_s), s.layout()) if s.peak_s is not None else None
+    if s.captions or s.has_overlay_text:
         if not tools.has_subtitles_filter():
             raise RuntimeError("This ffmpeg build can't burn captions (no libass). "
                                "Use a full build (Gyan full on Windows, ffmpeg-full on macOS).")
         fd, ass_file = tempfile.mkstemp(suffix=".ass")
         os.close(fd)
-        if s.caption_source == "manual":
+        hp = {"hook_text": s.hook_text, "payoff_text": s.payoff_text, "peak_out_s": peak_out}
+        if not s.captions:
+            n = write_overlay_ass(s.hook_text, s.payoff_text, peak_out, end - start, ass_file,
+                                  position=s.caption_pos, style=s.caption_style, orientation=build_orient)
+        elif s.caption_source == "manual":
             if not manual_captions:
                 raise RuntimeError("No manual captions yet — add them in the caption editor.")
             n = write_manual_captions_ass(manual_captions, start, end, ass_file,
                                           position=s.caption_pos, style=s.caption_style,
-                                          orientation=build_orient)
+                                          orientation=build_orient, **hp)
         else:
             if not transcript:
                 raise RuntimeError("No transcript yet — run Transcribe first.")
             n = write_captions_ass(transcript, start, end, ass_file,
                                    position=s.caption_pos, style=s.caption_style,
-                                   orientation=build_orient)
+                                   orientation=build_orient, **hp)
         if n > 0:
             filt += "," + subtitles_filter_path(ass_file)
 
@@ -1025,21 +1038,26 @@ def run_sequence(src: Path, out_path: Path, s: RenderSettings, tools: Tools, enc
         comp.append(fx[1:])
 
     ass_file = None
-    if s.captions:
+    peak_out = source_to_output(float(s.peak_s), layout) if s.peak_s is not None else None   # None outside every shot
+    if s.captions or s.has_overlay_text:
         if not tools.has_subtitles_filter():
             raise RuntimeError("This ffmpeg build can't burn captions (no libass).")
         fd, ass_file = tempfile.mkstemp(suffix=".ass")
         os.close(fd)
-        if s.caption_source == "manual":
+        hp = {"hook_text": s.hook_text, "payoff_text": s.payoff_text, "peak_out_s": peak_out}
+        if not s.captions:
+            n = write_overlay_ass(s.hook_text, s.payoff_text, peak_out, total, ass_file,
+                                  position=s.caption_pos, style=s.caption_style, orientation=build_orient)
+        elif s.caption_source == "manual":
             if not manual_captions:
                 raise RuntimeError("No manual captions yet — add them in the caption editor.")
             n = write_manual_captions_ass(remap_manual(manual_captions, layout), 0.0, total, ass_file,
-                                          position=s.caption_pos, style=s.caption_style, orientation=build_orient)
+                                          position=s.caption_pos, style=s.caption_style, orientation=build_orient, **hp)
         else:
             if not transcript:
                 raise RuntimeError("No transcript yet — run Transcribe first.")
             n = write_captions_ass(remap_transcript(transcript, layout), 0.0, total, ass_file,
-                                   position=s.caption_pos, style=s.caption_style, orientation=build_orient)
+                                   position=s.caption_pos, style=s.caption_style, orientation=build_orient, **hp)
         if n > 0:
             comp.append(subtitles_filter_path(ass_file))
     if composite_rotate != "none":

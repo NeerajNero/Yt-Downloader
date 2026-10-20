@@ -44,6 +44,8 @@ export interface Clip {
   start_s: number
   end_s: number
   peak_s: number | null      // the moment, source seconds (docs/PLAYBOOK.md)
+  hook_text: string | null   // burned on frame 1; typed by hand (clip.hook is only a placeholder)
+  payoff_text: string | null // burned on the peak
   title: string | null
   hook: string | null
   reason: string | null

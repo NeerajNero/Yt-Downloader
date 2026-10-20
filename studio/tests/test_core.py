@@ -2,6 +2,7 @@
 encoder table, payload schemas, and the Gemini adapters with the API mocked."""
 
 import json
+import re
 from pathlib import Path
 from unittest import mock
 
@@ -29,6 +30,19 @@ def test_captions_karaoke_shifts_to_clip_start(tmp_path):
     assert "PlayResX: 1080" in text and "PlayResY: 1920" in text
     assert "Dialogue: 0,0:00:00.50,0:00:02.50,Cap" in text
     assert "{\\k39}hello {\\k39}there {\\k79}world" in text  # int() truncation, as v1
+    # Cap sits inside the safe area; Hook / Payoff styles are always declared
+    assert "Style: Cap,Arial,88,&H003CA3F2,&H00FFFFFF,&H00101317,&H80101317,1,0,0,0,100,100,1,0,1,6,2,2,54,162,384,1" in text
+    assert "Style: Hook,Arial,141,&H00FFFFFF,&H00FFFFFF,&H00101317,&H80101317,1,0,0,0,100,100,1,0,1,9,3,8,54,162,192,1" in text
+    assert "Style: Payoff,Arial,114,&H00FFFFFF,&H00FFFFFF,&H00101317,&H80101317,1,0,0,0,100,100,1,0,1,9,3,5,54,162,0,1" in text
+    # a hook on frame 1 (0 → peak-0.5) suppresses the karaoke line it overlaps; the payoff sits on the peak
+    n = captions.write_captions_ass(TRANSCRIPT, 0.5, 5.0, out, hook_text="Watch this", payoff_text="Boom", peak_out_s=2.0)
+    text = out.read_text()
+    assert n == 2 and "{\\k" not in text and "Cap,,0,0,0,,{" not in text
+    assert "Dialogue: 2,0:00:00.00,0:00:01.50,Hook,,0,0,0,,Watch this" in text
+    assert "Dialogue: 2,0:00:02.00,0:00:03.80,Payoff,,0,0,0,,Boom" in text
+    n = captions.write_captions_ass(TRANSCRIPT, 0.5, 5.0, out, hook_text="Watch this", payoff_text="Boom", peak_out_s=2.0,
+                                    suppress_during_hook_payoff=False)
+    assert n == 3 and "{\\k39}hello" in out.read_text()
 
 
 def test_captions_pop_uppercase_and_two_layers(tmp_path):
@@ -46,7 +60,95 @@ def test_manual_captions(tmp_path):
                                       {"text": "outside", "start": 30, "duration": 2}]}
     n = captions.write_manual_captions_ass(manual, 0, 10, out, style="minimal", position="top")
     text = out.read_text()
-    assert n == 1 and "first youtube video" in text and ",8,60,60,220,1" in text
+    assert n == 1 and "first youtube video" in text and ",3,2,8,54,162,192,1" in text
+    assert "Style: Hook,Arial,102," in text and ",4.5,3,8,54,162,192,1" in text and "Style: Payoff,Arial,83," in text
+    # the manual item (1 → 5 s) overlaps the payoff window (4 → 5.8): suppressed; the hook (0 → 3) stays
+    n = captions.write_manual_captions_ass(manual, 0, 10, out, style="minimal", position="top",
+                                           hook_text="the start", payoff_text="the hit", peak_out_s=4.0)
+    text = out.read_text()
+    assert n == 2 and "first youtube video" not in text
+    assert "Dialogue: 2,0:00:00.00,0:00:03.00,Hook,,0,0,0,,the start" in text and "0:00:04.00,0:00:05.80,Payoff,,0,0,0,,the hit" in text
+    # overlay only (captions off in the recipe)
+    n = captions.write_overlay_ass("Only a hook", None, None, 10.0, out, style="pop", orientation="landscape")
+    text = out.read_text()
+    assert n == 1 and "PlayResX: 1920" in text and "Hook,,0,0,0,,Only a hook" in text and "Payoff,,0" not in text
+    assert "Style: Hook,Arial,154," in text and ",12,13.5,8,96,288,108,1" in text and "Style: Payoff,Arial,125," in text
+
+
+def test_safe_margins_every_position_both_orientations():
+    assert captions.safe_margins("bottom", "portrait") == (2, 54, 162, 384)
+    assert captions.safe_margins("middle", "portrait") == (5, 54, 162, 0)
+    assert captions.safe_margins("top", "portrait") == (8, 54, 162, 192)
+    assert captions.safe_margins("bottom", "landscape") == (2, 96, 288, 216)
+    assert captions.safe_margins("middle", "landscape") == (5, 96, 288, 0)
+    assert captions.safe_margins("top", "landscape") == (8, 96, 288, 108)
+    assert captions.safe_margins("weird", "nope") == (2, 54, 162, 384)   # falls back to bottom / portrait
+    for style, cap, hook, payoff, floor, outline, shadow in (("karaoke", 88, 141, 114, 106, 9.0, 3.0), ("pop", 96, 154, 125, 115, 12.0, 13.5),
+                                                              ("minimal", 64, 102, 83, 77, 4.5, 3.0)):
+        hp = captions.hp_sizes(style)
+        assert (hp["cap"], hp["hook"], hp["payoff"], hp["floor"], hp["outline"], hp["shadow"]) == (cap, hook, payoff, floor, outline, shadow)
+
+
+def test_hook_payoff_events_timing():
+    ev = captions.hook_payoff_events("Hook", "Payoff", 4.0, 10.0)
+    assert [(e["style"], e["start"], e["end"]) for e in ev] == [("Hook", 0.0, 3.0), ("Payoff", 4.0, 5.8)]
+    # no peak: hook runs the full 3 s, no payoff
+    assert [(e["style"], e["start"], e["end"]) for e in captions.hook_payoff_events("Hook", "Payoff", None, 10.0)] == [("Hook", 0.0, 3.0)]
+    # peak near the start: the hook ends 0.5 s before it (shorter than 1 s); too close = no hook at all
+    assert [(e["style"], e["end"]) for e in captions.hook_payoff_events("Hook", "P", 1.2, 10.0)] == [("Hook", 0.7), ("Payoff", 3.0)]
+    assert [e["style"] for e in captions.hook_payoff_events("Hook", "P", 0.4, 10.0)] == ["Payoff"]
+    # payoff clamped at the end of the clip; hook clamped by a very short clip
+    assert captions.hook_payoff_events(None, "P", 9.0, 10.0)[0]["end"] == 10.0
+    assert captions.hook_payoff_events("H", None, None, 2.0)[0]["end"] == 2.0
+    # empty / whitespace texts give nothing
+    assert captions.hook_payoff_events("  ", "", 4.0, 10.0) == []
+
+
+def test_hook_wraps_to_two_lines_and_steps_the_font_down():
+    assert captions.wrap_two_lines("short", 141, 106) == ("short", None)
+    text, fs = captions.wrap_two_lines("the quick brown fox jumps over", 141, 106)
+    assert text == "the quick brown\\Nfox jumps over" and fs is None
+    # one 26-char word: 26 → 23.4 (90 %) → 21.1 (81 %) fits: \fs = round(141 * 0.81)
+    assert captions.wrap_two_lines("abcdefghijklmnopqrstuvwxyz", 141, 106) == ("abcdefghijklmnopqrstuvwxyz", 114)
+    # hopeless: stops at the floor (1.2x) instead of shrinking forever
+    text, fs = captions.wrap_two_lines("supercalifragilisticexpialidocious yes", 141, 106)
+    assert text == "supercalifragilisticexpialidocious\\Nyes" and fs == 106
+    ev = captions.hook_payoff_events("abcdefghijklmnopqrstuvwxyz", None, None, 10.0)
+    assert captions._hp_dialogue(ev[0]).endswith("Hook,,0,0,0,,{\\fs114}abcdefghijklmnopqrstuvwxyz")
+    # braces in typed text can't break the ASS tags
+    assert captions.wrap_two_lines("a {b} c", 141, 106)[0] == "a (b) c"
+
+
+def test_render_burns_hook_without_transcript_or_captions(tmp_path):
+    src = tmp_path / "src.mkv"; src.write_bytes(b"x")
+    seen = {}
+
+    def fake_run(self, cmd, duration, report, should_cancel, note=None, stderr_sink=None):
+        graph = cmd[cmd.index("-filter_complex") + 1]
+        m = re.search(r"subtitles=filename='([^']+)'", graph)
+        seen["graph"] = graph
+        seen["ass"] = Path(m.group(1).replace("\\:", ":")).read_text() if m else None
+
+    with mock.patch.object(Tools, "run_progress", fake_run), mock.patch.object(Tools, "probe_fps", return_value=30.0), \
+         mock.patch.object(Tools, "has_subtitles_filter", return_value=True):
+        s = render.RenderSettings(start=10, end=20, captions=False, hook_text="Watch this", payoff_text="Boom", peak_s=14)
+        render.run_export(src, tmp_path / "o.mp4", s, Tools("ffmpeg"), "libx264", lambda *_: None, lambda: False)
+    assert seen["ass"] and "Hook,,0,0,0,,Watch this" in seen["ass"] and "0:00:04.00,0:00:05.80,Payoff,,0,0,0,,Boom" in seen["ass"]
+    assert "Cap,,0,0,0,," not in seen["ass"]
+    # a montage: the peak maps through the shots (shot 2 at 2x from offset 2.6 → 10 s lands at 3.6 s)
+    with mock.patch.object(Tools, "run_progress", fake_run), mock.patch.object(Tools, "probe_fps", return_value=30.0), \
+         mock.patch.object(Tools, "has_subtitles_filter", return_value=True):
+        s = render.RenderSettings(segments=[{"start": 1, "end": 4}, {"start": 8, "end": 12, "speed": 2}], transition={"type": "fade", "duration": 0.4},
+                                  style="crop", payoff_text="Boom", peak_s=10)
+        render.run_export(src, tmp_path / "o.mp4", s, Tools("ffmpeg"), "libx264", lambda *_: None, lambda: False)
+    assert "0:00:03.60,0:00:04.60,Payoff,,0,0,0,,Boom" in seen["ass"]   # clamped at the 4.6 s montage end
+    # no text at all: no subtitles filter
+    with mock.patch.object(Tools, "run_progress", fake_run), mock.patch.object(Tools, "probe_fps", return_value=30.0):
+        render.run_export(src, tmp_path / "o.mp4", render.RenderSettings(start=0, end=5), Tools("ffmpeg"), "libx264", lambda *_: None, lambda: False)
+    assert seen["ass"] is None
+    assert render.output_name("X", render.RenderSettings(start=0, end=5, hook_text="h"), False) == "X_9x16_0s-5s_blur_hook.mp4"
+    assert render.output_name("X", render.RenderSettings(start=0, end=5, captions=True, payoff_text=" p "), False) == "X_9x16_0s-5s_blur_cap_hook.mp4"
+    assert "_hook" not in render.output_name("X", render.RenderSettings(start=0, end=5, hook_text="  "), False)
 
 
 def test_export_filter_blur_and_crop():
@@ -122,6 +224,10 @@ def test_payload_schemas():
     with pytest.raises(ValueError):
         validate_payload("render", {"start": 1, "end": 5, "peak_s": -1})
     assert "peak_s" not in validate_recipe({"style": "crop", "peak_s": 3.0})
+    p = validate_payload("render", {"start": 1, "end": 5, "hook_text": "Watch", "payoff_text": "Boom"})
+    assert (p["hook_text"], p["payoff_text"]) == ("Watch", "Boom")
+    r = validate_recipe({"style": "crop", "hook_text": "x", "payoff_text": "y"})
+    assert "hook_text" not in r and "payoff_text" not in r
 
 
 def test_suggest_clips_with_mocked_gemini(tmp_path):

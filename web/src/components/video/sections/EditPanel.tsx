@@ -193,6 +193,9 @@ export default function EditPanel(p: Props) {
   }
   const num = (v: string) => (v === '' ? 0 : Number(v))
   const D = DEFAULT_SETTINGS
+  // The clip whose hook / payoff / peak this edit belongs to: the one being tweaked, else the one whose range is loaded.
+  const activeClip = p.video.clips.find((c) => c.id === p.tweakingClip)
+    ?? p.video.clips.find((c) => Math.abs(c.start_s - p.range.start) < 0.01 && Math.abs(c.end_s - p.range.end) < 0.01) ?? null
 
   // ---- summaries (one line per step; also the Render summary) ----
   const rangeOut = playbackLength(p.range.end - p.range.start, 1, s.playback, s.reverse_speed)
@@ -449,7 +452,8 @@ export default function EditPanel(p: Props) {
           </>
         )}
       </div>
-      <CaptionEditor videoId={p.video.id} manual={p.manual} currentTime={p.playhead} onSaved={() => p.onChange({ ...s, captions: true, caption_source: 'manual' })} />
+      <CaptionEditor videoId={p.video.id} manual={p.manual} currentTime={p.playhead} onSaved={() => p.onChange({ ...s, captions: true, caption_source: 'manual' })}
+                     clip={activeClip} range={p.range} />
     </>
   )
   const soundSection = (

@@ -50,7 +50,7 @@ export const insertClip = (video_id: string, start_s: number, end_s: number, tit
   post<Clip>('/api/clips', { video_id, start_s, end_s, title: title ?? null, peak_s: peak_s ?? null })
 export const setClipStatus = (id: string, status: string) => patch<Clip>(`/api/clips/${id}`, { status })
 /** Fields left out are kept; peak_s: null clears the peak. */
-export const patchClip = (id: string, fields: { start_s?: number; end_s?: number; peak_s?: number | null; title?: string }) =>
+export const patchClip = (id: string, fields: { start_s?: number; end_s?: number; peak_s?: number | null; title?: string; hook_text?: string | null; payoff_text?: string | null }) =>
   patch<Clip>(`/api/clips/${id}`, fields)
 export const setClipPeak = (id: string, peak_s: number | null) => patchClip(id, { peak_s })
 export const deleteClip = (id: string) => del(`/api/clips/${id}`)

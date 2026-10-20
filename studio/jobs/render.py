@@ -85,10 +85,12 @@ def handle(ctx: JobContext) -> dict:
                                      start_s=settings.range_start, end_s=settings.range_end,
                                      recipe_id=recipe_id or existing.get("recipe_id"),
                                      peak_s=settings.peak_s if settings.peak_s is not None else existing.get("peak_s"),
+                                     hook_text=settings.hook_text if settings.hook_text is not None else existing.get("hook_text"),
+                                     payoff_text=settings.payoff_text if settings.payoff_text is not None else existing.get("payoff_text"),
                                      **music_info)
     else:
         clip = ctx.store.add_clip(video["id"], settings.range_start, settings.range_end,
                                   origin="recipe" if recipe_id else "manual", status="rendered",
                                   output_path=rel, render_settings=p, job_id=ctx.id, recipe_id=recipe_id,
-                                  peak_s=settings.peak_s, **music_info)
+                                  peak_s=settings.peak_s, hook_text=settings.hook_text, payoff_text=settings.payoff_text, **music_info)
     return {"output_path": rel, "clip_id": clip["id"], "encoder": ctx.encoder, **music_info}

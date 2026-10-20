@@ -145,8 +145,14 @@ export default function VideoPage() {
     const st = s ?? range.start, en = e ?? range.end
     if (en <= st) return setErr('End must be after start.')
     const target = clipId ?? tweakClip
-    const peak = target ? video.clips.find((c) => c.id === target)?.peak_s : null
-    void run('render', { ...basePayload(), start: st, end: en, ...(peak != null && peak >= st && peak <= en ? { peak_s: peak } : {}) },
+    // The clip being rendered (or the one whose range is loaded): its peak, hook and payoff ride on the payload.
+    const clip = (target ? video.clips.find((c) => c.id === target) : null)
+      ?? video.clips.find((c) => Math.abs(c.start_s - st) < 0.01 && Math.abs(c.end_s - en) < 0.01) ?? null
+    const extras: Record<string, unknown> = {}
+    if (clip?.peak_s != null && clip.peak_s >= st && clip.peak_s <= en) extras.peak_s = clip.peak_s
+    if (clip?.hook_text) extras.hook_text = clip.hook_text
+    if (clip?.payoff_text) extras.payoff_text = clip.payoff_text
+    void run('render', { ...basePayload(), start: st, end: en, ...extras },
              'Render queued — watch it on the Jobs tab; the clip lands in Clips and Review.', target ?? undefined)
     if (!clipId) setTweakClip(null)
   }

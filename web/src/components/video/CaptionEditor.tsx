@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
-import { saveCaptions, type ManualCaptions } from '../../lib/api'
+import { patchClip, saveCaptions, type ManualCaptions } from '../../lib/api'
+import { TWO_LINE_CHARS, fmtWindow, hookWindow, payoffWindow, peakOut } from '../../lib/captions'
 import { duration, parseTime } from '../../lib/format'
+import type { Clip } from '../../lib/types'
 
 interface Row { text: string; start: string; duration: string }
 
@@ -9,9 +11,46 @@ interface Props {
   manual: ManualCaptions | null
   currentTime: () => number
   onSaved: () => void
+  /** The clip this edit belongs to (hook / payoff live on the clip record); null = plain range. */
+  clip?: Clip | null
+  range?: { start: number; end: number }
 }
 
-export default function CaptionEditor({ videoId, manual, currentTime, onSaved }: Props) {
+/** One hook / payoff field: typed text saved on blur, Gemini's suggestion only as a placeholder. */
+function HookField({ clip, kind, label, placeholder, timing }: {
+  clip: Clip; kind: 'hook_text' | 'payoff_text'; label: string; placeholder: string | null; timing: string | null
+}) {
+  const saved = clip[kind] ?? ''
+  const [draft, setDraft] = useState(saved)
+  const [err, setErr] = useState<string | null>(null)
+  useEffect(() => { setDraft(clip[kind] ?? '') }, [clip.id, clip[kind]]) // eslint-disable-line react-hooks/exhaustive-deps
+  const commit = async (value: string) => {
+    const v = value.trim()
+    if (v === saved) return
+    setErr(null)
+    try { await patchClip(clip.id, { [kind]: v || null }) } catch (e) { setErr((e as Error).message) }
+  }
+  const n = draft.length
+  return (
+    <div className="stack" style={{ gap: 2 }}>
+      <div className="row">
+        <span className="muted small" style={{ width: 120 }}>{label}</span>
+        <input type="text" className="grow" value={draft} placeholder={placeholder ?? ''} aria-label={label} maxLength={160}
+               onChange={(e) => setDraft(e.target.value)} onBlur={(e) => void commit(e.target.value)} />
+        {placeholder && draft !== placeholder && (
+          <button className="btn small" title="Copy the suggestion into the field" onClick={() => { setDraft(placeholder); void commit(placeholder) }}>use</button>
+        )}
+      </div>
+      <div className="row wrap small" style={{ paddingLeft: 120 }}>
+        <span className={`mono ${n > TWO_LINE_CHARS ? 'job-error' : 'muted'}`}>{n}/{TWO_LINE_CHARS}{n > TWO_LINE_CHARS ? ' · more than two lines: the font steps down' : ''}</span>
+        <span className="mono muted">{timing ?? 'no peak set'}</span>
+        {err && <span className="job-error">{err}</span>}
+      </div>
+    </div>
+  )
+}
+
+export default function CaptionEditor({ videoId, manual, currentTime, onSaved, clip, range }: Props) {
   const [open, setOpen] = useState(false)
   const [speed, setSpeed] = useState('2.5')
   const [rows, setRows] = useState<Row[]>([])
@@ -46,8 +85,23 @@ export default function CaptionEditor({ videoId, manual, currentTime, onSaved }:
     }
   }
 
+  // Hook / payoff timing from the clip's peak and the current range (studio/core/captions.hook_payoff_events).
+  const durOut = range ? Math.max(0, range.end - range.start) : 0
+  const pk = clip && range ? peakOut(clip.peak_s, range) : null
+  const hookT = range ? fmtWindow(hookWindow(pk, durOut)) : null
+  const payoffT = range ? fmtWindow(payoffWindow(pk, durOut)) : null
+
   return (
     <div className="stack" style={{ gap: 8 }}>
+      {clip ? (
+        <div className="stack" style={{ gap: 6 }}>
+          <HookField clip={clip} kind="hook_text" label="Hook (frame 1)" placeholder={clip.hook} timing={hookT} />
+          <HookField clip={clip} kind="payoff_text" label="Payoff (on the peak)" placeholder={clip.title} timing={payoffT} />
+          <span className="muted small">Burned in large on frame 1 and on the peak, even with captions off. Only what you type is used: the grey suggestion is never burned.</span>
+        </div>
+      ) : (
+        <span className="muted small">Hook and payoff text belong to a clip: use one from Clips (or Tweak from Review) to set them.</span>
+      )}
       <div className="row">
         <button className="btn small" onClick={() => setOpen(!open)}>
           {open ? 'Hide caption editor' : 'Edit captions manually'}{manual?.items.length ? ' ✓' : ''}

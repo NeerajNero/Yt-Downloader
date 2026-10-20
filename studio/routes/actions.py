@@ -175,6 +175,15 @@ class ClipIn(BaseModel):
     end_s: float
     title: str | None = None
     peak_s: float | None = None      # the moment, source seconds (docs/PLAYBOOK.md)
+    hook_text: str | None = None     # burned on frame 1 / on the peak; typed by hand, never from Gemini
+    payoff_text: str | None = None
+
+
+def _text(v: str | None) -> str | None:
+    v = (v or "").strip()
+    if len(v) > 160:
+        raise fail("Keep hook and payoff under 160 characters.")
+    return v or None
 
 
 @router.post("/clips")
@@ -185,7 +194,8 @@ def add_clip(body: ClipIn):
     if body.peak_s is not None and body.peak_s < 0:
         raise fail("The peak must be at or after 0 s.")
     return context.app.store.add_clip(body.video_id, body.start_s, body.end_s, title=body.title, origin="manual",
-                                      peak_s=None if body.peak_s is None else float(body.peak_s))
+                                      peak_s=None if body.peak_s is None else float(body.peak_s),
+                                      hook_text=_text(body.hook_text), payoff_text=_text(body.payoff_text))
 
 
 class ClipPatch(BaseModel):
@@ -194,6 +204,8 @@ class ClipPatch(BaseModel):
     start_s: float | None = None
     end_s: float | None = None
     peak_s: float | None = None      # send null to clear; leave out to keep
+    hook_text: str | None = None     # same: null clears, left out keeps
+    payoff_text: str | None = None
 
 
 @router.patch("/clips/{clip_id}")
@@ -219,6 +231,9 @@ def patch_clip(clip_id: str, body: ClipPatch):
         if body.peak_s is not None and body.peak_s < 0:
             raise fail("The peak must be at or after 0 s.")
         fields["peak_s"] = None if body.peak_s is None else float(body.peak_s)
+    for key in ("hook_text", "payoff_text"):
+        if key in body.model_fields_set:
+            fields[key] = _text(getattr(body, key))
     c = app.store.update_clip(clip_id, **fields)
     if c is None:
         raise fail("Clip not found.", 404)
