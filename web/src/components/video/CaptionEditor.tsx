@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { patchClip, saveCaptions, type ManualCaptions } from '../../lib/api'
-import { TWO_LINE_CHARS, fmtWindow, hookWindow, payoffWindow, peakOut } from '../../lib/captions'
+import { fitFor, fmtWindow, hookWindow, payoffWindow, peakOut } from '../../lib/captions'
 import { duration, parseTime } from '../../lib/format'
 import type { Clip } from '../../lib/types'
 
@@ -14,11 +14,13 @@ interface Props {
   /** The clip this edit belongs to (hook / payoff live on the clip record); null = plain range. */
   clip?: Clip | null
   range?: { start: number; end: number }
+  style?: string          // caption preset: decides the hook / payoff size bounds
+  orientation?: string    // the canvas captions are built on (portrait / landscape)
 }
 
 /** One hook / payoff field: typed text saved on blur, Gemini's suggestion only as a placeholder. */
-function HookField({ clip, kind, label, placeholder, timing }: {
-  clip: Clip; kind: 'hook_text' | 'payoff_text'; label: string; placeholder: string | null; timing: string | null
+function HookField({ clip, kind, label, placeholder, timing, style, orientation }: {
+  clip: Clip; kind: 'hook_text' | 'payoff_text'; label: string; placeholder: string | null; timing: string | null; style: string; orientation: string
 }) {
   const saved = clip[kind] ?? ''
   const [draft, setDraft] = useState(saved)
@@ -30,7 +32,7 @@ function HookField({ clip, kind, label, placeholder, timing }: {
     setErr(null)
     try { await patchClip(clip.id, { [kind]: v || null }) } catch (e) { setErr((e as Error).message) }
   }
-  const n = draft.length
+  const fit = draft.trim() ? fitFor(draft.trim(), kind === 'hook_text' ? 'hook' : 'payoff', style, orientation) : null
   return (
     <div className="stack" style={{ gap: 2 }}>
       <div className="row">
@@ -42,7 +44,7 @@ function HookField({ clip, kind, label, placeholder, timing }: {
         )}
       </div>
       <div className="row wrap small" style={{ paddingLeft: 120 }}>
-        <span className={`mono ${n > TWO_LINE_CHARS ? 'job-error' : 'muted'}`}>{n}/{TWO_LINE_CHARS}{n > TWO_LINE_CHARS ? ' · more than two lines: the font steps down' : ''}</span>
+        {fit && <span className={`mono ${fit.fits ? 'muted' : 'job-error'}`}>{fit.size}px · {fit.lines.length} line{fit.lines.length === 1 ? '' : 's'}{fit.fits ? '' : ' · needs 3 lines at the smallest size'}</span>}
         <span className="mono muted">{timing ?? 'no peak set'}</span>
         {err && <span className="job-error">{err}</span>}
       </div>
@@ -50,7 +52,7 @@ function HookField({ clip, kind, label, placeholder, timing }: {
   )
 }
 
-export default function CaptionEditor({ videoId, manual, currentTime, onSaved, clip, range }: Props) {
+export default function CaptionEditor({ videoId, manual, currentTime, onSaved, clip, range, style = 'karaoke', orientation = 'portrait' }: Props) {
   const [open, setOpen] = useState(false)
   const [speed, setSpeed] = useState('2.5')
   const [rows, setRows] = useState<Row[]>([])
@@ -95,8 +97,8 @@ export default function CaptionEditor({ videoId, manual, currentTime, onSaved, c
     <div className="stack" style={{ gap: 8 }}>
       {clip ? (
         <div className="stack" style={{ gap: 6 }}>
-          <HookField clip={clip} kind="hook_text" label="Hook (frame 1)" placeholder={clip.hook} timing={hookT} />
-          <HookField clip={clip} kind="payoff_text" label="Payoff (on the peak)" placeholder={clip.title} timing={payoffT} />
+          <HookField clip={clip} kind="hook_text" label="Hook (frame 1)" placeholder={clip.hook} timing={hookT} style={style} orientation={orientation} />
+          <HookField clip={clip} kind="payoff_text" label="Payoff (on the peak)" placeholder={clip.title} timing={payoffT} style={style} orientation={orientation} />
           <span className="muted small">Burned in large on frame 1 and on the peak, even with captions off. Only what you type is used: the grey suggestion is never burned.</span>
         </div>
       ) : (

@@ -56,6 +56,9 @@ def handle(ctx: JobContext) -> dict:
             music_drop_s = beats_core.effective_drop(grid)
     plan = core.music_plan(settings, music_drop_s, has_music=music_path is not None)
     music_info: dict = {}
+    warn = core.captions_warning(settings)
+    if warn:
+        music_info["captions_warning"] = warn
     if music_path is not None:
         music_info["music_drop_aligned"] = plan["aligned"]
         if plan["aligned"]:

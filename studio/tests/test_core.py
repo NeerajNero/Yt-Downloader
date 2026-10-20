@@ -38,8 +38,8 @@ def test_captions_karaoke_shifts_to_clip_start(tmp_path):
     n = captions.write_captions_ass(TRANSCRIPT, 0.5, 5.0, out, hook_text="Watch this", payoff_text="Boom", peak_out_s=2.0)
     text = out.read_text()
     assert n == 2 and "{\\k" not in text and "Cap,,0,0,0,,{" not in text
-    assert "Dialogue: 2,0:00:00.00,0:00:01.50,Hook,,0,0,0,,Watch this" in text
-    assert "Dialogue: 2,0:00:02.00,0:00:03.80,Payoff,,0,0,0,,Boom" in text
+    assert "Dialogue: 2,0:00:00.00,0:00:01.50,Hook,,0,0,0,,{\\fs141}Watch this" in text   # fits at the ceiling
+    assert "Dialogue: 2,0:00:02.00,0:00:03.80,Payoff,,0,0,0,,{\\fs114}Boom" in text
     n = captions.write_captions_ass(TRANSCRIPT, 0.5, 5.0, out, hook_text="Watch this", payoff_text="Boom", peak_out_s=2.0,
                                     suppress_during_hook_payoff=False)
     assert n == 3 and "{\\k39}hello" in out.read_text()
@@ -61,18 +61,18 @@ def test_manual_captions(tmp_path):
     n = captions.write_manual_captions_ass(manual, 0, 10, out, style="minimal", position="top")
     text = out.read_text()
     assert n == 1 and "first youtube video" in text and ",3,2,8,54,162,192,1" in text
-    assert "Style: Hook,Arial,102," in text and ",4.5,3,8,54,162,192,1" in text and "Style: Payoff,Arial,83," in text
+    assert "Style: Hook,Arial,102," in text and ",6,3,8,54,162,192,1" in text and "Style: Payoff,Arial,83," in text   # outline never under 6
     # the manual item (1 → 5 s) overlaps the payoff window (4 → 5.8): suppressed; the hook (0 → 3) stays
     n = captions.write_manual_captions_ass(manual, 0, 10, out, style="minimal", position="top",
                                            hook_text="the start", payoff_text="the hit", peak_out_s=4.0)
     text = out.read_text()
     assert n == 2 and "first youtube video" not in text
-    assert "Dialogue: 2,0:00:00.00,0:00:03.00,Hook,,0,0,0,,the start" in text and "0:00:04.00,0:00:05.80,Payoff,,0,0,0,,the hit" in text
+    assert "Dialogue: 2,0:00:00.00,0:00:03.00,Hook,,0,0,0,,{\\fs102}the start" in text and "0:00:04.00,0:00:05.80,Payoff,,0,0,0,,{\\fs83}the hit" in text
     # overlay only (captions off in the recipe)
     n = captions.write_overlay_ass("Only a hook", None, None, 10.0, out, style="pop", orientation="landscape")
     text = out.read_text()
-    assert n == 1 and "PlayResX: 1920" in text and "Hook,,0,0,0,,Only a hook" in text and "Payoff,,0" not in text
-    assert "Style: Hook,Arial,154," in text and ",12,13.5,8,96,288,108,1" in text and "Style: Payoff,Arial,125," in text
+    assert n == 1 and "PlayResX: 1920" in text and "Hook,,0,0,0,,{\\fs154}Only a hook" in text and "Payoff,,0" not in text
+    assert "Style: Hook,Arial,154," in text and ",12,6,8,96,288,108,1" in text and "Style: Payoff,Arial,125," in text   # shadow never over 6
 
 
 def test_safe_margins_every_position_both_orientations():
@@ -83,10 +83,12 @@ def test_safe_margins_every_position_both_orientations():
     assert captions.safe_margins("middle", "landscape") == (5, 96, 288, 0)
     assert captions.safe_margins("top", "landscape") == (8, 96, 288, 108)
     assert captions.safe_margins("weird", "nope") == (2, 54, 162, 384)   # falls back to bottom / portrait
-    for style, cap, hook, payoff, floor, outline, shadow in (("karaoke", 88, 141, 114, 106, 9.0, 3.0), ("pop", 96, 154, 125, 115, 12.0, 13.5),
-                                                              ("minimal", 64, 102, 83, 77, 4.5, 3.0)):
+    for style, cap, hook, hook_floor, payoff, payoff_floor, outline, shadow in (
+            ("karaoke", 88, 141, 79, 114, 70, 9.0, 3.0), ("pop", 96, 154, 86, 125, 77, 12.0, 6.0), ("minimal", 64, 102, 58, 83, 51, 6.0, 3.0)):
         hp = captions.hp_sizes(style)
-        assert (hp["cap"], hp["hook"], hp["payoff"], hp["floor"], hp["outline"], hp["shadow"]) == (cap, hook, payoff, floor, outline, shadow)
+        assert (hp["cap"], hp["hook"], hp["hook_floor"], hp["payoff"], hp["payoff_floor"], hp["outline"], hp["shadow"]) == \
+            (cap, hook, hook_floor, payoff, payoff_floor, outline, shadow)
+    assert (captions.max_text_px("portrait"), captions.max_text_px("landscape")) == (864, 1536)
 
 
 def test_hook_payoff_events_timing():
@@ -104,19 +106,39 @@ def test_hook_payoff_events_timing():
     assert captions.hook_payoff_events("  ", "", 4.0, 10.0) == []
 
 
-def test_hook_wraps_to_two_lines_and_steps_the_font_down():
-    assert captions.wrap_two_lines("short", 141, 106) == ("short", None)
-    text, fs = captions.wrap_two_lines("the quick brown fox jumps over", 141, 106)
-    assert text == "the quick brown\\Nfox jumps over" and fs is None
-    # one 26-char word: 26 → 23.4 (90 %) → 21.1 (81 %) fits: \fs = round(141 * 0.81)
-    assert captions.wrap_two_lines("abcdefghijklmnopqrstuvwxyz", 141, 106) == ("abcdefghijklmnopqrstuvwxyz", 114)
-    # hopeless: stops at the floor (1.2x) instead of shrinking forever
-    text, fs = captions.wrap_two_lines("supercalifragilisticexpialidocious yes", 141, 106)
-    assert text == "supercalifragilisticexpialidocious\\Nyes" and fs == 106
-    ev = captions.hook_payoff_events("abcdefghijklmnopqrstuvwxyz", None, None, 10.0)
-    assert captions._hp_dialogue(ev[0]).endswith("Hook,,0,0,0,,{\\fs114}abcdefghijklmnopqrstuvwxyz")
-    # braces in typed text can't break the ASS tags
-    assert captions.wrap_two_lines("a {b} c", 141, 106)[0] == "a (b) c"
+def test_fit_font_size_by_pixels():
+    short, eight, overlong = "Watch this", "the boss shows up and we all die", "the boss finally shows up and we all die here"
+    # a short hook lands at the ceiling on one line
+    assert captions.fit_font_size(short, 864, 141, 79) == (141, ["Watch this"], True)
+    # eight words: two balanced lines (17 chars max) fit from 89 px down (17 * 89 * 0.55 = 832 <= 864; 93 would be 870)
+    f = captions.fit_font_size(eight, 864, 141, 79)
+    assert f == (89, ["the boss shows", "up and we all die"], True)
+    # landscape is wide enough for the same text at the ceiling
+    f = captions.fit_font_size(eight, 1536, 141, 79)
+    assert f.size == 141 and len(f.lines) == 2 and f.fits
+    # overlong: even the floor needs three lines -> floor, three balanced lines, fits=False
+    f = captions.fit_font_size(overlong, 864, 141, 79)
+    assert f.size == 79 and len(f.lines) == 3 and not f.fits and max(len(x) for x in f.lines) <= 19
+    assert captions.fit_font_size(overlong, 1536, 141, 79).fits   # ... but two lines in landscape (at 125 px)
+    assert captions.fit_font_size("", 864, 141, 79) == (141, [], True)
+    assert captions.fit_font_size("x", 864, 79, 79).size == 79   # ceiling == floor
+    # the warning the render result carries
+    assert captions.fit_warning(overlong, "Boom") == "hook needs 3 lines"
+    assert captions.fit_warning(overlong, overlong) == "hook needs 3 lines"   # the payoff's 70 px floor still fits two lines
+    assert captions.fit_warning(overlong, overlong + " tonight") == "hook needs 3 lines; payoff needs 3 lines"
+    assert captions.fit_warning(overlong, None, "karaoke", "landscape") is None and captions.fit_warning("hi", "ok") is None
+    # the events carry the chosen size, lines joined with \N, braces neutralised
+    ev = captions.hook_payoff_events(eight, "a {b}", 5.0, 10.0)
+    assert (ev[0]["fs"], ev[0]["lines"], ev[0]["fits"]) == (89, 2, True)
+    assert captions._hp_dialogue(ev[0]).endswith("Hook,,0,0,0,,{\\fs89}the boss shows\\Nup and we all die")
+    assert captions._hp_dialogue(ev[1]).endswith("Payoff,,0,0,0,,{\\fs114}a (b)")
+    ev = captions.hook_payoff_events(eight, None, None, 10.0, orientation="landscape")
+    assert ev[0]["fs"] == 141
+    s = render.RenderSettings(start=0, end=5, hook_text=overlong, caption_style="karaoke")
+    assert render.captions_warning(s) == "hook needs 3 lines"
+    s.rotate, s.rotate_captions = "right", True     # captions are built landscape, then rotated with the frame
+    assert render.captions_warning(s) is None
+    assert render.captions_warning(render.RenderSettings(start=0, end=5)) is None
 
 
 def test_render_burns_hook_without_transcript_or_captions(tmp_path):
@@ -133,7 +155,7 @@ def test_render_burns_hook_without_transcript_or_captions(tmp_path):
          mock.patch.object(Tools, "has_subtitles_filter", return_value=True):
         s = render.RenderSettings(start=10, end=20, captions=False, hook_text="Watch this", payoff_text="Boom", peak_s=14)
         render.run_export(src, tmp_path / "o.mp4", s, Tools("ffmpeg"), "libx264", lambda *_: None, lambda: False)
-    assert seen["ass"] and "Hook,,0,0,0,,Watch this" in seen["ass"] and "0:00:04.00,0:00:05.80,Payoff,,0,0,0,,Boom" in seen["ass"]
+    assert seen["ass"] and "Hook,,0,0,0,,{\\fs141}Watch this" in seen["ass"] and "0:00:04.00,0:00:05.80,Payoff,,0,0,0,,{\\fs114}Boom" in seen["ass"]
     assert "Cap,,0,0,0,," not in seen["ass"]
     # a montage: the peak maps through the shots (shot 2 at 2x from offset 2.6 → 10 s lands at 3.6 s)
     with mock.patch.object(Tools, "run_progress", fake_run), mock.patch.object(Tools, "probe_fps", return_value=30.0), \
@@ -141,7 +163,7 @@ def test_render_burns_hook_without_transcript_or_captions(tmp_path):
         s = render.RenderSettings(segments=[{"start": 1, "end": 4}, {"start": 8, "end": 12, "speed": 2}], transition={"type": "fade", "duration": 0.4},
                                   style="crop", payoff_text="Boom", peak_s=10)
         render.run_export(src, tmp_path / "o.mp4", s, Tools("ffmpeg"), "libx264", lambda *_: None, lambda: False)
-    assert "0:00:03.60,0:00:04.60,Payoff,,0,0,0,,Boom" in seen["ass"]   # clamped at the 4.6 s montage end
+    assert "0:00:03.60,0:00:04.60,Payoff,,0,0,0,,{\\fs114}Boom" in seen["ass"]   # clamped at the 4.6 s montage end
     # no text at all: no subtitles filter
     with mock.patch.object(Tools, "run_progress", fake_run), mock.patch.object(Tools, "probe_fps", return_value=30.0):
         render.run_export(src, tmp_path / "o.mp4", render.RenderSettings(start=0, end=5), Tools("ffmpeg"), "libx264", lambda *_: None, lambda: False)

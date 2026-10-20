@@ -453,7 +453,8 @@ export default function EditPanel(p: Props) {
         )}
       </div>
       <CaptionEditor videoId={p.video.id} manual={p.manual} currentTime={p.playhead} onSaved={() => p.onChange({ ...s, captions: true, caption_source: 'manual' })}
-                     clip={activeClip} range={p.range} />
+                     clip={activeClip} range={p.range} style={s.caption_style}
+                     orientation={s.rotate_captions && (s.rotate === 'right' || s.rotate === 'left') ? (s.orientation === 'portrait' ? 'landscape' : 'portrait') : s.orientation} />
     </>
   )
   const soundSection = (

@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import encoders
-from .captions import (CAPTION_POS_NAMES, CAPTION_STYLES, subtitles_filter_path,
+from .captions import (CAPTION_POS_NAMES, CAPTION_STYLES, fit_warning, subtitles_filter_path,
                        write_captions_ass, write_manual_captions_ass, write_overlay_ass)
 from .ffmpeg import Report, ShouldCancel, Tools
 
@@ -601,6 +601,21 @@ def output_name(stem: str, s: RenderSettings, has_music: bool, aligned: bool = F
             t = "mix"
         return f"{stem}_{aspect}_seq{len(s.segments)}_{int(s.range_start)}s-{int(s.range_end)}s_{t}_{s.style}{suffix}.mp4"
     return f"{stem}_{aspect}_{int(s.start)}s-{int(s.end)}s_{s.style}{suffix}.mp4"
+
+
+def caption_orientation(s: RenderSettings) -> str:
+    """The canvas captions are built on: flipped when a 90° rotation is applied
+    to the finished frame (rotate_captions), else the output orientation."""
+    if s.rotate_captions and s.rotate in ("right", "left"):
+        return "landscape" if s.orientation == "portrait" else "portrait"
+    return s.orientation
+
+
+def captions_warning(s: RenderSettings) -> str | None:
+    """Pure: 'hook needs 3 lines' etc. when a block cannot fit two lines at its floor."""
+    if not s.has_overlay_text:
+        return None
+    return fit_warning(s.hook_text, s.payoff_text, s.caption_style, caption_orientation(s))
 
 
 # ---------------------------------------------------------------- music / drop alignment

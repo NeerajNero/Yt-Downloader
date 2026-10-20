@@ -12,6 +12,7 @@ never share the frame. Every style keeps its text inside SAFE_AREA.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import NamedTuple
 
 
 def _ass_time(t):
@@ -66,20 +67,109 @@ CAPTION_STYLES = {
                 "shadow": 2, "back": "&H80101317"},
 }
 
-# Hook / payoff blocks relative to the preset's Cap size.
-HOOK_SCALE, PAYOFF_SCALE, HP_FLOOR_SCALE = 1.6, 1.3, 1.2
-HP_STROKE_SCALE = 1.5          # outline and shadow, both
+# Hook / payoff blocks: sized by fit between a ceiling and a floor (× the preset's Cap size).
+HOOK_CEIL, HOOK_FLOOR = 1.6, 0.9
+PAYOFF_CEIL, PAYOFF_FLOOR = 1.3, 0.8
+HP_STROKE_SCALE = 1.5          # outline and shadow ...
+HP_OUTLINE_MIN, HP_SHADOW_MAX = 6, 6   # ... but never a thin outline, never a huge shadow
 HP_COLOUR = "&H00FFFFFF"       # white text; the stroke carries the contrast
-MAX_LINE_CHARS = 22            # longer lines wrap to two, then the font steps down 10 % at a time
+AVG_GLYPH_EM = 0.55            # estimated glyph width as a fraction of the font size (Arial bold, mixed case)
+FIT_STEP = 4                   # px between candidate sizes
 HOOK_MAX_S, HOOK_GAP_S, PAYOFF_S = 3.0, 0.5, 1.8
 
 
 def hp_sizes(style: str) -> dict:
-    """Font sizes and stroke for the Hook / Payoff styles of a preset."""
+    """Ceilings, floors and stroke for the Hook / Payoff styles of a preset."""
     s = CAPTION_STYLES.get(style, CAPTION_STYLES["karaoke"])
-    return {"cap": s["size"], "hook": round(s["size"] * HOOK_SCALE), "payoff": round(s["size"] * PAYOFF_SCALE),
-            "floor": round(s["size"] * HP_FLOOR_SCALE),
-            "outline": round(s["outline"] * HP_STROKE_SCALE, 1), "shadow": round(s["shadow"] * HP_STROKE_SCALE, 1)}
+    return {"cap": s["size"],
+            "hook": round(s["size"] * HOOK_CEIL), "hook_floor": round(s["size"] * HOOK_FLOOR),
+            "payoff": round(s["size"] * PAYOFF_CEIL), "payoff_floor": round(s["size"] * PAYOFF_FLOOR),
+            "outline": max(s["outline"] * HP_STROKE_SCALE, HP_OUTLINE_MIN),
+            "shadow": min(s["shadow"] * HP_STROKE_SCALE, HP_SHADOW_MAX)}
+
+
+def max_text_px(orientation: str) -> int:
+    """Width a caption line may use: PlayRes width minus the left and right safe margins."""
+    w, _ = CAPTION_CANVAS.get(orientation, CAPTION_CANVAS["portrait"])
+    return w - round(w * SAFE_AREA["left"]) - round(w * SAFE_AREA["right"])
+
+
+def text_px(text: str, size: float, avg_glyph_em: float = AVG_GLYPH_EM) -> float:
+    return len(text) * size * avg_glyph_em
+
+
+class Fit(NamedTuple):
+    size: int
+    lines: list[str]
+    fits: bool          # False = needed more than two lines even at the floor
+
+
+def _balanced(words: list[str], n: int) -> list[str]:
+    """Split into n lines at the spaces that make the longest line shortest."""
+    if n <= 1 or len(words) < n:
+        return [" ".join(words)]
+    best: tuple[int, list[str]] | None = None
+    if n == 2:
+        cuts = [(i,) for i in range(1, len(words))]
+    else:
+        cuts = [(i, j) for i in range(1, len(words) - 1) for j in range(i + 1, len(words))]
+    for cut in cuts:
+        bounds = [0, *cut, len(words)]
+        lines = [" ".join(words[a:b]) for a, b in zip(bounds, bounds[1:])]
+        m = max(len(line) for line in lines)
+        if best is None or m < best[0]:
+            best = (m, lines)
+    return best[1] if best else [" ".join(words)]
+
+
+def _greedy(words: list[str], size: float, max_px: float, avg: float) -> list[str]:
+    lines, cur = [], ""
+    for w in words:
+        cand = f"{cur} {w}".strip()
+        if cur and text_px(cand, size, avg) > max_px:
+            lines.append(cur)
+            cur = w
+        else:
+            cur = cand
+    if cur:
+        lines.append(cur)
+    return lines
+
+
+def fit_font_size(text: str, max_px: float, ceiling: int, floor: int, avg_glyph_em: float = AVG_GLYPH_EM) -> Fit:
+    """The largest size in [floor, ceiling] (FIT_STEP px apart) at which the
+    text wraps into at most two lines inside max_px, lines estimated as
+    len * size * avg_glyph_em and split at the most balanced space. When even
+    the floor needs three lines, three balanced lines at the floor (fits=False),
+    and more if it still does not fit."""
+    words = text.split()
+    if not words:
+        return Fit(int(ceiling), [], True)
+    ceiling, floor = int(ceiling), int(floor)
+    sizes = list(range(ceiling, floor, -FIT_STEP)) + [floor] if ceiling >= floor else [floor]
+    for size in sizes:
+        for n in (1, 2):
+            lines = _balanced(words, n)
+            if len(lines) == n and max(text_px(line, size, avg_glyph_em) for line in lines) <= max_px:
+                return Fit(size, lines, True)
+    lines = _balanced(words, 3)
+    if len(lines) == 3 and max(text_px(line, floor, avg_glyph_em) for line in lines) <= max_px:
+        return Fit(floor, lines, False)
+    return Fit(floor, _greedy(words, floor, max_px, avg_glyph_em), False)
+
+
+def fit_warning(hook_text: str | None, payoff_text: str | None, style: str = "karaoke", orientation: str = "portrait") -> str | None:
+    """'hook needs 3 lines' / 'payoff needs 3 lines' when a block cannot fit two lines at its floor."""
+    hp = hp_sizes(style)
+    out = []
+    for kind, text, ceil, floor in (("hook", hook_text, hp["hook"], hp["hook_floor"]), ("payoff", payoff_text, hp["payoff"], hp["payoff_floor"])):
+        text = (text or "").strip()
+        if not text:
+            continue
+        fit = fit_font_size(text, max_text_px(orientation), ceil, floor)
+        if not fit.fits:
+            out.append(f"{kind} needs {len(fit.lines)} lines")
+    return "; ".join(out) or None
 
 
 # Bounce-in used by "pop".
@@ -136,38 +226,20 @@ def _style_word(style, word):
 
 # ---- hook / payoff ----------------------------------------------------------------
 
-def wrap_two_lines(text: str, base_size: int, floor_size: int) -> tuple[str, int | None]:
-    """At most two lines, split at the space that balances them best; while
-    the longest line still exceeds MAX_LINE_CHARS (scaled by the font) step
-    the size down 10 % at a time to `floor_size`. Returns (escaped ASS text
-    with \\N, font size override or None)."""
-    words = text.split()
-    if not words:
-        return "", None
-    one = " ".join(words)
-    lines = [one]
-    if len(one) > MAX_LINE_CHARS and len(words) > 1:
-        best = None
-        for i in range(1, len(words)):
-            a, b = " ".join(words[:i]), " ".join(words[i:])
-            m = max(len(a), len(b))
-            if best is None or m < best[0]:
-                best = (m, a, b)
-        lines = [best[1], best[2]]
-    longest = max(len(line) for line in lines)
-    size, fs = float(base_size), None
-    while longest * size / base_size > MAX_LINE_CHARS and size > floor_size:
-        size = max(float(floor_size), size * 0.9)
-        fs = int(round(size))
-    return "\\N".join(_ass_escape(line) for line in lines), fs
+def _fitted(text: str, kind: str, style: str, orientation: str) -> tuple[str, int, int, bool]:
+    """(escaped ASS text with \\N, chosen size, line count, fits) for a hook or payoff."""
+    hp = hp_sizes(style)
+    ceil, floor = (hp["hook"], hp["hook_floor"]) if kind == "Hook" else (hp["payoff"], hp["payoff_floor"])
+    fit = fit_font_size(text, max_text_px(orientation), ceil, floor)
+    return "\\N".join(_ass_escape(line) for line in fit.lines), fit.size, len(fit.lines), fit.fits
 
 
 def hook_payoff_events(hook_text: str | None, payoff_text: str | None, peak_out_s: float | None,
-                       duration_out: float | None, style: str = "karaoke") -> list[dict]:
+                       duration_out: float | None, style: str = "karaoke", orientation: str = "portrait") -> list[dict]:
     """Hook: 0 → min(3.0, peak − 0.5) (0 → 3.0 without a peak). Payoff: peak →
     peak + 1.8, clamped to the clip; none without a peak. Times are output
-    (clip-relative) seconds. Each event: {start, end, style, text, fs}."""
-    hp = hp_sizes(style)
+    (clip-relative) seconds. Each event: {start, end, style, text, fs, lines, fits}
+    with the font size chosen by fit_font_size for the orientation's text width."""
     out = []
     hook = (hook_text or "").strip()
     if hook:
@@ -175,8 +247,8 @@ def hook_payoff_events(hook_text: str | None, payoff_text: str | None, peak_out_
         if duration_out is not None:
             end = min(end, float(duration_out))
         if end > 0.1:
-            text, fs = wrap_two_lines(hook, hp["hook"], hp["floor"])
-            out.append({"start": 0.0, "end": round(end, 3), "style": "Hook", "text": text, "fs": fs})
+            text, fs, n, fits = _fitted(hook, "Hook", style, orientation)
+            out.append({"start": 0.0, "end": round(end, 3), "style": "Hook", "text": text, "fs": fs, "lines": n, "fits": fits})
     payoff = (payoff_text or "").strip()
     if payoff and peak_out_s is not None:
         start = max(0.0, float(peak_out_s))
@@ -184,23 +256,22 @@ def hook_payoff_events(hook_text: str | None, payoff_text: str | None, peak_out_
         if duration_out is not None:
             end = min(end, float(duration_out))
         if end - start > 0.1:
-            text, fs = wrap_two_lines(payoff, hp["payoff"], hp["floor"])
-            out.append({"start": round(start, 3), "end": round(end, 3), "style": "Payoff", "text": text, "fs": fs})
+            text, fs, n, fits = _fitted(payoff, "Payoff", style, orientation)
+            out.append({"start": round(start, 3), "end": round(end, 3), "style": "Payoff", "text": text, "fs": fs, "lines": n, "fits": fits})
     return out
 
 
 def _hp_dialogue(ev: dict) -> str:
-    tag = f"{{\\fs{ev['fs']}}}" if ev.get("fs") else ""
-    return f"Dialogue: 2,{_ass_time(ev['start'])},{_ass_time(ev['end'])},{ev['style']},,0,0,0,,{tag}{ev['text']}"
+    return f"Dialogue: 2,{_ass_time(ev['start'])},{_ass_time(ev['end'])},{ev['style']},,0,0,0,,{{\\fs{ev['fs']}}}{ev['text']}"
 
 
 def _covered(start: float, end: float, windows: list[tuple[float, float]]) -> bool:
     return any(start < w1 and end > w0 for w0, w1 in windows)
 
 
-def _hp_block(hook_text, payoff_text, peak_out_s, duration_out, style, suppress):
+def _hp_block(hook_text, payoff_text, peak_out_s, duration_out, style, orientation, suppress):
     """(hook/payoff events, windows to suppress regular captions in)."""
-    hp = hook_payoff_events(hook_text, payoff_text, peak_out_s, duration_out, style)
+    hp = hook_payoff_events(hook_text, payoff_text, peak_out_s, duration_out, style, orientation)
     windows = [(e["start"], e["end"]) for e in hp] if suppress else []
     return hp, windows
 
@@ -210,7 +281,7 @@ def write_overlay_ass(hook_text, payoff_text, peak_out_s, duration_out, out_path
     """Hook / payoff only (captions off in the recipe). Returns the event count."""
     if style not in CAPTION_STYLES:
         style = "karaoke"
-    hp = hook_payoff_events(hook_text, payoff_text, peak_out_s, duration_out, style)
+    hp = hook_payoff_events(hook_text, payoff_text, peak_out_s, duration_out, style, orientation)
     Path(out_path).write_text(_ass_header(position, style, orientation) + "\n".join(_hp_dialogue(e) for e in hp) + "\n",
                               encoding="utf-8")
     return len(hp)
@@ -231,7 +302,7 @@ def write_captions_ass(transcript, clip_start, clip_end, out_path,
         w for seg in transcript["segments"] for w in seg["words"]
         if w["s"] < clip_end and w["e"] > clip_start and w["w"]
     ]
-    hp, windows = _hp_block(hook_text, payoff_text, peak_out_s, clip_end - clip_start, style, suppress_during_hook_payoff)
+    hp, windows = _hp_block(hook_text, payoff_text, peak_out_s, clip_end - clip_start, style, orientation, suppress_during_hook_payoff)
     events = []
     lines = []
     group = []
@@ -279,7 +350,7 @@ def write_manual_captions_ass(manual, clip_start, clip_end, out_path,
     if style not in CAPTION_STYLES:
         style = "karaoke"
     speed = max(float(manual.get("speed") or 2.5), 0.5)
-    hp, windows = _hp_block(hook_text, payoff_text, peak_out_s, clip_end - clip_start, style, suppress_during_hook_payoff)
+    hp, windows = _hp_block(hook_text, payoff_text, peak_out_s, clip_end - clip_start, style, orientation, suppress_during_hook_payoff)
     events = []
     for item in manual.get("items", []):
         text = str(item.get("text", "")).strip()
