@@ -191,6 +191,68 @@ def effects_filter(effects: dict | None, width: int, height: int, prefix: str = 
 PLAYBACKS = ("forward", "reverse", "bounce")
 MAX_REVERSE_SECONDS = 10.0   # ffmpeg's reverse filter buffers every frame
 
+# ---- audio rules (docs: CLAUDE.md "Audio") -------------------------------------------
+# Music ducking under the mixed source audio: sidechaincompress threshold / ratio / attack ms / release ms.
+DUCK_PRESETS = {"light": (0.05, 4, 20, 400), "medium": (0.02, 8, 15, 350), "heavy": (0.01, 16, 10, 300)}
+SOURCE_AUDIO = ("keep", "mute")
+ATEMPO_MIN, ATEMPO_MAX = 0.25, 4.0   # one atempo covers 0.5–2, two chained cover the rest; outside = muted
+
+
+def duck_mode(value) -> str:
+    """'off' | 'light' | 'medium' | 'heavy'; the old boolean maps true → medium, false → off."""
+    if value is True:
+        return "medium"
+    if not value:
+        return "off"
+    return value if value in DUCK_PRESETS else "off"
+
+
+def duck_filter(mode: str) -> str:
+    t, r, a, rel = DUCK_PRESETS[mode]
+    return f"sidechaincompress=threshold={t}:ratio={r}:attack={a}:release={rel}"
+
+
+def shot_audio(seg: dict, index: int | None = None) -> dict:
+    """How one shot's own sound is handled: {"mode": keep|mute, "gain_db", "atempo", "note"}.
+    Muted by the user, or automatically for a reversed shot and for speeds outside
+    0.25–4x (where atempo would need three stages); the note names the shot."""
+    speed = float(seg.get("speed", 1.0) or 1.0)
+    who = f"shot {index + 1}" if index is not None else "the clip"
+    reversed_ = bool(seg.get("reverse")) or (seg.get("playback", "forward") or "forward") == "reverse"
+    if (seg.get("source_audio", "keep") or "keep") == "mute":
+        return {"mode": "mute", "gain_db": 0.0, "atempo": None, "note": None}
+    if reversed_:
+        return {"mode": "mute", "gain_db": 0.0, "atempo": None, "note": f"{who}: audio muted (reversed)"}
+    if not (ATEMPO_MIN <= speed <= ATEMPO_MAX):
+        return {"mode": "mute", "gain_db": 0.0, "atempo": None, "note": f"{who}: audio muted (speed {speed:g}x is outside 0.25–4x)"}
+    gain = max(-30.0, min(float(seg.get("source_gain_db", 0.0) or 0.0), 6.0))
+    return {"mode": "keep", "gain_db": gain, "atempo": _atempo_chain(speed) if abs(speed - 1.0) > 1e-3 else None, "note": None}
+
+
+def audio_notes(s: "RenderSettings") -> list[str]:
+    """What the job result reports: shots whose sound was muted automatically."""
+    if s.segments:
+        return [n for n in (shot_audio(seg, i)["note"] for i, seg in enumerate(s.segments)) if n]
+    n = shot_audio({"speed": 1.0, "playback": s.playback, "source_audio": s.source_audio, "source_gain_db": s.source_gain_db})["note"]
+    return [n] if n else []
+
+
+def volume_windows(layout: list[dict], segments: list[dict]) -> str:
+    """Per-shot volume on the assembled source audio, as output-time windows:
+    'volume=0:enable=between(t,a,b)' for muted shots, 'volume=-6dB:enable=...' for
+    gained ones; '' when every shot is kept at 0 dB."""
+    parts = []
+    for i, (L, seg) in enumerate(zip(layout, segments)):
+        a = shot_audio(seg, i)
+        if a["mode"] == "mute":
+            v = "0"
+        elif abs(a["gain_db"]) > 1e-6:
+            v = f"{a['gain_db']:.1f}dB"
+        else:
+            continue
+        parts.append(f"volume={v}:enable='between(t,{L['offset']:.3f},{L['offset'] + L['len']:.3f})'")
+    return ",".join(parts)
+
 
 def playback_len(src_len: float, speed: float, playback: str, reverse_speed: float) -> float:
     """Output seconds of a shot: forward length, the rewind leg at its own speed, or both."""
@@ -424,7 +486,9 @@ class RenderSettings:
     grade: str = "none"
     music: str = ""            # music track file name (resolved by the adapter)
     music_gain: int = 60
-    duck: bool = True
+    duck: str | bool = "medium"   # off | light | medium | heavy (bool = the old setting, see duck_mode)
+    source_audio: str = "keep"    # a plain range's own sound: keep | mute (per shot in `segments`)
+    source_gain_db: float = 0.0
     # Recipe-only extras (Phase 3). All optional; files are resolved by the adapter.
     watermark: dict | None = None      # {"file", "position", "scale", "opacity", "margin"}
     sfx: list = field(default_factory=list)          # [{"file", "at", "gain"}] clip-relative seconds
@@ -521,6 +585,17 @@ class RenderSettings:
                 raise ValueError(f"Effect {key} must be between 0 and 100.")
         if str((self.effects or {}).get("letterbox", "none")) not in LETTERBOX_BARS:
             raise ValueError("Letterbox must be none, thin, cinema or wide.")
+        if self.source_audio not in SOURCE_AUDIO:
+            raise ValueError("Source audio must be keep or mute.")
+        if not (-30 <= float(self.source_gain_db) <= 6):
+            raise ValueError("Source gain must be between -30 and +6 dB.")
+        if self.duck not in (True, False, None) and self.duck not in DUCK_PRESETS and self.duck != "off":
+            raise ValueError("Duck must be off, light, medium or heavy.")
+        for i, seg in enumerate(self.segments, 1):
+            if (seg.get("source_audio", "keep") or "keep") not in SOURCE_AUDIO:
+                raise ValueError(f"Segment {i}: source audio must be keep or mute.")
+            if not (-30 <= float(seg.get("source_gain_db", 0.0) or 0.0) <= 6):
+                raise ValueError(f"Segment {i}: source gain must be between -30 and +6 dB.")
         if self.caption_source not in CAPTION_SOURCES:
             raise ValueError("Caption source must be 'auto' or 'manual'.")
         if self.caption_pos not in CAPTION_POS_NAMES:
@@ -796,11 +871,19 @@ def run_export(src: Path, out_path: Path, s: RenderSettings, tools: Tools, encod
     sfx_paths = [(p, at, g) for p, at, g in (sfx_paths or []) if Path(p).is_file()]
     aparts: list[str] = []
     asrc = "[0:a]"
+    src_label = "0:a"
+    # The clip's own sound: keep at a gain, or mute (also auto-muted for reversed playback).
+    own = shot_audio({"speed": 1.0, "playback": s.playback, "source_audio": s.source_audio, "source_gain_db": s.source_gain_db})
+    if own["mode"] == "mute" or abs(own["gain_db"]) > 1e-6:
+        vol = "0" if own["mode"] == "mute" else f"{own['gain_db']:.1f}dB"
+        aparts.append(f"[0:a]volume={vol}[avol]")
+        asrc, src_label = "[avol]", "avol"
     if s.playback != "forward":
         # the source audio gets the same rewind as the picture
-        aparts.append(_bounce_audio("0:a", "asrc", "qb", s.playback, s.reverse_speed))
+        aparts.append(_bounce_audio(src_label, "asrc", "qb", s.playback, s.reverse_speed))
         asrc = "[asrc]"
     mix_inputs = [asrc]
+    duck = duck_mode(s.duck)
     if use_music:
         gain = round(max(0.0, min(s.music_gain, 100.0)) / 100.0 * 1.2, 3)
         plan = music_plan(s, music_drop_s, has_music=True)
@@ -808,15 +891,16 @@ def run_export(src: Path, out_path: Path, s: RenderSettings, tools: Tools, encod
         inputs += margs
         aparts.append(mchain)
         next_input += 1
-        if s.duck:
-            # Duck the music under speech via sidechain compression.
+        if duck != "off":
+            # Duck the music under the (post-gain) source audio via sidechain compression: muted shots don't duck.
             if asrc != "[0:a]":
-                aparts[0] = aparts[0].replace("[asrc]", "[asrc0]")
-                aparts.insert(1, "[asrc0]asplit=2[asrc][asrcB]")
+                k = next(i for i, part in enumerate(aparts) if part.endswith(f"{asrc}"))
+                aparts[k] = aparts[k][: -len(asrc)] + "[asrc0]"
+                aparts.insert(k + 1, "[asrc0]asplit=2[asrc][asrcB]")
                 mix_inputs = ["[asrc]"]
-                aparts.append("[mus][asrcB]sidechaincompress=threshold=0.02:ratio=8:attack=15:release=350[duckmus]")
+                aparts.append(f"[mus][asrcB]{duck_filter(duck)}[duckmus]")
             else:
-                aparts.append("[mus][0:a]sidechaincompress=threshold=0.02:ratio=8:attack=15:release=350[duckmus]")
+                aparts.append(f"[mus][0:a]{duck_filter(duck)}[duckmus]")
             mix_inputs.append("[duckmus]")
         else:
             mix_inputs.append("[mus]")
@@ -837,7 +921,7 @@ def run_export(src: Path, out_path: Path, s: RenderSettings, tools: Tools, encod
         graph = vgraph + ";" + ";".join(aparts)
         av_args = ["-filter_complex", graph, "-map", "[v]", "-map", "[a]"]
     elif asrc != "[0:a]":
-        aparts.append(f"[asrc]{loudnorm}[a]" if loud else "[asrc]anull[a]")
+        aparts.append(f"{asrc}{loudnorm}[a]" if loud else f"{asrc}anull[a]")
         av_args = ["-filter_complex", vgraph + ";" + ";".join(aparts), "-map", "[v]", "-map", "[a]"]
     else:
         av_args = ["-filter_complex", vgraph, "-map", "[v]", "-map", "0:a?"] + (["-af", loudnorm] if loud else [])
@@ -978,14 +1062,17 @@ def sequence_graph(s: RenderSettings, layout: list[dict], bounds: list[dict], fp
             a = f"[r{k}]anull"
         parts.append(f"{a},aformat=sample_rates=48000:channel_layouts=stereo,asettb=AVTB[a{k}]")
 
+    # Per-shot source audio (mute / gain) as output-time windows on the assembled stream.
+    windows = volume_windows(layout, s.segments)
     if n == 1:
-        parts.append("[v0]null[vseq];[a0]anull[aseq]")
+        parts.append("[v0]null[vseq]")
+        parts.append(f"[a0]{windows or 'anull'}[aseq]")
         return inputs, ";".join(parts), "vseq", "aseq"
     vprev, aprev = "v0", "a0"
     for k in range(1, n):
         b = bounds[k - 1]
         vout = "vseq" if k == n - 1 else f"vx{k}"
-        aout = "aseq" if k == n - 1 else f"ax{k}"
+        aout = ("aseq0" if windows else "aseq") if k == n - 1 else f"ax{k}"
         if b["kind"]:
             off = layout[k]["offset"]
             parts.append(f"[{vprev}][v{k}]xfade=transition={b['kind']}:duration={b['d']:.3f}:offset={off:.3f}[{vout}]")
@@ -993,6 +1080,8 @@ def sequence_graph(s: RenderSettings, layout: list[dict], bounds: list[dict], fp
         else:
             parts.append(f"[{vprev}][{aprev}][v{k}][a{k}]concat=n=2:v=1:a=1[{vout}][{aout}]")
         vprev, aprev = vout, aout
+    if windows:
+        parts.append(f"[aseq0]{windows}[aseq]")
     return inputs, ";".join(parts), "vseq", "aseq"
 
 
@@ -1114,8 +1203,8 @@ def run_sequence(src: Path, out_path: Path, s: RenderSettings, tools: Tools, enc
         inputs += margs
         aparts.append(mchain)
         next_input += 1
-        if s.duck:
-            aparts.append(f"[mus][{alab}]sidechaincompress=threshold=0.02:ratio=8:attack=15:release=350[duckmus]")
+        if duck_mode(s.duck) != "off":
+            aparts.append(f"[mus][{alab}]{duck_filter(duck_mode(s.duck))}[duckmus]")
             mix_inputs.append("[duckmus]")
         else:
             mix_inputs.append("[mus]")
@@ -1129,7 +1218,7 @@ def run_sequence(src: Path, out_path: Path, s: RenderSettings, tools: Tools, enc
     if len(mix_inputs) > 1:
         norm = ":normalize=0" if sfx_paths else ""
         # the sequence audio is consumed twice when ducking (sidechain + mix): split it
-        if use_music and s.duck:
+        if use_music and duck_mode(s.duck) != "off":
             aparts.insert(0, f"[{alab}]asplit=2[aseqA][aseqB]")
             aparts = [x.replace(f"[mus][{alab}]", "[mus][aseqA]") for x in aparts]
             mix_inputs[0] = "[aseqB]"

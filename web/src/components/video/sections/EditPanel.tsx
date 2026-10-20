@@ -10,6 +10,7 @@ import TimeInput from '../../ui/TimeInput'
 import CaptionEditor from '../CaptionEditor'
 import Montage, { type MontageView, type Plan, type Segment, type ShotInfo, type Transition } from '../Montage'
 import type { TimelineTicks } from '../../../lib/snap'
+import { DUCK_MODES, GAIN_MAX, GAIN_MIN } from '../../../lib/audio'
 
 export type EditStep = 'cut' | 'frame' | 'motion' | 'transitions' | 'look' | 'captions' | 'sound' | 'brand' | 'render'
 
@@ -55,6 +56,7 @@ interface Props {
   tweakingClip: string | null
   onStep?: (step: EditStep) => void
   shotCount?: number
+  montageKept?: number                // shots that play their own sound (Sound step read-out)
   montageRevision?: number
 }
 
@@ -234,7 +236,10 @@ export default function EditPanel(p: Props) {
   const setFx = (patch: Partial<Effects>) => set('effects', { ...DEFAULT_EFFECTS, ...s.effects, ...patch })
   const fxOn = Boolean(fxSummary) || s.fx.length > 0
   const capSummary = s.captions ? `${s.caption_style} · ${s.caption_pos}${s.caption_source === 'manual' ? ' · manual' : ''}` : 'off'
-  const soundSummary = [s.music ? `music ${s.music}${s.duck ? ' (ducked)' : ''}` : 'original audio', s.sfx.length ? `${s.sfx.length} sfx` : '', s.loudness ? '-14 LUFS' : ''].filter(Boolean).join(' · ')
+  const musicDb = s.music ? Math.round(20 * Math.log10(Math.max(0.01, (s.music_gain / 100) * 1.2))) : null
+  const sourceText = p.mode === 'montage' ? `${p.montageKept ?? 0} of ${p.shotCount ?? 0} shots` : s.source_audio === 'mute' ? 'muted' : s.source_gain_db ? `${s.source_gain_db > 0 ? '+' : ''}${s.source_gain_db} dB` : 'as recorded'
+  const soundSummary = [`source: ${sourceText}`, s.music ? `music ${musicDb! > 0 ? '+' : ''}${musicDb} dB${s.duck !== 'off' ? `, duck ${s.duck}` : ''}` : 'no music',
+    s.sfx.length ? `${s.sfx.length} sfx` : '', s.loudness ? '-14 LUFS' : ''].filter(Boolean).join(' · ')
   const brandSummary = wm?.file ? `${wm.file} · ${wm.position.replace('_', ' ')}` : 'no watermark'
   const tooLongToReverse = p.mode === 'range' && s.playback !== 'forward' && p.range.end - p.range.start > 10
   const summaries: Record<EditStep, string> = { cut: cutSummary, frame: frameSummary, motion: motionSummary, transitions: 'see step', look: lookSummary, captions: capSummary, sound: soundSummary, brand: brandSummary, render: '' }
@@ -491,14 +496,29 @@ export default function EditPanel(p: Props) {
         <label className="btn small">Add track<input type="file" accept=".mp3,.m4a,.aac,.wav,.ogg,.opus,.flac,audio/*" onChange={(e) => void onPickMusic(e)} hidden /></label>
         {s.music && (
           <>
-            <label className="slider"><span className="muted small">Vol</span>
-              <input type="range" min={0} max={100} step={5} value={s.music_gain} onChange={(e) => set('music_gain', Number(e.target.value))} />
-              <span className="mono small">{s.music_gain}</span></label>
-            <label className="check"><input type="checkbox" checked={s.duck} onChange={(e) => set('duck', e.target.checked)} /> Duck under speech</label>
+            <label className="slider"><span className="muted small">Music</span>
+              <input type="range" min={0} max={100} step={5} value={s.music_gain} onChange={(e) => set('music_gain', Number(e.target.value))} aria-label="Music gain" />
+              <span className="mono small">{s.music_gain}% ({musicDb! > 0 ? '+' : ''}{musicDb} dB)</span></label>
+            <select value={s.duck} onChange={(e) => set('duck', e.target.value as RenderSettings['duck'])} aria-label="Ducking" title={DUCK_MODES.find((d) => d.value === s.duck)?.hint}>
+              {DUCK_MODES.map((d) => <option key={d.value} value={d.value}>{d.value === 'off' ? d.label : `Duck ${d.label.toLowerCase()}`}</option>)}
+            </select>
           </>
         )}
         <label className="check"><input type="checkbox" checked={s.loudness} onChange={(e) => set('loudness', e.target.checked)} /> Normalise loudness</label>
       </div>
+      {p.mode === 'range' ? (
+        <div className="row wrap">
+          <span className="muted small">Source audio</span>
+          <button className={`btn small ${s.source_audio === 'keep' ? 'accent' : ''}`} onClick={() => set('source_audio', s.source_audio === 'keep' ? 'mute' : 'keep')} aria-label="Source audio" title="The clip's own sound">
+            {s.source_audio === 'keep' ? '🔊 keep' : '🔇 muted'}</button>
+          {s.source_audio === 'keep' && (
+            <label className="slider"><span className="muted small">gain</span>
+              <input type="range" min={GAIN_MIN} max={GAIN_MAX} step={1} value={s.source_gain_db} onChange={(e) => set('source_gain_db', Number(e.target.value))} aria-label="Source gain" />
+              <span className="mono small">{s.source_gain_db > 0 ? '+' : ''}{s.source_gain_db} dB</span></label>
+          )}
+        </div>
+      ) : montage('sound')}
+      <p className="mono muted small" style={{ margin: 0 }}>{soundSummary}</p>
       {s.music && <TrackDrop key={s.music} name={s.music} />}
       <div className="row wrap">
         <span className="muted small">Sound effects</span>

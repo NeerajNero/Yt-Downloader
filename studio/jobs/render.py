@@ -69,6 +69,9 @@ def handle(ctx: JobContext) -> dict:
     warn = core.captions_warning(settings)
     if warn:
         music_info["captions_warning"] = warn
+    notes = core.audio_notes(settings)
+    if notes:
+        music_info["audio_notes"] = notes
     if music_path is not None:
         music_info["music_drop_aligned"] = plan["aligned"]
         if plan["aligned"]:

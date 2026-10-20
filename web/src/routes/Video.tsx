@@ -380,7 +380,8 @@ export default function VideoPage() {
                      safeArea={safeArea} onSafeArea={setSafe} pauseAt={pauseAt} montageStart={montageShots?.[0]?.start ?? null}
                      onPreview={() => void requestPreviewNow()} previewPending={pv.status === 'pending'} livePreview={livePreview} onLivePreview={setLive}
                      onCaptionDraft={(kind, value) => setCapDraft((d) => ({ ...(d.clipId === previewClip?.id ? d : { clipId: previewClip?.id ?? null }), clipId: previewClip?.id ?? null, [kind]: value }))}
-                     tweakingClip={tweakClip} onStep={setEditStep} shotCount={montageShots?.length ?? 0} montageRevision={montageRevision} />
+                     tweakingClip={tweakClip} onStep={setEditStep} shotCount={montageShots?.length ?? 0} montageRevision={montageRevision}
+                     montageKept={montageShots?.filter((x) => (x.source_audio ?? 'keep') === 'keep' && x.playback !== 'reverse' && x.speed >= 0.25 && x.speed <= 4).length ?? 0} />
         )}
         {mode === 'tools' && <ToolsSection video={video} range={range} active={active} run={(t, pl, ok) => void run(t, pl, ok)} onRemove={() => void remove()} />}
        </div>
