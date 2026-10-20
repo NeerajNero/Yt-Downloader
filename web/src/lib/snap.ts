@@ -11,8 +11,9 @@ export interface SnapShot {
   start: number; end: number; speed: number
   playback: Playback; reverse_speed: number
   transition: Transition | null
+  reverse?: boolean           // plays backwards (same output length)
 }
-export interface LayoutShot { start: number; end: number; speed: number; len: number; offset: number }
+export interface LayoutShot { start: number; end: number; speed: number; len: number; offset: number; reverse?: boolean }
 export interface Layout { layout: LayoutShot[]; total: number; bounds: { d: number }[] }
 export interface BeatsOut { beats: number[]; downbeats: number[] }
 export interface TimelineTicks { beats: number[]; downbeats: number[]; peak: number | null; drop: number | null; warning: string | null }
@@ -36,7 +37,7 @@ export function montageLayout(shots: SnapShot[], fallback: Transition): Layout {
   const layout: LayoutShot[] = []
   let offset = 0
   shots.forEach((s, k) => {
-    layout.push({ start: s.start, end: s.end, speed: s.speed, len: lens[k], offset })
+    layout.push({ start: s.start, end: s.end, speed: s.speed, len: lens[k], offset, reverse: Boolean(s.reverse) })
     offset += lens[k] - (k < bounds.length ? bounds[k].d : 0)
   })
   const last = layout[layout.length - 1]
@@ -45,7 +46,16 @@ export function montageLayout(shots: SnapShot[], fallback: Transition): Layout {
 
 /** Mirror of render.source_to_output: the first shot containing t wins; null in a gap. */
 export function sourceToOutput(t: number, layout: LayoutShot[]): number | null {
-  for (const L of layout) if (L.start <= t && t <= L.end) return L.offset + (t - L.start) / (L.speed || 1)
+  for (const L of layout) if (L.start <= t && t <= L.end) return L.offset + (L.reverse ? (L.end - t) : (t - L.start)) / (L.speed || 1)
+  return null
+}
+
+/** Inverse of sourceToOutput: a preview-file time back into source seconds (time runs backwards inside a reversed shot). */
+export function outputToSource(tOut: number, layout: LayoutShot[]): number | null {
+  for (const L of layout) if (tOut >= L.offset && tOut <= L.offset + L.len) {
+    const d = (tOut - L.offset) * (L.speed || 1)
+    return L.reverse ? Math.max(L.start, L.end - d) : Math.min(L.end, L.start + d)
+  }
   return null
 }
 

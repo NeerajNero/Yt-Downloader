@@ -16,6 +16,33 @@ def _library_file(ctx: JobContext, sub: str, name: str):
     return p
 
 
+def resolve_inputs(ctx: JobContext, video: dict, settings: core.RenderSettings) -> dict:
+    """The files a render (or preview) needs: transcript / manual captions when
+    captions are on, the music bed, watermark, sfx and overlay-effect clips.
+    Keys match run_export's keyword arguments."""
+    transcript = manual = None
+    if settings.captions:
+        if settings.caption_source == "manual":
+            manual = ctx.asset_json(video, "captions")
+            if not manual:
+                raise ValueError("No manual captions yet — add them in the caption editor.")
+        else:
+            transcript = ctx.asset_json(video, "transcript")
+            if not transcript:
+                raise ValueError("No transcript yet — run Transcribe first.")
+    music_path = _library_file(ctx, ".music", settings.music) if settings.music else None
+    watermark_path = None
+    if settings.watermark and settings.watermark.get("file"):
+        watermark_path = _library_file(ctx, ".overlays", settings.watermark["file"])
+    sfx_paths = [(_library_file(ctx, ".music", l["file"]), float(l.get("at", 0)), float(l.get("gain", 80)))
+                 for l in settings.sfx if l.get("file")]
+    fx_paths = [(_library_file(ctx, ".fx", l["file"]), float(l.get("at", 0)), float(l.get("opacity", 80)),
+                 str(l.get("blend", "screen")), bool(l.get("flip")), float(l.get("speed", 1.0) or 1.0))
+                for l in settings.fx if l.get("file")]
+    return {"transcript": transcript, "manual_captions": manual, "music_path": music_path,
+            "watermark_path": watermark_path, "sfx_paths": sfx_paths, "fx_paths": fx_paths}
+
+
 def handle(ctx: JobContext) -> dict:
     video = ctx.video()
     p = ctx.payload
@@ -27,26 +54,9 @@ def handle(ctx: JobContext) -> dict:
     if clip_id:
         ctx.store.update_clip(clip_id, status="rendering", job_id=ctx.id)
 
-    transcript = manual = None
-    if settings.captions:
-        if settings.caption_source == "manual":
-            manual = ctx.asset_json(video, "captions")
-            if not manual:
-                raise ValueError("No manual captions yet — add them in the caption editor.")
-        else:
-            transcript = ctx.asset_json(video, "transcript")
-            if not transcript:
-                raise ValueError("No transcript yet — run Transcribe first.")
-
-    music_path = _library_file(ctx, ".music", settings.music) if settings.music else None
-    watermark_path = None
-    if settings.watermark and settings.watermark.get("file"):
-        watermark_path = _library_file(ctx, ".overlays", settings.watermark["file"])
-    sfx_paths = [(_library_file(ctx, ".music", l["file"]), float(l.get("at", 0)), float(l.get("gain", 80)))
-                 for l in settings.sfx if l.get("file")]
-    fx_paths = [(_library_file(ctx, ".fx", l["file"]), float(l.get("at", 0)), float(l.get("opacity", 80)),
-                 str(l.get("blend", "screen")), bool(l.get("flip")), float(l.get("speed", 1.0) or 1.0))
-                for l in settings.fx if l.get("file")]
+    inputs = resolve_inputs(ctx, video, settings)
+    transcript, manual, music_path = inputs["transcript"], inputs["manual_captions"], inputs["music_path"]
+    watermark_path, sfx_paths, fx_paths = inputs["watermark_path"], inputs["sfx_paths"], inputs["fx_paths"]
 
     # The track's drop (manual override first) when its beat grid is current.
     music_drop_s = None
@@ -59,6 +69,12 @@ def handle(ctx: JobContext) -> dict:
     warn = core.captions_warning(settings)
     if warn:
         music_info["captions_warning"] = warn
+    notes = core.audio_notes(settings)
+    if notes:
+        music_info["audio_notes"] = notes
+    motion = core.motion_notes(settings)
+    if motion:
+        music_info["motion_notes"] = motion
     if music_path is not None:
         music_info["music_drop_aligned"] = plan["aligned"]
         if plan["aligned"]:

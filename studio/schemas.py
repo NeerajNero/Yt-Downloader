@@ -7,7 +7,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 
 class NoopPayload(BaseModel):
@@ -77,6 +77,17 @@ class Transition(BaseModel):
 
 
 PLAYBACK = Literal["forward", "reverse", "bounce"]   # bounce = forward, then rewind
+SOURCE_AUDIO = Literal["keep", "mute"]
+DUCK = Literal["off", "light", "medium", "heavy"]      # sidechain presets, see render.DUCK_PRESETS
+
+
+def _duck_value(v):
+    """The old boolean `duck` maps onto the presets: true = medium, false = off."""
+    if v is True:
+        return "medium"
+    if v is False or v is None:
+        return "off"
+    return v
 
 
 class Segment(BaseModel):
@@ -85,17 +96,23 @@ class Segment(BaseModel):
     the transition INTO THE NEXT shot; None = the montage's default."""
     start: float = Field(ge=0)
     end: float
-    speed: float = Field(1.0, ge=0.25, le=4.0)
+    speed: float = Field(1.0, ge=0.1, le=4.0)
+    reverse: bool = False          # play this shot backwards (same output length as forward at this speed)
+    smooth: bool = False           # slow-mo (< 1x) with motion interpolation on the final render only
     zoom_markers: list[ZoomMarker] = Field(default_factory=list, max_length=20)
     shake_markers: list[ShakeMarker] = Field(default_factory=list, max_length=20)
     transition: Transition | None = None
     playback: PLAYBACK = "forward"
     reverse_speed: float = Field(1.0, ge=1.0, le=4.0)   # speed of the rewind leg (reverse / bounce)
+    source_audio: SOURCE_AUDIO = "keep"                  # this shot's own sound (music is global)
+    source_gain_db: float = Field(0.0, ge=-30, le=6)
 
     @model_validator(mode="after")
     def _range(self):
         if self.end <= self.start:
             raise ValueError("End time must be after start time.")
+        if self.reverse and self.end - self.start > 6.0:
+            raise ValueError(f"A reversed shot can be at most 6 s of source ({self.end - self.start:.1f} s).")
         return self
 
 
@@ -161,7 +178,9 @@ class RenderPayload(BaseModel):
     grade: Literal["none", "teal_orange", "moody", "warm", "cool", "bw"] = "none"
     music: str = ""
     music_gain: int = Field(60, ge=0, le=100)
-    duck: bool = True
+    duck: DUCK = "medium"                     # how hard the music ducks under the (mixed, post-gain) source audio
+    source_audio: SOURCE_AUDIO = "keep"       # a plain range's own sound; per-shot for a montage (Segment)
+    source_gain_db: float = Field(0.0, ge=-30, le=6)
     watermark: Watermark | None = None
     sfx: list[SfxLayer] = Field(default_factory=list, max_length=20)
     zoom_markers: list[ZoomMarker] = Field(default_factory=list, max_length=50)
@@ -177,6 +196,11 @@ class RenderPayload(BaseModel):
     peak_s: float | None = Field(None, ge=0)   # the moment (source seconds); recorded on the clip, never in a recipe
     hook_text: str | None = Field(None, max_length=160)    # burned on frame 1; from the clip, never a recipe
     payoff_text: str | None = Field(None, max_length=160)  # burned on the peak
+
+    @field_validator("duck", mode="before")
+    @classmethod
+    def _duck(cls, v):
+        return _duck_value(v)
 
     @model_validator(mode="after")
     def _range(self):
@@ -284,11 +308,12 @@ PAYLOADS: dict[str, type[BaseModel]] = {
     "dialogue": DialoguePayload,
     "tags": TagsPayload,
     "beats": BeatsPayload,
+    "preview": RenderPayload,   # a draft of a render: same payload, 540 px output under work/preview
 }
 
 # Job types that need a video_id.
 NEEDS_VIDEO = {"transcribe", "scenes", "borders", "convert", "render", "clippack",
-               "tighten", "suggest", "postkit", "plan", "dialogue", "tags"}
+               "tighten", "suggest", "postkit", "plan", "dialogue", "tags", "preview"}
 
 
 def _explain(e: ValidationError) -> str:
@@ -316,6 +341,7 @@ def validate_payload(job_type: str, payload: dict | None) -> dict:
 def validate_recipe(settings: dict | None) -> dict:
     """Recipe settings as stored in `recipes.settings`; raises ValueError."""
     try:
-        return RecipeSettings.model_validate(settings or {}).model_dump(exclude={"start", "end", "recipe_id", "segments", "peak_s", "hook_text", "payoff_text"})
+        return RecipeSettings.model_validate(settings or {}).model_dump(exclude={"start", "end", "recipe_id", "segments", "peak_s", "hook_text", "payoff_text",
+                                                                           "source_audio", "source_gain_db"})
     except ValidationError as e:
         raise ValueError(_explain(e)) from e

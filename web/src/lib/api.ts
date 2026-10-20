@@ -104,6 +104,11 @@ export const getBeats = (name: string): Promise<BeatsGrid | null> =>
 /** Set (seconds into the track) or clear (null) the manual drop. */
 export const setTrackDrop = (name: string, drop_s_manual: number | null) => patch<BeatsGrid>(beatsUrl(name), { drop_s_manual })
 export const musicUrl = (name: string) => fileUrl(`.music/${name}`)
+
+// ---- draft previews (540 px, work/preview/<video_id>/<hash>.mp4) ----
+export interface PreviewTicket { job_id: string | null; cached: boolean; url: string; hash: string; superseded?: number }
+export const requestPreview = (videoId: string, payload: Record<string, unknown>) =>
+  post<PreviewTicket>(`/api/videos/${videoId}/preview`, { payload })
 export const uploadMusic = (file: File) =>
   fetch(`/api/music?filename=${encodeURIComponent(file.name)}`, { method: 'POST', body: file })
     .then(check).then((r) => r.json() as Promise<{ name: string }>)

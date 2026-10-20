@@ -46,6 +46,13 @@ def from_silences(silences: list[tuple[float, float]], duration: float, min_len:
     return {"src": None, "source": "silence", "lines": lines, "duration": duration}
 
 
+def audio_for_shots(shots: list[dict], lines: list[dict] | None) -> list[str]:
+    """'keep' for every shot that overlaps a dialogue line, 'mute' for the rest
+    (the montage's "Keep audio where there is dialogue"). Mirrored in
+    web/src/lib/audio.ts."""
+    return ["keep" if lines and overlap(float(s["start"]), float(s["end"]), lines) > 0 else "mute" for s in shots]
+
+
 def overlap(a0: float, a1: float, lines: list[dict]) -> float:
     """Seconds of [a0, a1] covered by dialogue lines."""
     total = 0.0

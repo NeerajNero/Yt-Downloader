@@ -2,19 +2,19 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import Progress from '../components/Progress'
 import Segmented from '../components/ui/Segmented'
-import { saveMontage, shotsFromSegments, type Plan, type Segment, type ShotInfo, type Transition } from '../components/video/Montage'
+import { saveMontage, shotsFromSegments, toSegments, type Plan, type Segment, type ShotInfo, type Transition } from '../components/video/Montage'
 import Player from '../components/video/Player'
 import Timeline from '../components/video/Timeline'
 import ClipsSection from '../components/video/sections/ClipsSection'
 import EditPanel from '../components/video/sections/EditPanel'
 import Prepare from '../components/video/sections/Prepare'
 import ToolsSection from '../components/video/sections/ToolsSection'
-import { deleteVideo, enqueue, fetchJson, fileUrl, updateVideo, type Dialogue, type ManualCaptions, type Scenes, type Tags, type Transcript } from '../lib/api'
+import { deleteVideo, enqueue, fetchJson, fileUrl, requestPreview, updateVideo, type Dialogue, type ManualCaptions, type Scenes, type Tags, type Transcript } from '../lib/api'
 import { bytes, duration, resolution } from '../lib/format'
 import { usePoll } from '../lib/poll'
 import { peakOut as peakOutOf } from '../lib/captions'
-import { DEFAULT_SETTINGS, fromStored, getSafeArea, setSafeArea, type RenderSettings } from '../lib/settings'
-import { montageLayout, sourceToOutput, type TimelineTicks } from '../lib/snap'
+import { DEFAULT_SETTINGS, fromStored, getLivePreview, getSafeArea, setLivePreview, setSafeArea, type RenderSettings } from '../lib/settings'
+import { montageLayout, outputToSource, sourceToOutput, type LayoutShot, type TimelineTicks } from '../lib/snap'
 import type { Clip, VideoDetail } from '../lib/types'
 
 type Mode = 'prepare' | 'clips' | 'edit' | 'tools'
@@ -38,6 +38,13 @@ export default function VideoPage() {
   const [safeArea, setSafeAreaState] = useState(getSafeArea)
   const setSafe = (v: boolean) => { setSafeAreaState(v); setSafeArea(v) }
   const [capDraft, setCapDraft] = useState<{ clipId: string | null; hook_text?: string; payoff_text?: string }>({ clipId: null })
+  // Draft preview: the 540 px render of the current settings (work/preview), and which file the player plays.
+  const [pv, setPv] = useState<{ status: 'idle' | 'pending' | 'ready' | 'error'; jobId: string | null; url: string | null; key: string | null; layout: LayoutShot[]; msg: string | null }>(
+    { status: 'idle', jobId: null, url: null, key: null, layout: [], msg: null })
+  const [playSource, setPlaySource] = useState<'source' | 'preview'>('source')
+  const [livePreview, setLivePreviewState] = useState(getLivePreview)
+  const setLive = (v: boolean) => { setLivePreviewState(v); setLivePreview(v) }
+  const pendingSeek = useRef<number | null>(null)
   const [editStep, setEditStep] = useState<string>('cut')
   const [montageRevision, setMontageRevision] = useState(0)
   const [settings, setSettings] = useState<RenderSettings>(DEFAULT_SETTINGS)
@@ -131,9 +138,14 @@ export default function VideoPage() {
   if (!video) return <p className="muted">Video not found. <Link to="/library">Back to library</Link></p>
 
   const src = video.storage_path ? (editCopy?.path ? fileUrl(editCopy.path) : `/api/files/${video.id}/source`) : null
-  const playhead = () => videoRef.current?.currentTime ?? 0
-  const seek = (t: number) => { if (videoRef.current) { videoRef.current.currentTime = t; void videoRef.current.play().catch(() => {}) } }
-  const pauseAt = (t: number) => { if (videoRef.current) { videoRef.current.pause(); videoRef.current.currentTime = t; setNowTime(t) } }
+  // In preview mode the element plays the draft file: map between source and output seconds (lib/snap).
+  const inPreview = playSource === 'preview' && pv.status === 'ready' && Boolean(pv.url)
+  const toOut = (t: number) => (inPreview ? sourceToOutput(t, pv.layout) ?? 0 : t)
+  const toSrc = (t: number) => (inPreview ? outputToSource(t, pv.layout) ?? nowTime : t)
+  const playhead = () => toSrc(videoRef.current?.currentTime ?? 0)
+  const seek = (t: number) => { if (videoRef.current) { videoRef.current.currentTime = toOut(t); void videoRef.current.play().catch(() => {}) } }
+  const pauseAt = (t: number) => { if (videoRef.current) { videoRef.current.pause(); videoRef.current.currentTime = toOut(t); setNowTime(t) } }
+  const switchPlayer = (m: 'source' | 'preview') => { pendingSeek.current = nowTime; setPlaySource(m) }
 
   const run = async (type: string, payload: Record<string, unknown> = {}, okMsg?: string, clipId?: string) => {
     setErr(null); setMsg(null)
@@ -170,6 +182,60 @@ export default function VideoPage() {
              'Render queued — watch it on the Jobs tab; the clip lands in Clips and Review.', target ?? undefined)
     if (!clipId) setTweakClip(null)
   }
+  // The payload a Preview sends: exactly what Render would, from the current draft settings.
+  const draftPayload = (): Record<string, unknown> | null => {
+    if (editMode === 'montage') {
+      if (!montageShots?.length) return null
+      return { ...basePayload(), segments: toSegments(montageShots), transition: montageTransition, ...clipExtras(clipFor(tweakClip, range.start, range.end)) }
+    }
+    if (range.end <= range.start) return null
+    return { ...basePayload(), start: range.start, end: range.end, ...clipExtras(clipFor(tweakClip, range.start, range.end), (peak) => peak >= range.start && peak <= range.end) }
+  }
+  const draftKey = mode === 'edit' ? JSON.stringify(draftPayload()) : null
+  const previewStale = pv.status === 'ready' && pv.key !== draftKey
+  const requestPreviewNow = async () => {
+    const payload = draftPayload()
+    if (!payload) return setErr(editMode === 'montage' ? 'Load some shots first.' : 'End must be after start.')
+    const key = JSON.stringify(payload)
+    const layout = editMode === 'montage' && montageShots?.length ? montageLayout(montageShots, montageTransition).layout
+      : [{ start: range.start, end: range.end, speed: 1, len: range.end - range.start, offset: 0 }]
+    setErr(null)
+    try {
+      const r = await requestPreview(video.id, payload)
+      setPv({ status: r.cached ? 'ready' : 'pending', jobId: r.job_id, url: r.url, key, layout, msg: null })
+      if (r.cached) switchPlayer('preview')
+    } catch (e) { setPv((s) => ({ ...s, status: 'error', msg: (e as Error).message })) }
+  }
+  // Follow the preview job through the per-second poll; switch the player when the file lands.
+  useEffect(() => {
+    if (pv.status !== 'pending' || !pv.jobId) return
+    const j = video.jobs.find((x) => x.id === pv.jobId)
+    if (!j) return
+    if (j.status === 'done') { setPv((s) => ({ ...s, status: 'ready', msg: null })); pendingSeek.current = nowTime; setPlaySource('preview') }
+    else if (j.status === 'error') setPv((s) => ({ ...s, status: 'error', msg: `Preview failed: ${j.error ?? 'unknown error'}` }))
+    else if (j.status === 'cancelled') setPv((s) => ({ ...s, status: s.url ? 'ready' : 'idle' }))
+  }, [video.jobs, pv.status, pv.jobId]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Live: re-preview 800 ms after the last change.
+  useEffect(() => {
+    if (!livePreview || mode !== 'edit' || !draftKey || draftKey === pv.key || draftKey === 'null') return
+    const t = window.setTimeout(() => { void requestPreviewNow() }, 800)
+    return () => window.clearTimeout(t)
+  }, [draftKey, livePreview, mode]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Keep the position when switching between source and preview (the element reloads its src).
+  const onPreviewLoaded = () => {
+    if (pendingSeek.current != null && videoRef.current) { videoRef.current.currentTime = toOut(pendingSeek.current); pendingSeek.current = null }
+  }
+  useEffect(() => {
+    if (playSource === 'source' && pendingSeek.current != null && videoRef.current) {
+      const t = pendingSeek.current; pendingSeek.current = null
+      const el = videoRef.current
+      const apply = () => { el.currentTime = t; el.removeEventListener('loadedmetadata', apply) }
+      if (el.readyState >= 1) apply(); else el.addEventListener('loadedmetadata', apply)
+    }
+  }, [playSource])
+  // Leaving Edit: back to the source.
+  useEffect(() => { if (mode !== 'edit' && playSource === 'preview') setPlaySource('source') }, [mode, playSource])
+
   const renderSequence = (segments: unknown[], transition: { type: string; duration: number }) => {
     // The peak may sit outside every shot: the backend then skips the music alignment and says so in the job result.
     const extras = clipExtras(clipFor(tweakClip, range.start, range.end))
@@ -266,7 +332,10 @@ export default function VideoPage() {
                 captions={{ enabled: previewCaps && settings.captions, source: settings.caption_source, pos: settings.caption_pos, style: settings.caption_style }}
                 transcript={transcript} manual={manual} big={mode === 'edit' && editStep === 'frame'}
                 crop={mode === 'edit' && editStep === 'frame' ? { ...frameProps, onChange: (c) => setSettings((s) => ({ ...s, crop_x: c.x, crop_y: c.y, crop_zoom: c.zoom })) } : null}
-                frame={mode === 'edit' ? frameProps : null} safeArea={mode === 'edit' && safeArea} captionPreview={captionPreview} />
+                frame={mode === 'edit' ? frameProps : null} safeArea={mode === 'edit' && safeArea} captionPreview={captionPreview}
+                preview={mode === 'edit' && (pv.url || pv.status === 'pending' || pv.status === 'error') ? {
+                  url: pv.status === 'ready' || pv.status === 'pending' ? pv.url : null, mode: playSource, onMode: switchPlayer, pending: pv.status === 'pending',
+                  stale: previewStale, toSource: (t) => outputToSource(t, pv.layout) ?? t, onLoaded: onPreviewLoaded, message: pv.status === 'error' ? pv.msg : null } : null} />
         {playError && !editCopy && <p className="muted small">This file may not play here — Prepare → Preview copy makes one that does.</p>}
         <Timeline videoDuration={vidDuration} nowTime={nowTime} scenes={scenes?.scenes ?? []}
                   dialogue={dialogue?.lines ?? []} closeups={tags?.shots.filter((s) => s.closeup) ?? []}
@@ -309,8 +378,10 @@ export default function VideoPage() {
                      onRender={() => renderRange()} onRenderSequence={renderSequence} onBeatTicks={setBeatTicks}
                      onMontageShots={(shots, tr) => { setMontageShots(shots); if (tr) setMontageTransition(tr) }}
                      safeArea={safeArea} onSafeArea={setSafe} pauseAt={pauseAt} montageStart={montageShots?.[0]?.start ?? null}
+                     onPreview={() => void requestPreviewNow()} previewPending={pv.status === 'pending'} livePreview={livePreview} onLivePreview={setLive}
                      onCaptionDraft={(kind, value) => setCapDraft((d) => ({ ...(d.clipId === previewClip?.id ? d : { clipId: previewClip?.id ?? null }), clipId: previewClip?.id ?? null, [kind]: value }))}
-                     tweakingClip={tweakClip} onStep={setEditStep} shotCount={montageShots?.length ?? 0} montageRevision={montageRevision} />
+                     tweakingClip={tweakClip} onStep={setEditStep} shotCount={montageShots?.length ?? 0} montageRevision={montageRevision}
+                     montageKept={montageShots?.filter((x) => (x.source_audio ?? 'keep') === 'keep' && x.playback !== 'reverse' && x.speed >= 0.25 && x.speed <= 4).length ?? 0} />
         )}
         {mode === 'tools' && <ToolsSection video={video} range={range} active={active} run={(t, pl, ok) => void run(t, pl, ok)} onRemove={() => void remove()} />}
        </div>

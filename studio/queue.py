@@ -2,10 +2,12 @@
 from it, everything is gone when the app exits (by design — this is a
 run-when-needed tool).
 
-Two lanes so the machine is never asked to do two ffmpeg/whisper jobs at
-once, while downloads and Gemini calls (network-bound) run alongside:
-  heavy : render, convert, clippack, tighten, transcribe, scenes, borders
-  light : download, suggest, postkit, plan, style, dialogue, tags, beats, noop
+Three lanes so the machine is never asked to do two ffmpeg/whisper jobs at
+once, while downloads and Gemini calls (network-bound) run alongside, and a
+draft preview never waits behind a full render:
+  heavy   : render, convert, clippack, tighten, transcribe, scenes, borders
+  light   : download, suggest, postkit, plan, style, dialogue, tags, beats, noop
+  preview : preview (one worker)
 
 Statuses: queued → running → done | error | cancelled. Cancel a running job =
 status 'cancel_requested'; the handler's should_cancel() notices and it flips
@@ -27,6 +29,7 @@ from studio.library import now_iso
 log = logging.getLogger("queue")
 
 HEAVY = {"render", "convert", "clippack", "tighten", "transcribe", "scenes", "borders"}
+PREVIEW = {"preview"}
 ACTIVE = ("queued", "running", "cancel_requested")
 FINISHED = ("done", "error", "cancelled")
 
@@ -35,11 +38,12 @@ Handler = Callable[[dict, Callable[[float | None, str | None], None], Callable[[
 
 class JobQueue:
     def __init__(self, handler: Handler, on_finished: Callable[[dict], None] | None = None,
-                 heavy_workers: int = 1, light_workers: int = 2, keep_finished: int = 200):
+                 heavy_workers: int = 1, light_workers: int = 2, keep_finished: int = 200, preview_workers: int = 1):
         self.handler = handler
         self.on_finished = on_finished
         self.heavy_workers = heavy_workers
         self.light_workers = light_workers
+        self.preview_workers = preview_workers
         self.keep_finished = keep_finished
         self.jobs: dict[str, dict] = {}
         self._cancel: dict[str, threading.Event] = {}
@@ -54,7 +58,9 @@ class JobQueue:
         for i in range(self.heavy_workers):
             self._spawn(f"heavy-{i}", lambda t: t in HEAVY)
         for i in range(self.light_workers):
-            self._spawn(f"light-{i}", lambda t: t not in HEAVY)
+            self._spawn(f"light-{i}", lambda t: t not in HEAVY and t not in PREVIEW)
+        for i in range(self.preview_workers):
+            self._spawn(f"preview-{i}", lambda t: t in PREVIEW)
 
     def _spawn(self, name: str, accepts: Callable[[str], bool]) -> None:
         t = threading.Thread(target=self._loop, args=(accepts,), name=name, daemon=True)

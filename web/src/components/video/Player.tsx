@@ -41,6 +41,11 @@ interface Props {
   frame?: FrameProps | null          // output frame for the overlays below (Edit)
   safeArea?: boolean                 // shade the off-limits bands + subject zone (docs/PLAYBOOK.md)
   captionPreview?: CaptionPreviewProps | null
+  /** Draft preview (540 px render of the current settings): when `mode` is 'preview' the player plays
+   *  `url` instead of the source and every overlay is hidden (they are burned in). Time is reported
+   *  through `toSource` so the timeline and markers stay in source seconds. */
+  preview?: { url: string | null; mode: 'source' | 'preview'; onMode: (m: 'source' | 'preview') => void; pending: boolean; stale: boolean
+              toSource: (t: number) => number; onLoaded?: () => void; message?: string | null } | null
 }
 
 /** The off-limits bands and the subject zone, in percent of whatever box they sit in. */
@@ -134,8 +139,11 @@ export function cropWindow(c: CropProps, W: number, H: number) {
 }
 
 const Player = forwardRef<HTMLVideoElement, Props>(function Player(
-  { src, nowTime, onTime, onError, captions, transcript, manual, big, crop, frame, safeArea, captionPreview }, ref,
+  { src, nowTime, onTime, onError, captions, transcript, manual, big, crop, frame, safeArea, captionPreview, preview }, ref,
 ) {
+  const inPreview = Boolean(preview && preview.mode === 'preview' && preview.url)
+  const playSrc = inPreview ? preview!.url : src
+  if (inPreview) { crop = null; frame = null; safeArea = false; captionPreview = null; captions = { ...captions, enabled: false } }
   const lines = useMemo(() => buildLines(transcript), [transcript])
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const setRefs = useCallback((el: HTMLVideoElement | null) => {
@@ -231,15 +239,29 @@ const Player = forwardRef<HTMLVideoElement, Props>(function Player(
     )
   }
 
+  const switcher = preview && (preview.url || preview.pending) ? (
+    <div className="pv-bar">
+      <div className="pv-switch" role="tablist" aria-label="Player source">
+        <button role="tab" aria-selected={!inPreview} className={!inPreview ? 'active' : ''} onClick={() => preview.onMode('source')}>Source</button>
+        <button role="tab" aria-selected={inPreview} className={inPreview ? 'active' : ''} disabled={!preview.url} onClick={() => preview.onMode('preview')}>Preview</button>
+      </div>
+      {preview.pending && <span className="pv-spinner" aria-label="Rendering preview" />}
+      {inPreview && preview.stale && !preview.pending && <span className="pv-badge">preview out of date</span>}
+      {preview.message && <span className="pv-badge error">{preview.message}</span>}
+    </div>
+  ) : null
+
   return (
     <div className="stack" style={{ gap: 6 }}>
       <div className={`player-wrap ${crop ? 'cropping' : ''}`}>
-        {src ? (
-          <video ref={setRefs} className={`player-video ${big ? 'big' : ''}`} src={src} controls={!crop} playsInline preload="metadata"
-                 onTimeUpdate={(e) => onTime(e.currentTarget.currentTime)} onError={onError} />
+        {playSrc ? (
+          <video ref={setRefs} className={`player-video ${big ? 'big' : ''}`} src={playSrc} controls={!crop} playsInline preload="metadata"
+                 onTimeUpdate={(e) => onTime(inPreview ? preview!.toSource(e.currentTarget.currentTime) : e.currentTarget.currentTime)}
+                 onLoadedMetadata={() => { if (inPreview) preview!.onLoaded?.() }} onError={onError} />
         ) : (
           <div className="player-video player-empty muted">No file yet</div>
         )}
+        {switcher}
         {frameLayer}
         {cropBox}
         {overlay && (

@@ -5,6 +5,7 @@ import { duration } from '../../lib/format'
 import { usePoll } from '../../lib/poll'
 import { PLAYBACKS, REVERSE_SPEEDS, getSnapBeats, playbackLength, setSnapBeats, type Playback, type ShakeMarker, type ZoomMarker } from '../../lib/settings'
 import { gridState, shotStartBeat, snapAll, snapCut, ticksForTimeline, type TimelineTicks } from '../../lib/snap'
+import { GAIN_MAX, GAIN_MIN, audioForShots, autoMuteReason, overlap, type SourceAudio } from '../../lib/audio'
 import type { VideoDetail as Video } from '../../lib/types'
 import TimeInput from '../ui/TimeInput'
 
@@ -21,16 +22,36 @@ export interface Shot {
   transition: Transition | null  // into the NEXT shot; null = the montage default
   playback: Playback             // forward | reverse | bounce (forward, then rewind)
   reverse_speed: number          // speed of the rewind leg
+  source_audio: SourceAudio      // this shot's own sound (music is global)
+  source_gain_db: number         // -30..+6
+  reverse: boolean               // plays backwards, same length as forward at this speed (<= 6 s of source)
+  smooth: boolean                // slow-mo with motion interpolation on the final render only
   label?: string
 }
 
-export interface Segment { start: number; end: number; speed: number; zoom_markers: ZoomMarker[]; shake_markers: ShakeMarker[]; transition: Transition | null; playback: Playback; reverse_speed: number }
-/** What the page needs to know about the included shots (timeline bars, output-time mapping). */
-export interface ShotInfo { start: number; end: number; active?: boolean; speed: number; playback: Playback; reverse_speed: number; transition: Transition | null }
+export interface Segment { start: number; end: number; speed: number; zoom_markers: ZoomMarker[]; shake_markers: ShakeMarker[]; transition: Transition | null; playback: Playback; reverse_speed: number; source_audio: SourceAudio; source_gain_db: number; reverse: boolean; smooth: boolean }
+/** What the page needs to know about the included shots (timeline bars, output-time mapping, preview payload). */
+export interface ShotInfo { id?: string; start: number; end: number; active?: boolean; speed: number; playback: Playback; reverse_speed: number; transition: Transition | null; punch?: boolean; shake?: boolean; source_audio?: SourceAudio; source_gain_db?: number; reverse?: boolean; smooth?: boolean }
+export const MAX_REVERSE_SHOT = 6     // seconds of source a reversed shot may hold (studio/core/render.MAX_REVERSE_SHOT_S)
+export const SPEED_MIN = 0.1, SPEED_MAX = 4
+export const SPEED_PRESETS = [0.25, 0.5, 1, 1.5, 2]
+
+/** Builder shots → render-payload segments (what Render montage and the draft preview both send). */
+export function toSegments(shots: { start: number; end: number; speed: number; punch?: boolean; shake?: boolean; transition: Transition | null; playback: Playback; reverse_speed: number; source_audio?: SourceAudio; source_gain_db?: number; reverse?: boolean; smooth?: boolean }[]): Segment[] {
+  return shots.map((s, i) => ({
+    start: s.start, end: s.end, speed: s.speed,
+    zoom_markers: s.punch ? [{ at: 0, duration: Math.min(0.5, (s.end - s.start) / s.speed / 2), zoom: 1.15 }] : [],
+    shake_markers: s.shake ? [{ ...SHAKE, duration: Math.min(SHAKE.duration, playbackLength(s.end - s.start, s.speed, s.playback, s.reverse_speed) / 2) }] : [],
+    transition: i < shots.length - 1 ? s.transition : null,
+    playback: s.playback, reverse_speed: s.playback === 'forward' ? 1 : s.reverse_speed,
+    source_audio: s.source_audio ?? 'keep', source_gain_db: s.source_gain_db ?? 0,
+    reverse: Boolean(s.reverse), smooth: Boolean(s.smooth) && s.speed < 1,
+  }))
+}
 const MAX_REVERSE = 10  // seconds of shot (after speed) ffmpeg can hold in memory to reverse
 
 /** Which part of the builder to show: one step of the Edit flow, or everything. */
-export type MontageView = 'cut' | 'motion' | 'transitions' | 'render' | 'all'
+export type MontageView = 'cut' | 'motion' | 'transitions' | 'sound' | 'render' | 'all'
 
 export const TRANSITIONS: { value: string; label: string }[] = [
   { value: 'cut', label: 'Hard cut' }, { value: 'fade', label: 'Crossfade' }, { value: 'fadeblack', label: 'Dip to black' },
@@ -42,7 +63,6 @@ export const TRANSITIONS: { value: string; label: string }[] = [
   { value: 'squeezeh', label: 'Squeeze' },
 ]
 export const transitionLabel = (type: string) => TRANSITIONS.find((t) => t.value === type)?.label ?? type
-const SPEEDS = [0.25, 0.5, 0.75, 1, 1.5, 2, 3, 4]
 const MIN_SHOT = 0.3
 const SHAKE: ShakeMarker = { at: 0, duration: 0.4, intensity: 60 }
 
@@ -93,10 +113,14 @@ const key = (id: string) => `ytstudio.montage.${id}`
 let counter = 0
 const mk = (start: number, end: number, label?: string): Shot =>
   ({ id: `${Date.now().toString(36)}-${counter++}`, start: Math.round(start * 100) / 100, end: Math.round(end * 100) / 100,
-     include: true, speed: 1, punch: false, shake: false, transition: null, playback: 'forward', reverse_speed: 2, label })
-/** Saved shots from before shake / per-shot transitions / playback existed get the defaults. */
+     include: true, speed: 1, punch: false, shake: false, transition: null, playback: 'forward', reverse_speed: 2, source_audio: 'keep', source_gain_db: 0,
+     reverse: false, smooth: false, label })
+/** Saved shots from before shake / per-shot transitions / playback / audio / reverse existed get the defaults;
+ *  the old playback 'reverse' becomes the Reverse toggle. */
 const normalise = (s: Partial<Shot>): Shot => ({ ...mk(s.start ?? 0, s.end ?? 0, s.label), ...s, shake: s.shake ?? false, transition: s.transition ?? null,
-                                                 playback: s.playback ?? 'forward', reverse_speed: s.reverse_speed ?? 2, id: s.id ?? mk(0, 0).id })
+                                                 playback: s.playback === 'reverse' ? 'forward' : (s.playback ?? 'forward'), reverse_speed: s.reverse_speed ?? 2, id: s.id ?? mk(0, 0).id,
+                                                 source_audio: s.source_audio ?? 'keep', source_gain_db: s.source_gain_db ?? 0,
+                                                 reverse: s.reverse ?? s.playback === 'reverse', smooth: s.smooth ?? false })
 const shotLen = (s: Shot) => playbackLength(s.end - s.start, s.speed, s.playback, s.reverse_speed)
 const DEFAULT_TRANSITION: Transition = { type: 'fade', duration: 0.35 }
 
@@ -117,7 +141,9 @@ export function shotsFromSegments(segments: Partial<Segment>[]): Shot[] {
   return segments.map((g) => ({
     ...mk(g.start ?? 0, g.end ?? 0), speed: g.speed ?? 1,
     punch: (g.zoom_markers?.length ?? 0) > 0, shake: (g.shake_markers?.length ?? 0) > 0,
-    transition: g.transition ?? null, playback: g.playback ?? 'forward', reverse_speed: g.reverse_speed && g.reverse_speed > 1 ? g.reverse_speed : 2,
+    transition: g.transition ?? null, playback: g.playback === 'reverse' ? 'forward' : (g.playback ?? 'forward'), reverse_speed: g.reverse_speed && g.reverse_speed > 1 ? g.reverse_speed : 2,
+    source_audio: g.source_audio ?? 'keep', source_gain_db: g.source_gain_db ?? 0,
+    reverse: g.reverse ?? g.playback === 'reverse', smooth: g.smooth ?? false,
   }))
 }
 export function saveMontage(videoId: string, shots: Shot[], transition: Transition) {
@@ -141,10 +167,13 @@ export function montageLength(shots: Shot[], fallback: Transition): number {
 /** What a shot has set beyond time and speed — shown in compact rows. */
 const extras = (s: Shot, last: boolean): string[] => {
   const out: string[] = []
+  if (s.source_audio === 'mute') out.push('muted')
+  else if (s.source_gain_db) out.push(`${s.source_gain_db > 0 ? '+' : ''}${s.source_gain_db} dB`)
   if (s.punch) out.push('punch')
   if (s.shake) out.push('shake')
+  if (s.reverse) out.push('◀ reverse')
+  if (s.smooth && s.speed < 1) out.push('smooth')
   if (s.playback === 'bounce') out.push(`⟲ bounce ${s.reverse_speed}×`)
-  if (s.playback === 'reverse') out.push(`◀ reverse ${s.reverse_speed}×`)
   if (!last && s.transition) out.push(`→ ${transitionLabel(s.transition.type)}${s.transition.type !== 'cut' ? ` ${s.transition.duration.toFixed(2)}s` : ''}`)
   return out
 }
@@ -185,8 +214,9 @@ export default function Montage({ video, view = 'all', plan, onApplyPlanLook, sc
   useEffect(() => {
     if (loadedFor !== video.id) return
     try { localStorage.setItem(key(video.id), JSON.stringify({ shots, transition })) } catch { /* ignore */ }
-    onShotsChange?.(shots.length ? shots.filter((x) => x.include).map((x) => ({ start: x.start, end: x.end, active: x.id === editingId, speed: x.speed, playback: x.playback,
-                                                                                     reverse_speed: x.playback === 'forward' ? 1 : x.reverse_speed, transition: x.transition })) : null, transition)
+    onShotsChange?.(shots.length ? shots.filter((x) => x.include).map((x) => ({ id: x.id, start: x.start, end: x.end, active: x.id === editingId, speed: x.speed, playback: x.playback,
+                                                                                     reverse_speed: x.playback === 'forward' ? 1 : x.reverse_speed, transition: x.transition, punch: x.punch, shake: x.shake,
+                                                                                     source_audio: x.source_audio, source_gain_db: x.source_gain_db, reverse: x.reverse, smooth: x.smooth })) : null, transition)
   }, [shots, transition, video.id, loadedFor, editingId]) // eslint-disable-line react-hooks/exhaustive-deps
   // While a shot is being trimmed, the timeline's handles (rangeStart/End) drive its in/out.
   useEffect(() => {
@@ -313,26 +343,71 @@ export default function Montage({ video, view = 'all', plan, onApplyPlanLook, sc
   const render = () => {
     if (included.length < 1) return setMsg('Include at least one shot.')
     const tooLong = included.findIndex((s) => s.playback !== 'forward' && (s.end - s.start) / s.speed > MAX_REVERSE)
-    if (tooLong >= 0) return setMsg(`Shot ${shots.indexOf(included[tooLong]) + 1}: bounce and reverse need a shot of ${MAX_REVERSE} s or less. Shorten it or raise its speed.`)
-    onRender(
-      included.map((s, i) => ({
-        start: s.start, end: s.end, speed: s.speed,
-        zoom_markers: s.punch ? [{ at: 0, duration: Math.min(0.5, (s.end - s.start) / s.speed / 2), zoom: 1.15 }] : [],
-        shake_markers: s.shake ? [{ ...SHAKE, duration: Math.min(SHAKE.duration, shotLen(s) / 2) }] : [],
-        transition: i < included.length - 1 ? s.transition : null,
-        playback: s.playback, reverse_speed: s.playback === 'forward' ? 1 : s.reverse_speed,
-      })),
-      transition,
-    )
+    if (tooLong >= 0) return setMsg(`Shot ${shots.indexOf(included[tooLong]) + 1}: bounce needs a shot of ${MAX_REVERSE} s or less. Shorten it or raise its speed.`)
+    const tooLongRev = included.findIndex((s) => s.reverse && s.end - s.start > MAX_REVERSE_SHOT)
+    if (tooLongRev >= 0) return setMsg(`Shot ${shots.indexOf(included[tooLongRev]) + 1}: a reversed shot can hold at most ${MAX_REVERSE_SHOT} s of source. Trim it.`)
+    onRender(toSegments(included), transition)
     setMsg('Montage render queued — watch it on the Jobs tab.')
   }
 
   const showCut = view === 'cut' || view === 'all'
   const showMotion = view === 'motion' || view === 'all'
+  const showSound = view === 'sound' || view === 'all'
+  // ---- per-shot audio ----
+  const hasDialogue = (s: Shot) => Boolean(dialogue?.length && overlap(s.start, s.end, dialogue) > 0)
+  const setAudioAll = (mode: SourceAudio | 'dialogue') => {
+    const picks = mode === 'dialogue' ? audioForShots(shots, dialogue) : shots.map(() => mode)
+    setShots((list) => list.map((x, i) => ({ ...x, source_audio: picks[i] })))
+    const kept = picks.filter((p) => p === 'keep').length
+    setMsg(mode === 'dialogue' ? `${kept} of ${shots.length} shots keep their sound (the ones with dialogue).` : mode === 'mute' ? 'Every shot muted: only the music plays.' : 'Every shot keeps its sound.')
+  }
+  const audioRow = (s: Shot, i: number) => {
+    const auto = autoMuteReason(s)
+    const kept = s.source_audio === 'keep' && !auto
+    return (
+      <div key={s.id} className={`shot-row ${s.include ? '' : 'off'}`}>
+        {timeButton(s, i)}
+        {hasDialogue(s) && <span className="muted small" title="This shot overlaps a dialogue line">💬</span>}
+        {labelSpan(s, i === shots.length - 1, false)}
+        <button className={`btn small ${kept ? 'accent' : ''}`} disabled={Boolean(auto)} title={auto ?? (kept ? 'Mute this shot\'s own sound' : 'Keep this shot\'s own sound')}
+                onClick={() => patch(s.id, { source_audio: s.source_audio === 'keep' ? 'mute' : 'keep' })} aria-label="Source audio">
+          {auto ? '🔇 auto' : kept ? '🔊' : '🔇'}
+        </button>
+        {kept && (
+          <label className="slider"><span className="muted small">gain</span>
+            <input type="range" min={GAIN_MIN} max={GAIN_MAX} step={1} value={s.source_gain_db} onChange={(e) => patch(s.id, { source_gain_db: Number(e.target.value) })} aria-label="Source gain" />
+            <span className="mono small">{s.source_gain_db > 0 ? '+' : ''}{s.source_gain_db} dB</span></label>
+        )}
+      </div>
+    )
+  }
+  const audioSection = shots.length > 0 ? (
+    <div className="stack" style={{ gap: 4 }}>
+      <div className="row wrap">
+        <span className="muted small">Source audio</span>
+        <button className="btn small" onClick={() => setAudioAll('dialogue')} disabled={!dialogue?.length} title={dialogue?.length ? 'Keep the shots that overlap a dialogue line, mute the rest' : 'Run Prepare → Dialogue lines first'}>Keep audio where there is dialogue</button>
+        <button className="btn small" onClick={() => setAudioAll('mute')}>Mute all</button>
+        <button className="btn small" onClick={() => setAudioAll('keep')}>Keep all</button>
+      </div>
+      {shots.map(audioRow)}
+      <span className="mono muted small">source: {shots.filter((s) => s.include && s.source_audio === 'keep' && !autoMuteReason(s)).length} of {included.length} shots play their own sound</span>
+    </div>
+  ) : null
   const showTrans = view === 'transitions' || view === 'all'
   const showRender = view === 'render' || view === 'all'
   const countLine = `${included.length} shot${included.length === 1 ? '' : 's'} · ${duration(total)} out`
 
+  const setSpeed = (s: Shot, v: number) => { if (Number.isFinite(v)) patch(s.id, { speed: Math.round(Math.max(SPEED_MIN, Math.min(SPEED_MAX, v)) * 100) / 100 }) }
+  const speedControl = (s: Shot) => (
+    <>
+      <select value={SPEED_PRESETS.includes(s.speed) ? s.speed : 'custom'} onChange={(e) => { if (e.target.value !== 'custom') setSpeed(s, Number(e.target.value)) }} aria-label="Speed" title="Playback speed of this shot">
+        {SPEED_PRESETS.map((v) => <option key={v} value={v}>{v}×</option>)}
+        {!SPEED_PRESETS.includes(s.speed) && <option value="custom">{s.speed}×</option>}
+      </select>
+      <input type="number" className="speed-field" min={SPEED_MIN} max={SPEED_MAX} step={0.05} value={s.speed} aria-label="Speed (free)" title="Any speed from 0.1x to 4x"
+             onChange={(e) => setSpeed(s, Number(e.target.value))} />
+    </>
+  )
   const timeButton = (s: Shot, i: number) => (
     <button className="shot-time mono" onClick={() => seek(s.start)} title="Preview from here">{i + 1}. {duration(s.start)}–{duration(s.end)}</button>
   )
@@ -410,9 +485,7 @@ export default function Montage({ video, view = 'all', plan, onApplyPlanLook, sc
                     {timeButton(s, i)}
                     {beatDot(s)}
                     {labelSpan(s, i === shots.length - 1, view !== 'all')}
-                    <select value={s.speed} onChange={(e) => patch(s.id, { speed: Number(e.target.value) })} aria-label="Speed" title="Playback speed of this shot">
-                      {SPEEDS.map((v) => <option key={v} value={v}>{v}×</option>)}
-                    </select>
+                    {speedControl(s)}
                     <button className={`btn small ${trimming ? 'accent' : ''}`} onClick={() => (trimming ? stopTrim() : startTrim(s))} aria-label="Trim shot" title="Trim: drag the handles on the timeline or type the times">{trimming ? 'Done' : '✎'}</button>
                     <button className="btn small" onClick={() => move(i, -1)} disabled={i === 0} aria-label="Move up">↑</button>
                     <button className="btn small" onClick={() => move(i, 1)} disabled={i === shots.length - 1} aria-label="Move down">↓</button>
@@ -449,8 +522,15 @@ export default function Montage({ video, view = 'all', plan, onApplyPlanLook, sc
                 {labelSpan(s, i === shots.length - 1, false)}
                 <label className="check small" title="Punch-in zoom at the start of this shot"><input type="checkbox" checked={s.punch} onChange={(e) => patch(s.id, { punch: e.target.checked })} /> punch</label>
                 <label className="check small" title="Camera shake at the start of this shot"><input type="checkbox" checked={s.shake} onChange={(e) => patch(s.id, { shake: e.target.checked })} /> shake</label>
+                {speedControl(s)}
+                <label className="check small" title={s.end - s.start > MAX_REVERSE_SHOT ? `Reverse needs at most ${MAX_REVERSE_SHOT} s of source (this shot has ${(s.end - s.start).toFixed(1)} s)` : 'Play this shot backwards; its own sound is muted'}>
+                  <input type="checkbox" checked={s.reverse} disabled={s.end - s.start > MAX_REVERSE_SHOT && !s.reverse} onChange={(e) => patch(s.id, { reverse: e.target.checked })} /> ◀ reverse</label>
+                {s.speed < 1 && (
+                  <label className="check small" title="Motion-interpolated slow motion. Affects the final render only: previews always duplicate frames.">
+                    <input type="checkbox" checked={s.smooth} onChange={(e) => patch(s.id, { smooth: e.target.checked })} /> smooth <span className="muted">(final only)</span></label>
+                )}
                 <select value={s.playback} onChange={(e) => patch(s.id, { playback: e.target.value as Playback })} aria-label="Playback" title={PLAYBACKS.find((x) => x.value === s.playback)?.hint}>
-                  <option value="forward">▶ forward</option><option value="bounce">⟲ bounce</option><option value="reverse">◀ reverse</option>
+                  <option value="forward">▶ forward</option><option value="bounce">⟲ bounce</option>
                 </select>
                 {s.playback !== 'forward' && (
                   <select value={s.reverse_speed} onChange={(e) => patch(s.id, { reverse_speed: Number(e.target.value) })} aria-label="Rewind speed" title="Speed of the rewind leg">
@@ -460,10 +540,12 @@ export default function Montage({ video, view = 'all', plan, onApplyPlanLook, sc
               </div>
             )
           })}
-          <p className="muted small" style={{ margin: 0 }}>Punch = quick zoom at the shot's start. Shake = a jolt. Bounce plays forward then rewinds (10 s or shorter). ◉ = the shot starts on a downbeat (punch there), ○ = on a beat. <Link to="/help#motion">Guide →</Link></p>
+          <p className="muted small" style={{ margin: 0 }}>Speed 0.1–4×; below 1× is slow motion (smooth = interpolated frames on the final render only). Reverse plays the shot backwards at that speed (max {MAX_REVERSE_SHOT} s of source, sound muted). Punch = quick zoom at the shot's start. Shake = a jolt. Bounce plays forward then rewinds. ◉ = starts on a downbeat, ○ = on a beat. <Link to="/help#motion">Guide →</Link></p>
         </div>
       )}
       {showMotion && shots.length === 0 && view !== 'all' && <p className="muted small">No shots yet — go back to Cut and load some.</p>}
+      {showSound && (view === 'all' ? <><span className="muted small">Sound per shot</span>{audioSection}</> : audioSection)}
+      {showSound && shots.length === 0 && view !== 'all' && <p className="muted small">No shots yet — go back to Cut and load some.</p>}
 
       {showTrans && (
         <div className="stack" style={{ gap: 6 }}>

@@ -1,5 +1,5 @@
-// Render settings = the `render` job payload (worker/agent/jobs/schemas.py).
-// Presets live in localStorage until Phase 3 turns them into `recipes` rows.
+// Render settings = the `render` job payload (studio/schemas.py RenderPayload).
+import { duckMode, type DuckMode, type SourceAudio } from './audio'
 
 export interface RenderSettings {
   style: 'blur' | 'crop'
@@ -22,7 +22,9 @@ export interface RenderSettings {
   grade: 'none' | 'teal_orange' | 'moody' | 'warm' | 'cool' | 'bw'
   music: string
   music_gain: number
-  duck: boolean
+  duck: DuckMode              // how hard the music ducks under the source audio (studio/core/render.DUCK_PRESETS)
+  source_audio: SourceAudio   // a plain range's own sound; per shot in a montage
+  source_gain_db: number      // -30..+6
   watermark: Watermark | null
   sfx: SfxLayer[]
   zoom_markers: ZoomMarker[]
@@ -99,7 +101,7 @@ export const DEFAULT_SETTINGS: RenderSettings = {
   captions: false, caption_source: 'auto', caption_pos: 'bottom', caption_style: 'karaoke',
   resolution: '1080', orientation: 'portrait', rotate: 'none', rotate_captions: false,
   loudness: false, zoom: 'none', look: 'none', look_sharp: 50, grade: 'none',
-  music: '', music_gain: 60, duck: true,
+  music: '', music_gain: 60, duck: 'medium', source_audio: 'keep', source_gain_db: 0,
   watermark: null, sfx: [], zoom_markers: [], shake_markers: [], playback: 'forward', reverse_speed: 1,
   crop_x: 0.5, crop_y: 0.5, crop_zoom: 1, effects: { ...DEFAULT_EFFECTS }, fx: [],
 }
@@ -116,6 +118,11 @@ export const setSafeArea = (v: boolean) => { try { localStorage.setItem(SAFE_KEY
 export const getReviewSafeArea = (): boolean => { try { return localStorage.getItem(SAFE_REVIEW_KEY) === 'on' } catch { return false } }
 export const setReviewSafeArea = (v: boolean) => { try { localStorage.setItem(SAFE_REVIEW_KEY, v ? 'on' : 'off') } catch { /* */ } }
 
+/** Live preview: re-render the 540 px draft 800 ms after the last change (off by default). */
+const LIVE_KEY = 'ytstudio.edit.livepreview'
+export const getLivePreview = (): boolean => { try { return localStorage.getItem(LIVE_KEY) === 'on' } catch { return false } }
+export const setLivePreview = (v: boolean) => { try { localStorage.setItem(LIVE_KEY, v ? 'on' : 'off') } catch { /* */ } }
+
 export type EditLayout = 'steps' | 'page'
 const LAYOUT_KEY = 'ytstudio.edit.layout'
 export const getEditLayout = (): EditLayout => { try { return localStorage.getItem(LAYOUT_KEY) === 'page' ? 'page' : 'steps' } catch { return 'steps' } }
@@ -128,6 +135,7 @@ export function fromStored(obj: unknown): RenderSettings {
   for (const k of Object.keys(DEFAULT_SETTINGS)) if (k in o && o[k] !== undefined) out[k] = o[k]
   if (!out.watermark) out.watermark = null
   out.effects = { ...DEFAULT_EFFECTS, ...((o.effects && typeof o.effects === 'object' ? o.effects : {}) as Partial<Effects>) }
+  out.duck = duckMode(o.duck === undefined ? 'medium' : o.duck)   // old clips / recipes stored a boolean
   return out as unknown as RenderSettings
 }
 
@@ -151,7 +159,8 @@ export function summarize(s: Partial<RecipeSettings>): string {
     s.fx?.length ? `${s.fx.length} overlay${s.fx.length > 1 ? 's' : ''}` : '',
     s.watermark?.file ? 'watermark' : '',
     s.sfx?.length ? `${s.sfx.length} sfx` : '',
-    s.music ? 'music' : '',
+    s.music ? `music ${s.music_gain ?? 60}%${s.duck && s.duck !== 'off' ? ` duck ${s.duck}` : ''}` : '',
+    s.source_audio === 'mute' ? 'source muted' : s.source_gain_db ? `source ${s.source_gain_db > 0 ? '+' : ''}${s.source_gain_db} dB` : '',
     s.loudness ? '-14 LUFS' : '',
     s.auto_trim ? 'auto trim' : '',
   ]
