@@ -168,7 +168,32 @@ def test_api_library_jobs_clips_recipes(client: TestClient):
 
     # clips + review
     c = client.post("/api/clips", json={"video_id": vid, "start_s": 1, "end_s": 4, "title": "t"}).json()
+    assert c["peak_s"] is None
     assert client.patch(f"/api/clips/{c['id']}", json={"status": "approved"}).json()["status"] == "approved"
+    # peak_s round-trip: set, keep when not sent, move the range, clear with null
+    assert client.post("/api/clips", json={"video_id": vid, "start_s": 1, "end_s": 4, "peak_s": -2}).status_code == 400
+    c2 = client.post("/api/clips", json={"video_id": vid, "start_s": 10, "end_s": 18, "peak_s": 12.5}).json()
+    assert c2["peak_s"] == 12.5
+    assert client.patch(f"/api/clips/{c['id']}", json={"peak_s": 2.25}).json()["peak_s"] == 2.25
+    assert client.patch(f"/api/clips/{c['id']}", json={"title": "moved"}).json()["peak_s"] == 2.25
+    r = client.patch(f"/api/clips/{c['id']}", json={"start_s": 0.5, "end_s": 9.5}).json()
+    assert (r["start_s"], r["end_s"], r["peak_s"]) == (0.5, 9.5, 2.25)
+    assert client.patch(f"/api/clips/{c['id']}", json={"end_s": 0.2}).status_code == 400
+    assert client.patch(f"/api/clips/{c['id']}", json={"peak_s": -1}).status_code == 400
+    assert client.patch(f"/api/clips/{c['id']}", json={"peak_s": None}).json()["peak_s"] is None
+    # hook / payoff text: typed, trimmed, null clears, left out keeps, too long rejected
+    assert (c["hook_text"], c["payoff_text"]) == (None, None)
+    r = client.patch(f"/api/clips/{c['id']}", json={"hook_text": "  Watch this  ", "payoff_text": "Boom"}).json()
+    assert (r["hook_text"], r["payoff_text"]) == ("Watch this", "Boom")
+    assert client.patch(f"/api/clips/{c['id']}", json={"title": "x"}).json()["hook_text"] == "Watch this"
+    r = client.patch(f"/api/clips/{c['id']}", json={"hook_text": None, "payoff_text": ""}).json()
+    assert (r["hook_text"], r["payoff_text"]) == (None, None)
+    assert client.patch(f"/api/clips/{c['id']}", json={"hook_text": "x" * 161}).status_code == 400
+    c3 = client.post("/api/clips", json={"video_id": vid, "start_s": 1, "end_s": 4, "hook_text": "First", "payoff_text": " "}).json()
+    assert (c3["hook_text"], c3["payoff_text"]) == ("First", None)
+    client.delete(f"/api/clips/{c3['id']}")
+    assert next(x for x in client.get(f"/api/videos/{vid}").json()["clips"] if x["id"] == c2["id"])["peak_s"] == 12.5
+    client.delete(f"/api/clips/{c2['id']}")
     assert client.get("/api/review/count").json() == {"count": 0}  # no output file yet
     assert client.get(f"/api/files/{vid}/timeline.fcpxml?status=approved").status_code == 200
     client.delete(f"/api/clips/{c['id']}")
@@ -265,6 +290,12 @@ def test_pipeline_fans_out(client: TestClient, tmp_path):
     assert len(app.store.clips_for(v["id"])) == 4
     payloads = [r["payload"] for r in renders]
     assert all("auto_trim" not in p and "captions_if_speech" not in p for p in payloads)
+    assert all("peak_s" not in p for p in payloads)  # AI picks carry no peak yet
+    assert all("hook_text" not in p and "payoff_text" not in p for p in payloads)  # and never a Gemini hook
+    # a clip with typed text passes it through
+    typed = app.store.add_clip(v["id"], 0, 5, hook_text="Typed", peak_s=2.0)
+    pl = pipeline.recipe_payload({"id": None, "settings": {"style": "crop"}}, typed, have)
+    assert pl["hook_text"] == "Typed" and "payoff_text" not in pl and pl["peak_s"] == 2.0
     assert any(p.get("captions") for p in payloads)  # 30 words -> captions kept
     for r in renders:
         app.queue.cancel(r["id"])

@@ -152,15 +152,24 @@ def nearest_beat(t: float, beats: Sequence[float]) -> float:
     return float(min(beats, key=lambda b: abs(float(b) - t)))
 
 
+SNAP_KEEP_BEFORE = 1.0   # a snapped start must stay at least this far before the peak ...
+SNAP_KEEP_AFTER = 1.5    # ... and a snapped end this far after it; otherwise that edge stays unsnapped
+
+
 def default_range(peak_s: float, beats: Sequence[float] | None, duration: float | None,
                   before: float = 2.0, after: float = 3.0, min_len: float = 8.0, max_len: float = 20.0) -> tuple[float, float]:
-    """Playbook default around the peak: peak-2 .. peak+3, each snapped to the
-    nearest beat when a grid is given, then widened to min_len / clamped to
-    max_len and to the source."""
+    """Playbook default around the peak: peak-2 .. peak+3, each edge snapped to
+    the nearest beat when a grid is given (unless snapping would push the
+    start past peak-1.0 or the end before peak+1.5: that edge keeps its
+    unsnapped value), then widened to min_len / clamped to max_len and to the
+    source. `web/src/lib/beats.ts` mirrors this exactly."""
     peak_s = float(peak_s)
-    start, end = max(0.0, peak_s - before), peak_s + after
+    start0, end0 = max(0.0, peak_s - before), peak_s + after
+    start, end = start0, end0
     if beats:
-        start, end = nearest_beat(start, beats), nearest_beat(end, beats)
+        s, e = nearest_beat(start0, beats), nearest_beat(end0, beats)
+        start = s if s <= peak_s - SNAP_KEEP_BEFORE else start0
+        end = e if e >= peak_s + SNAP_KEEP_AFTER else end0
     if end <= start:
         end = start + after
     if end - start < min_len:

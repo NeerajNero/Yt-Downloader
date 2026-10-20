@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
-import { saveCaptions, type ManualCaptions } from '../../lib/api'
+import { patchClip, saveCaptions, type ManualCaptions } from '../../lib/api'
+import { fitFor, fmtWindow, hookWindow, payoffWindow, peakOut } from '../../lib/captions'
 import { duration, parseTime } from '../../lib/format'
+import type { Clip } from '../../lib/types'
 
 interface Row { text: string; start: string; duration: string }
 
@@ -9,9 +11,50 @@ interface Props {
   manual: ManualCaptions | null
   currentTime: () => number
   onSaved: () => void
+  /** The clip this edit belongs to (hook / payoff live on the clip record); null = plain range. */
+  clip?: Clip | null
+  range?: { start: number; end: number }
+  style?: string          // caption preset: decides the hook / payoff size bounds
+  orientation?: string    // the canvas captions are built on (portrait / landscape)
+  onDraft?: (kind: 'hook_text' | 'payoff_text', value: string) => void   // live text for the player preview
 }
 
-export default function CaptionEditor({ videoId, manual, currentTime, onSaved }: Props) {
+/** One hook / payoff field: typed text saved on blur, Gemini's suggestion only as a placeholder. */
+function HookField({ clip, kind, label, placeholder, timing, style, orientation, onDraft }: {
+  clip: Clip; kind: 'hook_text' | 'payoff_text'; label: string; placeholder: string | null; timing: string | null; style: string; orientation: string
+  onDraft?: (kind: 'hook_text' | 'payoff_text', value: string) => void
+}) {
+  const saved = clip[kind] ?? ''
+  const [draft, setDraft] = useState(saved)
+  const [err, setErr] = useState<string | null>(null)
+  useEffect(() => { setDraft(clip[kind] ?? '') }, [clip.id, clip[kind]]) // eslint-disable-line react-hooks/exhaustive-deps
+  const commit = async (value: string) => {
+    const v = value.trim()
+    if (v === saved) return
+    setErr(null)
+    try { await patchClip(clip.id, { [kind]: v || null }) } catch (e) { setErr((e as Error).message) }
+  }
+  const fit = draft.trim() ? fitFor(draft.trim(), kind === 'hook_text' ? 'hook' : 'payoff', style, orientation) : null
+  return (
+    <div className="stack" style={{ gap: 2 }}>
+      <div className="row">
+        <span className="muted small" style={{ width: 120 }}>{label}</span>
+        <input type="text" className="grow" value={draft} placeholder={placeholder ?? ''} aria-label={label} maxLength={160}
+               onChange={(e) => { setDraft(e.target.value); onDraft?.(kind, e.target.value) }} onBlur={(e) => void commit(e.target.value)} />
+        {placeholder && draft !== placeholder && (
+          <button className="btn small" title="Copy the suggestion into the field" onClick={() => { setDraft(placeholder); onDraft?.(kind, placeholder); void commit(placeholder) }}>use</button>
+        )}
+      </div>
+      <div className="row wrap small" style={{ paddingLeft: 120 }}>
+        {fit && <span className={`mono ${fit.fits ? 'muted' : 'job-error'}`}>{fit.size}px · {fit.lines.length} line{fit.lines.length === 1 ? '' : 's'}{fit.fits ? '' : ' · needs 3 lines at the smallest size'}</span>}
+        <span className="mono muted">{timing ?? 'no peak set'}</span>
+        {err && <span className="job-error">{err}</span>}
+      </div>
+    </div>
+  )
+}
+
+export default function CaptionEditor({ videoId, manual, currentTime, onSaved, clip, range, style = 'karaoke', orientation = 'portrait', onDraft }: Props) {
   const [open, setOpen] = useState(false)
   const [speed, setSpeed] = useState('2.5')
   const [rows, setRows] = useState<Row[]>([])
@@ -46,8 +89,23 @@ export default function CaptionEditor({ videoId, manual, currentTime, onSaved }:
     }
   }
 
+  // Hook / payoff timing from the clip's peak and the current range (studio/core/captions.hook_payoff_events).
+  const durOut = range ? Math.max(0, range.end - range.start) : 0
+  const pk = clip && range ? peakOut(clip.peak_s, range) : null
+  const hookT = range ? fmtWindow(hookWindow(pk, durOut)) : null
+  const payoffT = range ? fmtWindow(payoffWindow(pk, durOut)) : null
+
   return (
     <div className="stack" style={{ gap: 8 }}>
+      {clip ? (
+        <div className="stack" style={{ gap: 6 }}>
+          <HookField clip={clip} kind="hook_text" label="Hook (frame 1)" placeholder={clip.hook} timing={hookT} style={style} orientation={orientation} onDraft={onDraft} />
+          <HookField clip={clip} kind="payoff_text" label="Payoff (on the peak)" placeholder={clip.title} timing={payoffT} style={style} orientation={orientation} onDraft={onDraft} />
+          <span className="muted small">Burned in large on frame 1 and on the peak, even with captions off. Only what you type is used: the grey suggestion is never burned.</span>
+        </div>
+      ) : (
+        <span className="muted small">Hook and payoff text belong to a clip: use one from Clips (or Tweak from Review) to set them.</span>
+      )}
       <div className="row">
         <button className="btn small" onClick={() => setOpen(!open)}>
           {open ? 'Hide caption editor' : 'Edit captions manually'}{manual?.items.length ? ' ✓' : ''}

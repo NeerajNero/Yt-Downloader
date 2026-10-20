@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import type { DialogueLine, TaggedShot, TagKind } from '../../lib/api'
+import { beatsUrl, type BeatsGrid, type DialogueLine, type TaggedShot, type TagKind } from '../../lib/api'
 import { duration } from '../../lib/format'
-import { PLAYBACKS, REVERSE_SPEEDS, playbackLength, type Playback, type ShakeMarker, type ZoomMarker } from '../../lib/settings'
+import { usePoll } from '../../lib/poll'
+import { PLAYBACKS, REVERSE_SPEEDS, getSnapBeats, playbackLength, setSnapBeats, type Playback, type ShakeMarker, type ZoomMarker } from '../../lib/settings'
+import { gridState, shotStartBeat, snapAll, snapCut, ticksForTimeline, type TimelineTicks } from '../../lib/snap'
 import type { VideoDetail as Video } from '../../lib/types'
 import TimeInput from '../ui/TimeInput'
 
@@ -23,6 +25,8 @@ export interface Shot {
 }
 
 export interface Segment { start: number; end: number; speed: number; zoom_markers: ZoomMarker[]; shake_markers: ShakeMarker[]; transition: Transition | null; playback: Playback; reverse_speed: number }
+/** What the page needs to know about the included shots (timeline bars, output-time mapping). */
+export interface ShotInfo { start: number; end: number; active?: boolean; speed: number; playback: Playback; reverse_speed: number; transition: Transition | null }
 const MAX_REVERSE = 10  // seconds of shot (after speed) ffmpeg can hold in memory to reverse
 
 /** Which part of the builder to show: one step of the Edit flow, or everything. */
@@ -76,9 +80,13 @@ interface Props {
   playhead?: () => number
   onRangeChange?: (r: { start: number; end: number }) => void   // moves the timeline's handles
   onRender: (segments: Segment[], transition: Transition) => void
-  onShotsChange?: (shots: { start: number; end: number; active?: boolean }[] | null) => void
+  onShotsChange?: (shots: ShotInfo[] | null, transition?: Transition) => void
   disabled: boolean
   revision?: number   // bump to re-read the saved montage (after Tweak wrote one)
+  /** Beat snapping (docs/PLAYBOOK.md): the Sound step's track and the clip's peak. */
+  musicName?: string
+  peakS?: number | null
+  onBeatTicks?: (ticks: TimelineTicks | null) => void
 }
 
 const key = (id: string) => `ytstudio.montage.${id}`
@@ -141,10 +149,23 @@ const extras = (s: Shot, last: boolean): string[] => {
   return out
 }
 
-export default function Montage({ video, view = 'all', plan, onApplyPlanLook, scenes, dialogue, tags, clipPack, rangeStart, rangeEnd, seek, playhead, onRangeChange, onRender, onShotsChange, disabled, revision = 0 }: Props) {
+export default function Montage({ video, view = 'all', plan, onApplyPlanLook, scenes, dialogue, tags, clipPack, rangeStart, rangeEnd, seek, playhead, onRangeChange, onRender, onShotsChange, disabled, revision = 0,
+                                  musicName, peakS = null, onBeatTicks }: Props) {
   const [shots, setShots] = useState<Shot[]>(() => load(video.id).shots)
   const [transition, setTransition] = useState<Transition>(() => load(video.id).transition)
   const [msg, setMsg] = useState<string | null>(null)
+  const [snap, setSnapState] = useState(getSnapBeats)
+  const setSnap = (v: boolean) => { setSnapState(v); setSnapBeats(v) }
+  const [snapHint, setSnapHint] = useState<string | null>(null)
+  const shiftHeld = useRef(false)   // Shift while dragging a handle bypasses snapping
+  useEffect(() => {
+    const down = (e: KeyboardEvent) => { if (e.key === 'Shift') shiftHeld.current = true }
+    const up = (e: KeyboardEvent) => { if (e.key === 'Shift') shiftHeld.current = false }
+    window.addEventListener('keydown', down); window.addEventListener('keyup', up); window.addEventListener('blur', () => { shiftHeld.current = false })
+    return () => { window.removeEventListener('keydown', down); window.removeEventListener('keyup', up) }
+  }, [])
+  // The selected track's beat grid (404 until analysed; polled so it appears when the beats job lands).
+  const { data: grid } = usePoll<BeatsGrid>(musicName ? beatsUrl(musicName) : null, 3000)
   const [showPlan, setShowPlan] = useState(false)
   const [loadedFor, setLoadedFor] = useState(video.id)
   const [editingId, setEditingId] = useState<string | null>(null)   // the shot whose in/out the timeline handles are editing
@@ -164,14 +185,33 @@ export default function Montage({ video, view = 'all', plan, onApplyPlanLook, sc
   useEffect(() => {
     if (loadedFor !== video.id) return
     try { localStorage.setItem(key(video.id), JSON.stringify({ shots, transition })) } catch { /* ignore */ }
-    onShotsChange?.(shots.length ? shots.filter((x) => x.include).map((x) => ({ start: x.start, end: x.end, active: x.id === editingId })) : null)
+    onShotsChange?.(shots.length ? shots.filter((x) => x.include).map((x) => ({ start: x.start, end: x.end, active: x.id === editingId, speed: x.speed, playback: x.playback,
+                                                                                     reverse_speed: x.playback === 'forward' ? 1 : x.reverse_speed, transition: x.transition })) : null, transition)
   }, [shots, transition, video.id, loadedFor, editingId]) // eslint-disable-line react-hooks/exhaustive-deps
   // While a shot is being trimmed, the timeline's handles (rangeStart/End) drive its in/out.
   useEffect(() => {
     if (!editingId || rangeStart == null || rangeEnd == null || rangeEnd <= rangeStart) return
-    setShots((list) => list.map((x) => (x.id === editingId && (x.start !== rangeStart || x.end !== rangeEnd)
-      ? { ...x, start: Math.round(rangeStart * 100) / 100, end: Math.round(rangeEnd * 100) / 100 } : x)))
-  }, [editingId, rangeStart, rangeEnd])
+    const cur = shots.find((x) => x.id === editingId)
+    if (!cur) return
+    const ns = Math.round(rangeStart * 100) / 100, ne = Math.round(rangeEnd * 100) / 100
+    if (cur.start === ns && cur.end === ne) return
+    let next = shots.map((x) => (x.id === editingId ? { ...x, start: ns, end: ne } : x))
+    // A dragged boundary is a cut: snap it onto the nearest beat (Shift bypasses).
+    if (snap && !shiftHeld.current) {
+      const inc = next.filter((x) => x.include && x.end > x.start)
+      const i = inc.findIndex((x) => x.id === editingId)
+      const st = gridState(inc, transition, grid, peakS)
+      if (i >= 0 && st.beatsOut && st.peakIdx >= 0) {
+        const movedStart = cur.start !== ns
+        const r = snapCut(inc, transition, movedStart ? i - 1 : i, st.beatsOut.beats, st.peakIdx, video.duration)
+        if (r.shots) { const by = new Map(r.shots.map((x) => [x.id, x])); next = next.map((x) => by.get(x.id) ?? x) }
+        setSnapHint(r.hint)
+      }
+    }
+    setShots(next)
+    const upd = next.find((x) => x.id === editingId)
+    if (upd && (upd.start !== ns || upd.end !== ne)) onRangeChange?.({ start: upd.start, end: upd.end })
+  }, [editingId, rangeStart, rangeEnd]) // eslint-disable-line react-hooks/exhaustive-deps
   const startTrim = (s: Shot) => { setEditingId(s.id); onRangeChange?.({ start: s.start, end: s.end }); seek(s.start) }
   const stopTrim = () => setEditingId(null)
   const setRange = (start: number, end: number) => onRangeChange?.({ start: Math.max(0, start), end: Math.max(start + 0.3, end) })
@@ -234,6 +274,39 @@ export default function Montage({ video, view = 'all', plan, onApplyPlanLook, sc
 
   const included = shots.filter((s) => s.include && s.end > s.start)
   const total = useMemo(() => montageLength(included, transition), [included, transition])
+  // Beat grid in output time for the current shots, and the same beats on the source timeline.
+  const beat = useMemo(() => gridState(included, transition, grid, peakS), [included, transition, grid, peakS])
+  const ticks = useMemo(() => ticksForTimeline(included, transition, grid, peakS), [included, transition, grid, peakS])
+  useEffect(() => { onBeatTicks?.(ticks) }, [ticks]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => onBeatTicks?.(null), []) // eslint-disable-line react-hooks/exhaustive-deps
+  const snapReady = Boolean(beat.beatsOut && beat.peakIdx >= 0)
+  const snapEverything = () => {
+    const r = snapAll(included, transition, grid, peakS, video.duration)
+    if (!r.snapped && !r.refused.length) return setMsg('Nothing to snap: every cut is already on a beat, or none is within 0.25 s of one.')
+    const by = new Map(r.shots.map((x) => [x.id, x]))
+    setShots((list) => list.map((x) => by.get(x.id) ?? x))
+    setMsg(`${r.snapped} cut${r.snapped === 1 ? '' : 's'} snapped to beats${r.skipped ? `, ${r.skipped} had no beat within 0.25 s` : ''}${r.refused.length ? `; ${r.refused.join('; ')}` : ''}.`)
+  }
+  const beatDot = (s: Shot) => {
+    const i = included.indexOf(s)
+    const kind = i >= 0 ? shotStartBeat(i, beat.lay, beat.beatsOut) : null
+    if (!kind) return null
+    return <span className={`beat-dot ${kind}`} title={kind === 'strong' ? 'starts on a downbeat' : 'starts on a beat'}>{kind === 'strong' ? '◉' : '○'}</span>
+  }
+  const snapRow = musicName ? (
+    <div className="row wrap">
+      <label className="check" title={snapReady ? 'Dragged cuts land on the nearest beat (hold Shift to bypass)' : 'Needs a track with a current beat grid and drop, and a peak inside a shot'}>
+        <input type="checkbox" checked={snap} onChange={(e) => setSnap(e.target.checked)} /> Snap to beats</label>
+      <button className="btn small" onClick={snapEverything} disabled={!snapReady || !snap || included.length < 1} title="Move every cut onto its nearest beat in one pass">Snap all to beats</button>
+      {ticks?.warning ? <span className="job-error small">{ticks.warning}</span>
+        : !grid ? <span className="muted small">no beat grid for {musicName} yet</span>
+        : !grid.current ? <span className="muted small">beat grid is being analysed…</span>
+        : grid.drop_effective == null ? <span className="muted small">{musicName} has no drop: set one in Sound</span>
+        : peakS == null ? <span className="muted small">set a peak on the clip (Clips → Peak at playhead) to place the beats</span>
+        : <span className="muted small">{beat.beatsOut?.beats.length ?? 0} beats on the timeline · drop lands on the peak</span>}
+      {snapHint && <span className="muted small">{snapHint}</span>}
+    </div>
+  ) : null
   const ownCount = included.filter((s) => s.transition).length
   const tagCounts = useMemo(() => tags ? Object.fromEntries(TAG_FILTERS.map((f) => [f.value, tags.filter(f.test).length])) as Record<TagFilter, number> : null, [tags])
 
@@ -272,6 +345,7 @@ export default function Montage({ video, view = 'all', plan, onApplyPlanLook, sc
 
   return (
     <div className="stack" style={{ gap: 8 }}>
+      {snapRow}
       {showCut && (
         <>
           <div className="row wrap">
@@ -334,6 +408,7 @@ export default function Montage({ video, view = 'all', plan, onApplyPlanLook, sc
                   <div key={s.id} className={`shot-row ${s.include ? '' : 'off'} ${trimming ? 'trimming' : ''}`}>
                     <input type="checkbox" checked={s.include} onChange={(e) => patch(s.id, { include: e.target.checked })} aria-label="Include shot" />
                     {timeButton(s, i)}
+                    {beatDot(s)}
                     {labelSpan(s, i === shots.length - 1, view !== 'all')}
                     <select value={s.speed} onChange={(e) => patch(s.id, { speed: Number(e.target.value) })} aria-label="Speed" title="Playback speed of this shot">
                       {SPEEDS.map((v) => <option key={v} value={v}>{v}×</option>)}
@@ -370,6 +445,7 @@ export default function Montage({ video, view = 'all', plan, onApplyPlanLook, sc
             return (
               <div key={s.id} className="shot-row">
                 {timeButton(s, i)}
+                {beatDot(s)}
                 {labelSpan(s, i === shots.length - 1, false)}
                 <label className="check small" title="Punch-in zoom at the start of this shot"><input type="checkbox" checked={s.punch} onChange={(e) => patch(s.id, { punch: e.target.checked })} /> punch</label>
                 <label className="check small" title="Camera shake at the start of this shot"><input type="checkbox" checked={s.shake} onChange={(e) => patch(s.id, { shake: e.target.checked })} /> shake</label>
@@ -384,7 +460,7 @@ export default function Montage({ video, view = 'all', plan, onApplyPlanLook, sc
               </div>
             )
           })}
-          <p className="muted small" style={{ margin: 0 }}>Punch = quick zoom at the shot's start. Shake = a jolt. Bounce plays forward then rewinds (10 s or shorter). <Link to="/help#motion">Guide →</Link></p>
+          <p className="muted small" style={{ margin: 0 }}>Punch = quick zoom at the shot's start. Shake = a jolt. Bounce plays forward then rewinds (10 s or shorter). ◉ = the shot starts on a downbeat (punch there), ○ = on a beat. <Link to="/help#motion">Guide →</Link></p>
         </div>
       )}
       {showMotion && shots.length === 0 && view !== 'all' && <p className="muted small">No shots yet — go back to Cut and load some.</p>}

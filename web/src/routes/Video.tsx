@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import Progress from '../components/Progress'
 import Segmented from '../components/ui/Segmented'
-import { saveMontage, shotsFromSegments, type Plan, type Segment, type Transition } from '../components/video/Montage'
+import { saveMontage, shotsFromSegments, type Plan, type Segment, type ShotInfo, type Transition } from '../components/video/Montage'
 import Player from '../components/video/Player'
 import Timeline from '../components/video/Timeline'
 import ClipsSection from '../components/video/sections/ClipsSection'
@@ -12,7 +12,9 @@ import ToolsSection from '../components/video/sections/ToolsSection'
 import { deleteVideo, enqueue, fetchJson, fileUrl, updateVideo, type Dialogue, type ManualCaptions, type Scenes, type Tags, type Transcript } from '../lib/api'
 import { bytes, duration, resolution } from '../lib/format'
 import { usePoll } from '../lib/poll'
-import { DEFAULT_SETTINGS, fromStored, type RenderSettings } from '../lib/settings'
+import { peakOut as peakOutOf } from '../lib/captions'
+import { DEFAULT_SETTINGS, fromStored, getSafeArea, setSafeArea, type RenderSettings } from '../lib/settings'
+import { montageLayout, sourceToOutput, type TimelineTicks } from '../lib/snap'
 import type { Clip, VideoDetail } from '../lib/types'
 
 type Mode = 'prepare' | 'clips' | 'edit' | 'tools'
@@ -30,7 +32,12 @@ export default function VideoPage() {
   const [playError, setPlayError] = useState(false)
   const [range, setRange] = useState({ start: 0, end: 15 })
   const [editMode, setEditMode] = useState<'range' | 'montage'>('range')
-  const [montageShots, setMontageShots] = useState<{ start: number; end: number; active?: boolean }[] | null>(null)
+  const [montageShots, setMontageShots] = useState<ShotInfo[] | null>(null)
+  const [montageTransition, setMontageTransition] = useState<Transition>({ type: 'fade', duration: 0.35 })
+  const [beatTicks, setBeatTicks] = useState<TimelineTicks | null>(null)
+  const [safeArea, setSafeAreaState] = useState(getSafeArea)
+  const setSafe = (v: boolean) => { setSafeAreaState(v); setSafeArea(v) }
+  const [capDraft, setCapDraft] = useState<{ clipId: string | null; hook_text?: string; payoff_text?: string }>({ clipId: null })
   const [editStep, setEditStep] = useState<string>('cut')
   const [montageRevision, setMontageRevision] = useState(0)
   const [settings, setSettings] = useState<RenderSettings>(DEFAULT_SETTINGS)
@@ -126,6 +133,7 @@ export default function VideoPage() {
   const src = video.storage_path ? (editCopy?.path ? fileUrl(editCopy.path) : `/api/files/${video.id}/source`) : null
   const playhead = () => videoRef.current?.currentTime ?? 0
   const seek = (t: number) => { if (videoRef.current) { videoRef.current.currentTime = t; void videoRef.current.play().catch(() => {}) } }
+  const pauseAt = (t: number) => { if (videoRef.current) { videoRef.current.pause(); videoRef.current.currentTime = t; setNowTime(t) } }
 
   const run = async (type: string, payload: Record<string, unknown> = {}, okMsg?: string, clipId?: string) => {
     setErr(null); setMsg(null)
@@ -141,14 +149,31 @@ export default function VideoPage() {
     if (recipeId) payload.recipe_id = recipeId
     return payload
   }
+  // The clip an edit belongs to (the one being tweaked, else the one whose range is loaded):
+  // its peak, hook and payoff ride on the render payload.
+  const clipFor = (target: string | null, st: number, en: number): Clip | null =>
+    (target ? video.clips.find((c) => c.id === target) : null)
+      ?? video.clips.find((c) => Math.abs(c.start_s - st) < 0.01 && Math.abs(c.end_s - en) < 0.01) ?? null
+  const clipExtras = (clip: Clip | null, inside?: (peak: number) => boolean) => {
+    const extras: Record<string, unknown> = {}
+    if (clip?.peak_s != null && (!inside || inside(clip.peak_s))) extras.peak_s = clip.peak_s
+    if (clip?.hook_text) extras.hook_text = clip.hook_text
+    if (clip?.payoff_text) extras.payoff_text = clip.payoff_text
+    return extras
+  }
   const renderRange = (s?: number, e?: number, clipId?: string) => {
     const st = s ?? range.start, en = e ?? range.end
     if (en <= st) return setErr('End must be after start.')
-    void run('render', { ...basePayload(), start: st, end: en }, 'Render queued — watch it on the Jobs tab; the clip lands in Clips and Review.', clipId ?? tweakClip ?? undefined)
+    const target = clipId ?? tweakClip
+    const extras = clipExtras(clipFor(target ?? null, st, en), (peak) => peak >= st && peak <= en)
+    void run('render', { ...basePayload(), start: st, end: en, ...extras },
+             'Render queued — watch it on the Jobs tab; the clip lands in Clips and Review.', target ?? undefined)
     if (!clipId) setTweakClip(null)
   }
   const renderSequence = (segments: unknown[], transition: { type: string; duration: number }) => {
-    void run('render', { ...basePayload(), segments, transition },
+    // The peak may sit outside every shot: the backend then skips the music alignment and says so in the job result.
+    const extras = clipExtras(clipFor(tweakClip, range.start, range.end))
+    void run('render', { ...basePayload(), segments, transition, ...extras },
              tweakClip ? 'Montage re-render queued — it replaces the clip\'s file.' : 'Montage queued — watch it on the Jobs tab.', tweakClip ?? undefined)
     setTweakClip(null)
   }
@@ -177,6 +202,27 @@ export default function VideoPage() {
     await deleteVideo(video.id); nav('/library')
   }
   const dismissGuide = () => { setGuide(false); try { localStorage.setItem(GUIDE_KEY, '1') } catch { /* */ } }
+
+  // Hook / payoff preview on the player: the active clip's texts (live drafts win), the player's
+  // position in output time, and the timing inputs — single range or montage (lib/snap).
+  const previewClip = mode === 'edit' ? clipFor(tweakClip, range.start, range.end) : null
+  const draftFor = (kind: 'hook_text' | 'payoff_text') => (previewClip && capDraft.clipId === previewClip.id && capDraft[kind] !== undefined ? capDraft[kind]! : previewClip?.[kind] ?? null)
+  let captionPreview = null
+  if (previewClip && (draftFor('hook_text') || draftFor('payoff_text'))) {
+    let outTime: number | null, durationOut: number, peakOutS: number | null
+    if (editMode === 'montage' && montageShots?.length) {
+      const lay = montageLayout(montageShots, montageTransition)
+      outTime = sourceToOutput(nowTime, lay.layout); durationOut = lay.total
+      peakOutS = previewClip.peak_s != null ? sourceToOutput(previewClip.peak_s, lay.layout) : null
+    } else {
+      outTime = nowTime >= range.start && nowTime <= range.end ? nowTime - range.start : null
+      durationOut = Math.max(0, range.end - range.start); peakOutS = peakOutOf(previewClip.peak_s, range)
+    }
+    const capOrient = settings.rotate_captions && (settings.rotate === 'right' || settings.rotate === 'left') ? (settings.orientation === 'portrait' ? 'landscape' : 'portrait') : settings.orientation
+    captionPreview = { hook: draftFor('hook_text'), payoff: draftFor('payoff_text'), outTime, durationOut, peakOut: peakOutS, style: settings.caption_style, orientation: capOrient }
+  }
+  const frameProps = { style: settings.style, orientation: settings.orientation, fg_crop: settings.fg_crop, trim_x: settings.trim_x, trim_y: settings.trim_y,
+                       x: settings.crop_x, y: settings.crop_y, zoom: settings.crop_zoom }
 
   const prepCount = ['transcript', 'scenes', 'dialogue', 'tags'].filter((k) => !asset(k)).length
   const tabs: { value: Mode; label: string; badge?: string | number | null }[] = [
@@ -219,14 +265,16 @@ export default function VideoPage() {
         <Player ref={videoRef} src={src} nowTime={nowTime} onTime={setNowTime} onError={() => setPlayError(true)}
                 captions={{ enabled: previewCaps && settings.captions, source: settings.caption_source, pos: settings.caption_pos, style: settings.caption_style }}
                 transcript={transcript} manual={manual} big={mode === 'edit' && editStep === 'frame'}
-                crop={mode === 'edit' && editStep === 'frame' ? { style: settings.style, orientation: settings.orientation, fg_crop: settings.fg_crop, trim_x: settings.trim_x, trim_y: settings.trim_y,
-                                                                 x: settings.crop_x, y: settings.crop_y, zoom: settings.crop_zoom,
-                                                                 onChange: (c) => setSettings((s) => ({ ...s, crop_x: c.x, crop_y: c.y, crop_zoom: c.zoom })) } : null} />
+                crop={mode === 'edit' && editStep === 'frame' ? { ...frameProps, onChange: (c) => setSettings((s) => ({ ...s, crop_x: c.x, crop_y: c.y, crop_zoom: c.zoom })) } : null}
+                frame={mode === 'edit' ? frameProps : null} safeArea={mode === 'edit' && safeArea} captionPreview={captionPreview} />
         {playError && !editCopy && <p className="muted small">This file may not play here — Prepare → Preview copy makes one that does.</p>}
         <Timeline videoDuration={vidDuration} nowTime={nowTime} scenes={scenes?.scenes ?? []}
                   dialogue={dialogue?.lines ?? []} closeups={tags?.shots.filter((s) => s.closeup) ?? []}
                   range={mode === 'edit' ? range : null} onRange={setRange}
-                  shots={mode === 'edit' && editMode === 'montage' ? montageShots ?? undefined : undefined} onSeek={seek} />
+                  shots={mode === 'edit' && editMode === 'montage' ? montageShots ?? undefined : undefined} onSeek={seek}
+                  ticks={mode === 'edit' && editMode === 'montage' ? beatTicks : null}
+                  peak={mode === 'edit' && editMode === 'montage' ? beatTicks?.peak ?? null : null}
+                  drop={mode === 'edit' && editMode === 'montage' && beatTicks?.beats.length ? beatTicks.drop : null} />
 
        </div>
        <div className="video-side stack">
@@ -249,6 +297,7 @@ export default function VideoPage() {
         {mode === 'clips' && (
           <ClipsSection video={video} plan={plan} active={active} run={(t, pl, ok) => void run(t, pl, ok)} autoShorts={() => void autoShorts()}
                         onUse={useClip} onRender={(c) => renderRange(c.start_s, c.end_s, c.id)}
+                        musicName={settings.music} nowTime={nowTime} playhead={playhead} onSeek={seek} selectedId={tweakClip}
                         onLoadPlan={() => { setEditMode('montage'); setMode('edit'); setMsg('In Edit → What → Montage, tap "AI plan" to load the shots.') }} />
         )}
         {mode === 'edit' && (
@@ -257,7 +306,10 @@ export default function VideoPage() {
                      scenes={scenes?.scenes ?? null} dialogue={dialogue?.lines ?? null} tags={tags?.shots ?? null} clipPack={clipPack} manual={manual} hasTranscript={Boolean(transcriptAsset)}
                      borders={borders} active={active} run={(t, pl, ok) => void run(t, pl, ok)}
                      previewCaps={previewCaps} onPreviewCaps={setPreviewCaps} recipeId={recipeId} onRecipe={setRecipeId}
-                     onRender={() => renderRange()} onRenderSequence={renderSequence} onMontageShots={setMontageShots}
+                     onRender={() => renderRange()} onRenderSequence={renderSequence} onBeatTicks={setBeatTicks}
+                     onMontageShots={(shots, tr) => { setMontageShots(shots); if (tr) setMontageTransition(tr) }}
+                     safeArea={safeArea} onSafeArea={setSafe} pauseAt={pauseAt} montageStart={montageShots?.[0]?.start ?? null}
+                     onCaptionDraft={(kind, value) => setCapDraft((d) => ({ ...(d.clipId === previewClip?.id ? d : { clipId: previewClip?.id ?? null }), clipId: previewClip?.id ?? null, [kind]: value }))}
                      tweakingClip={tweakClip} onStep={setEditStep} shotCount={montageShots?.length ?? 0} montageRevision={montageRevision} />
         )}
         {mode === 'tools' && <ToolsSection video={video} range={range} active={active} run={(t, pl, ok) => void run(t, pl, ok)} onRemove={() => void remove()} />}

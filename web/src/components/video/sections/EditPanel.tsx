@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { deleteRecipe, insertRecipe, listFx, listMusic, listOverlays, updateRecipe, uploadFx, uploadMusic, uploadOverlay, type DialogueLine, type ManualCaptions, type TaggedShot } from '../../../lib/api'
+import { beatsUrl, deleteRecipe, insertRecipe, listFx, listMusic, listOverlays, musicUrl, setTrackDrop, updateRecipe, uploadFx, uploadMusic, uploadOverlay, type BeatsGrid, type DialogueLine, type ManualCaptions, type TaggedShot } from '../../../lib/api'
 import { duration } from '../../../lib/format'
 import { usePoll } from '../../../lib/poll'
 import { DEFAULT_EFFECTS, DEFAULT_SETTINGS, EFFECT_SLIDERS, FX_BLENDS, PLAYBACKS, REVERSE_SPEEDS, effectsSummary, fromStored, getEditLayout, playbackLength, summarize, type Effects, type FxLayer, type RenderSettings, type SfxLayer, type ShakeMarker, type ZoomMarker } from '../../../lib/settings'
@@ -8,7 +8,8 @@ import type { Job, Recipe, VideoDetail as Video } from '../../../lib/types'
 import Group from '../../ui/Group'
 import TimeInput from '../../ui/TimeInput'
 import CaptionEditor from '../CaptionEditor'
-import Montage, { type MontageView, type Plan, type Segment, type Transition } from '../Montage'
+import Montage, { type MontageView, type Plan, type Segment, type ShotInfo, type Transition } from '../Montage'
+import type { TimelineTicks } from '../../../lib/snap'
 
 export type EditStep = 'cut' | 'frame' | 'motion' | 'transitions' | 'look' | 'captions' | 'sound' | 'brand' | 'render'
 
@@ -38,7 +39,14 @@ interface Props {
   onRecipe: (id: string | null) => void
   onRender: () => void
   onRenderSequence: (segments: Segment[], transition: Transition) => void
-  onMontageShots: (shots: { start: number; end: number; active?: boolean }[] | null) => void
+  onMontageShots: (shots: ShotInfo[] | null, transition?: Transition) => void
+  onBeatTicks?: (ticks: TimelineTicks | null) => void
+  /** Safe-area overlay + hook/payoff preview on the player (docs/PLAYBOOK.md). */
+  safeArea?: boolean
+  onSafeArea?: (v: boolean) => void
+  pauseAt?: (t: number) => void       // seek without playing, to check a single frame
+  montageStart?: number | null        // first included shot's start (frame 1 of a montage)
+  onCaptionDraft?: (kind: 'hook_text' | 'payoff_text', value: string) => void
   tweakingClip: string | null
   onStep?: (step: EditStep) => void
   shotCount?: number
@@ -59,6 +67,63 @@ const STEPS: { id: EditStep; title: string; blurb: string; help: string; montage
 const stepKey = (id: string) => `ytstudio.edit.step.${id}`
 
 const EDIT_GUIDE_KEY = 'ytstudio.guide.edit'
+
+/** The selected track's beat grid and drop (docs/PLAYBOOK.md): a player for the
+ *  track, a bar with the downbeats and the effective drop, and the manual
+ *  override. "Set drop at playhead" uses the track's own playhead. */
+function TrackDrop({ name }: { name: string }) {
+  const { data: grid } = usePoll<BeatsGrid>(beatsUrl(name), 3000)   // 404 until the beats job has run
+  const audio = useRef<HTMLAudioElement>(null)
+  const [t, setT] = useState(0)
+  const [len, setLen] = useState(0)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  useEffect(() => { setT(0); setLen(0); setErr(null) }, [name])
+  const total = grid?.duration_s || len || 0
+  const pct = (x: number) => (total ? Math.max(0, Math.min(100, (x / total) * 100)) : 0)
+  const seekTo = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!total) return
+    const r = e.currentTarget.getBoundingClientRect()
+    const x = Math.max(0, Math.min(total, ((e.clientX - r.left) / r.width) * total))
+    if (audio.current) audio.current.currentTime = x
+    setT(x)
+  }
+  const write = async (v: number | null) => {
+    setBusy(true); setErr(null)
+    try { await setTrackDrop(name, v) } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
+  }
+  const current = grid?.current ?? false
+  const manual = grid?.drop_s_manual != null
+  const drop = grid?.drop_effective ?? null
+  const status = !grid ? 'no beat grid yet — analysing (queued on upload, or Rescan the library)'
+    : !current ? 'beat grid is being re-analysed…'
+    : grid.bpm ? `${Math.round(grid.bpm)} bpm · ${grid.beats.length} beats · ${grid.downbeats.length} downbeats (suggested)`
+    : 'no clear beat found'
+  return (
+    <div className="stack" style={{ gap: 6 }}>
+      <audio ref={audio} controls preload="metadata" src={musicUrl(name)} style={{ width: '100%' }}
+             onTimeUpdate={(e) => setT(e.currentTarget.currentTime)} onLoadedMetadata={(e) => setLen(e.currentTarget.duration || 0)} />
+      <div className="marker-strip" onClick={seekTo} role="slider" aria-label="Track" aria-valuemin={0} aria-valuemax={total} aria-valuenow={t}>
+        {grid?.current && grid.downbeats.map((b) => <span key={b} className="marker beat" style={{ left: `${pct(b)}%` }} />)}
+        {drop != null && <span className="marker drop" style={{ left: `${pct(drop)}%` }} title={`drop at ${duration(drop)}`} />}
+        <span className="marker-head" style={{ left: `${pct(t)}%` }} />
+      </div>
+      <div className="row wrap small">
+        <span className="muted">{status}</span>
+        <span className="mono">{drop != null ? `drop ${duration(drop)}` : grid ? 'no drop' : ''}</span>
+        {drop != null && <span className={`chip ${manual ? 'accent' : 'ok'}`}>{manual ? 'manual' : 'detected'}</span>}
+        {grid && <span className={`chip ${current ? 'ok' : ''}`}>{current ? 'current' : 'analysing'}</span>}
+      </div>
+      <div className="row wrap">
+        <button className="btn small" disabled={busy} onClick={() => void write(Math.round(t * 100) / 100)} title="The track's playhead above becomes the drop (where the beat lands on the clip's peak)">Set drop at playhead</button>
+        <button className="btn small" disabled={busy || !manual || !current} onClick={() => void write(null)}
+                title={!manual ? 'No manual drop to clear' : !current ? 'Wait for the beat grid to finish analysing' : 'Back to the detected drop'}>Clear</button>
+        <span className="muted small">{!grid ? 'Setting a drop now is fine: it is kept when the analysis lands.' : !current && manual ? 'The manual drop is kept across re-analysis.' : 'The drop is aligned to the clip\'s peak at render.'}</span>
+      </div>
+      {err && <p className="job-error small">{err}</p>}
+    </div>
+  )
+}
 
 /** Step 3: the export. Default layout is one step at a time (Cut → Frame → … → Render);
  *  "Everything on one page" (More) shows the old collapsible groups. */
@@ -136,6 +201,20 @@ export default function EditPanel(p: Props) {
   }
   const num = (v: string) => (v === '' ? 0 : Number(v))
   const D = DEFAULT_SETTINGS
+  // The clip whose hook / payoff / peak this edit belongs to: the one being tweaked, else the one whose range is loaded.
+  const activeClip = p.video.clips.find((c) => c.id === p.tweakingClip)
+    ?? p.video.clips.find((c) => Math.abs(c.start_s - p.range.start) < 0.01 && Math.abs(c.end_s - p.range.end) < 0.01) ?? null
+  const frame1 = p.mode === 'montage' ? (p.montageStart ?? p.range.start) : p.range.start
+  const previewRow = (
+    <div className="row wrap">
+      <label className="check" title="Shaded bands are off limits for captions; the dashed box is where the subject should stay">
+        <input type="checkbox" checked={Boolean(p.safeArea)} onChange={(e) => p.onSafeArea?.(e.target.checked)} /> Safe area on the player</label>
+      <button className="btn small" onClick={() => (p.pauseAt ?? p.seek)(frame1)} title="Pause on the first frame: the hook must land on it">Frame 1</button>
+      <button className="btn small" disabled={activeClip?.peak_s == null} onClick={() => (p.pauseAt ?? p.seek)(activeClip!.peak_s!)}
+              title={activeClip?.peak_s == null ? 'No peak on this clip (Clips → Peak at playhead)' : 'Pause on the peak: the payoff lands here'}>Peak</button>
+      <span className="muted small">{activeClip ? 'hook and payoff show on the player at their times' : 'no clip loaded: no hook / payoff preview'}</span>
+    </div>
+  )
 
   // ---- summaries (one line per step; also the Render summary) ----
   const rangeOut = playbackLength(p.range.end - p.range.start, 1, s.playback, s.reverse_speed)
@@ -165,6 +244,7 @@ export default function EditPanel(p: Props) {
   const montage = (view: MontageView) => (
     <Montage video={p.video} view={view} plan={p.plan} scenes={p.scenes} dialogue={p.dialogue} tags={p.tags} clipPack={p.clipPack} rangeStart={p.range.start} rangeEnd={p.range.end}
              seek={p.seek} playhead={p.playhead} onRangeChange={p.onRange} onRender={p.onRenderSequence} disabled={!ready} onShotsChange={p.onMontageShots} revision={p.montageRevision}
+             musicName={s.music} peakS={activeClip?.peak_s ?? null} onBeatTicks={p.onBeatTicks}
              onApplyPlanLook={(pl) => p.onChange({ ...s, captions: pl.captions, caption_style: pl.caption_style as RenderSettings['caption_style'],
                                                     caption_pos: pl.caption_pos as RenderSettings['caption_pos'], grade: pl.grade as RenderSettings['grade'], vivid_amount: pl.vivid })} />
   )
@@ -392,7 +472,9 @@ export default function EditPanel(p: Props) {
           </>
         )}
       </div>
-      <CaptionEditor videoId={p.video.id} manual={p.manual} currentTime={p.playhead} onSaved={() => p.onChange({ ...s, captions: true, caption_source: 'manual' })} />
+      <CaptionEditor videoId={p.video.id} manual={p.manual} currentTime={p.playhead} onSaved={() => p.onChange({ ...s, captions: true, caption_source: 'manual' })}
+                     clip={activeClip} range={p.range} style={s.caption_style} onDraft={p.onCaptionDraft}
+                     orientation={s.rotate_captions && (s.rotate === 'right' || s.rotate === 'left') ? (s.orientation === 'portrait' ? 'landscape' : 'portrait') : s.orientation} />
     </>
   )
   const soundSection = (
@@ -412,6 +494,7 @@ export default function EditPanel(p: Props) {
         )}
         <label className="check"><input type="checkbox" checked={s.loudness} onChange={(e) => set('loudness', e.target.checked)} /> Normalise loudness</label>
       </div>
+      {s.music && <TrackDrop key={s.music} name={s.music} />}
       <div className="row wrap">
         <span className="muted small">Sound effects</span>
         <button className="btn small" disabled={!music.length} title={music.length ? '' : 'Add an audio file first'} onClick={() => setSfx([...s.sfx, { file: music[0], at: rel(), gain: 80 }])}>Add at playhead</button>
@@ -473,7 +556,7 @@ export default function EditPanel(p: Props) {
         <Group title="Look" summary={`${lookSummary}${p.mode === 'range' && motionSummary !== 'none' ? ` · ${motionSummary}` : ''}`} help="effects" info="Colour and motion. Grades are film looks; vivid boosts saturation; HDR look adds crunchy local contrast. Punch-ins are quick zooms and shakes are camera jolts at moments you mark.">
           {lookSection}{p.mode === 'range' && markersSection}
         </Group>
-        <Group title="Captions" summary={capSummary} help="captions" info="Burns word-timed captions from the transcript, or hand-typed ones.">{captionsSection}</Group>
+        <Group title="Captions" summary={capSummary} help="captions" info="Burns word-timed captions from the transcript, or hand-typed ones.">{previewRow}{captionsSection}</Group>
         <Group title="Sound" summary={soundSummary} help="sound" info="A looped music bed under the original audio, optionally ducked under speech; one-shot sound effects; loudness normalised to -14 LUFS.">{soundSection}</Group>
         <Group title="Brand" summary={brandSummary} help="ai" info="A PNG logo or handle overlaid on every render.">{brandSection}</Group>
         {msg && <p className="muted small">{msg}</p>}
@@ -521,11 +604,11 @@ export default function EditPanel(p: Props) {
           </div>
         </div>
       )}
-      {effectiveStep === 'frame' && <div className="stack" style={{ gap: 8 }}>{formatSection}</div>}
+      {effectiveStep === 'frame' && <div className="stack" style={{ gap: 8 }}>{formatSection}{previewRow}</div>}
       {effectiveStep === 'motion' && <div className="stack" style={{ gap: 8 }}>{p.mode === 'range' ? <>{playbackRow}{markersSection}</> : montage('motion')}</div>}
       {effectiveStep === 'transitions' && montage('transitions')}
       {effectiveStep === 'look' && <div className="stack" style={{ gap: 8 }}>{lookSection}</div>}
-      {effectiveStep === 'captions' && <div className="stack" style={{ gap: 8 }}>{captionsSection}</div>}
+      {effectiveStep === 'captions' && <div className="stack" style={{ gap: 8 }}>{previewRow}{captionsSection}</div>}
       {effectiveStep === 'sound' && <div className="stack" style={{ gap: 8 }}>{soundSection}</div>}
       {effectiveStep === 'brand' && <div className="stack" style={{ gap: 8 }}>{brandSection}</div>}
       {effectiveStep === 'render' && (

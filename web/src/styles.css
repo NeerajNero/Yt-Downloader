@@ -252,6 +252,15 @@ textarea { resize: vertical; }
 .marker-strip { position: relative; height: 14px; background: var(--border); border-radius: 999px; cursor: pointer; }
 .marker { position: absolute; top: 0; bottom: 0; width: 3px; margin-left: -1px; background: var(--accent); border: 0; padding: 0; cursor: pointer; }
 .marker-head { position: absolute; top: -2px; bottom: -2px; width: 2px; background: #fff; }
+.marker.beat { width: 1px; margin-left: 0; background: rgba(255,255,255,0.22); pointer-events: none; }
+.marker.drop { width: 4px; margin-left: -2px; background: var(--accent); box-shadow: 0 0 6px var(--accent); pointer-events: none; }
+
+/* a clip's own scrub bar with its peak (docs/PLAYBOOK.md) */
+.peak-strip { position: relative; height: 10px; margin-top: 2px; background: var(--border); border-radius: 999px; cursor: pointer; overflow: visible; }
+.peak-mark { position: absolute; top: -3px; bottom: -3px; width: 3px; margin-left: -1px; background: var(--accent); border-radius: 2px; box-shadow: 0 0 5px var(--accent); }
+.peak-head { position: absolute; top: 0; bottom: 0; width: 2px; background: #fff; pointer-events: none; }
+.clip-row.selected { border-left: 2px solid var(--accent); padding-left: 8px; }
+.link-btn { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; font: inherit; }
 
 .time-field { display: flex; gap: 4px; align-items: center; }
 .time-field input { width: 64px; }
@@ -353,6 +362,12 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; }
 .tl-shot { position: absolute; top: 6px; bottom: 6px; background: rgba(63,178,127,0.45); border-radius: 3px; }
 .tl-shot.active { background: var(--ok); }
 .tl-head { position: absolute; top: 0; bottom: 0; width: 2px; background: #fff; pointer-events: none; }
+.tl-beat { position: absolute; top: 5px; bottom: 5px; width: 1px; background: rgba(255,255,255,0.28); pointer-events: none; }
+.tl-downbeat { position: absolute; top: 2px; bottom: 2px; width: 2px; margin-left: -1px; background: var(--accent); opacity: 0.85; pointer-events: none; }
+.tl-peak { position: absolute; top: -2px; bottom: -2px; width: 3px; margin-left: -1px; background: var(--accent); box-shadow: 0 0 5px var(--accent); pointer-events: none; }
+.tl-drop { position: absolute; top: 0; transform: translateX(-50%); font: 700 9px/12px ui-monospace, Menlo, monospace; padding: 0 3px; background: var(--accent); color: #101317; border-radius: 0 0 3px 3px; pointer-events: none; }
+.tl-key.beat { background: rgba(255,255,255,0.45); } .tl-key.downbeat { background: var(--accent); }
+.beat-dot { font-size: 12px; color: var(--muted); } .beat-dot.strong { color: var(--accent); text-shadow: 0 0 4px var(--accent); }
 .tl-dialogue { position: absolute; bottom: 0; height: 4px; background: #4f9de6; opacity: 0.85; pointer-events: none; }
 .tl-closeup { position: absolute; top: 0; height: 4px; background: var(--accent); opacity: 0.85; pointer-events: none; }
 .tl-key { display: inline-block; width: 14px; height: 4px; vertical-align: middle; margin-right: 4px; border-radius: 2px; }
@@ -490,6 +505,16 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; }
 .player-wrap.cropping { cursor: default; }
 .crop-layer { position: absolute; inset: 0; pointer-events: none; overflow: hidden; border-radius: 8px; }
 .crop-box { position: absolute; box-sizing: border-box; border: 2px solid var(--accent); box-shadow: 0 0 0 4000px rgba(0,0,0,0.55); pointer-events: auto; touch-action: none; }
+.frame-layer { position: absolute; inset: 0; pointer-events: none; overflow: hidden; border-radius: 8px; }
+.frame-box { position: absolute; }
+.safe-band { position: absolute; background: rgba(0,0,0,0.42); }
+.safe-zone { position: absolute; box-sizing: border-box; border: 1px dashed rgba(242,163,60,0.75); }
+.cap-hp { position: absolute; left: 5%; right: 15%; text-align: center; color: #fff; font-family: Arial, Helvetica, sans-serif; font-weight: 700; line-height: 1.15; paint-order: stroke fill; }
+.cap-hp.hook { top: 10%; }
+.cap-hp.payoff { top: 50%; transform: translateY(-50%); }
+.cap-badge { display: inline-block; margin-top: 2px; padding: 0 4px; border-radius: 3px; background: var(--accent); color: #101317; font-family: ui-monospace, Menlo, monospace; font-weight: 700; -webkit-text-stroke: 0; text-shadow: none; }
+.review-wrap { position: relative; }
+.review-wrap .frame-layer { border-radius: 8px; }
 .crop-box.movable { cursor: grab; }
 .crop-box.movable:active { cursor: grabbing; }
 .crop-tag { position: absolute; left: 4px; top: 4px; font-size: 11px; background: rgba(16,19,23,0.8); color: var(--accent); padding: 1px 6px; border-radius: 4px; white-space: nowrap; }

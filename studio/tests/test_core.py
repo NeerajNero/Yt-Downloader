@@ -2,6 +2,7 @@
 encoder table, payload schemas, and the Gemini adapters with the API mocked."""
 
 import json
+import re
 from pathlib import Path
 from unittest import mock
 
@@ -29,6 +30,19 @@ def test_captions_karaoke_shifts_to_clip_start(tmp_path):
     assert "PlayResX: 1080" in text and "PlayResY: 1920" in text
     assert "Dialogue: 0,0:00:00.50,0:00:02.50,Cap" in text
     assert "{\\k39}hello {\\k39}there {\\k79}world" in text  # int() truncation, as v1
+    # Cap sits inside the safe area; Hook / Payoff styles are always declared
+    assert "Style: Cap,Arial,88,&H003CA3F2,&H00FFFFFF,&H00101317,&H80101317,1,0,0,0,100,100,1,0,1,6,2,2,54,162,384,1" in text
+    assert "Style: Hook,Arial,141,&H00FFFFFF,&H00FFFFFF,&H00101317,&H80101317,1,0,0,0,100,100,1,0,1,9,3,8,54,162,192,1" in text
+    assert "Style: Payoff,Arial,114,&H00FFFFFF,&H00FFFFFF,&H00101317,&H80101317,1,0,0,0,100,100,1,0,1,9,3,5,54,162,0,1" in text
+    # a hook on frame 1 (0 → peak-0.5) suppresses the karaoke line it overlaps; the payoff sits on the peak
+    n = captions.write_captions_ass(TRANSCRIPT, 0.5, 5.0, out, hook_text="Watch this", payoff_text="Boom", peak_out_s=2.0)
+    text = out.read_text()
+    assert n == 2 and "{\\k" not in text and "Cap,,0,0,0,,{" not in text
+    assert "Dialogue: 2,0:00:00.00,0:00:01.50,Hook,,0,0,0,,{\\fs141}Watch this" in text   # fits at the ceiling
+    assert "Dialogue: 2,0:00:02.00,0:00:03.80,Payoff,,0,0,0,,{\\fs114}Boom" in text
+    n = captions.write_captions_ass(TRANSCRIPT, 0.5, 5.0, out, hook_text="Watch this", payoff_text="Boom", peak_out_s=2.0,
+                                    suppress_during_hook_payoff=False)
+    assert n == 3 and "{\\k39}hello" in out.read_text()
 
 
 def test_captions_pop_uppercase_and_two_layers(tmp_path):
@@ -46,7 +60,117 @@ def test_manual_captions(tmp_path):
                                       {"text": "outside", "start": 30, "duration": 2}]}
     n = captions.write_manual_captions_ass(manual, 0, 10, out, style="minimal", position="top")
     text = out.read_text()
-    assert n == 1 and "first youtube video" in text and ",8,60,60,220,1" in text
+    assert n == 1 and "first youtube video" in text and ",3,2,8,54,162,192,1" in text
+    assert "Style: Hook,Arial,102," in text and ",6,3,8,54,162,192,1" in text and "Style: Payoff,Arial,83," in text   # outline never under 6
+    # the manual item (1 → 5 s) overlaps the payoff window (4 → 5.8): suppressed; the hook (0 → 3) stays
+    n = captions.write_manual_captions_ass(manual, 0, 10, out, style="minimal", position="top",
+                                           hook_text="the start", payoff_text="the hit", peak_out_s=4.0)
+    text = out.read_text()
+    assert n == 2 and "first youtube video" not in text
+    assert "Dialogue: 2,0:00:00.00,0:00:03.00,Hook,,0,0,0,,{\\fs102}the start" in text and "0:00:04.00,0:00:05.80,Payoff,,0,0,0,,{\\fs83}the hit" in text
+    # overlay only (captions off in the recipe)
+    n = captions.write_overlay_ass("Only a hook", None, None, 10.0, out, style="pop", orientation="landscape")
+    text = out.read_text()
+    assert n == 1 and "PlayResX: 1920" in text and "Hook,,0,0,0,,{\\fs154}Only a hook" in text and "Payoff,,0" not in text
+    assert "Style: Hook,Arial,154," in text and ",12,6,8,96,288,108,1" in text and "Style: Payoff,Arial,125," in text   # shadow never over 6
+
+
+def test_safe_margins_every_position_both_orientations():
+    assert captions.safe_margins("bottom", "portrait") == (2, 54, 162, 384)
+    assert captions.safe_margins("middle", "portrait") == (5, 54, 162, 0)
+    assert captions.safe_margins("top", "portrait") == (8, 54, 162, 192)
+    assert captions.safe_margins("bottom", "landscape") == (2, 96, 288, 216)
+    assert captions.safe_margins("middle", "landscape") == (5, 96, 288, 0)
+    assert captions.safe_margins("top", "landscape") == (8, 96, 288, 108)
+    assert captions.safe_margins("weird", "nope") == (2, 54, 162, 384)   # falls back to bottom / portrait
+    for style, cap, hook, hook_floor, payoff, payoff_floor, outline, shadow in (
+            ("karaoke", 88, 141, 79, 114, 70, 9.0, 3.0), ("pop", 96, 154, 86, 125, 77, 12.0, 6.0), ("minimal", 64, 102, 58, 83, 51, 6.0, 3.0)):
+        hp = captions.hp_sizes(style)
+        assert (hp["cap"], hp["hook"], hp["hook_floor"], hp["payoff"], hp["payoff_floor"], hp["outline"], hp["shadow"]) == \
+            (cap, hook, hook_floor, payoff, payoff_floor, outline, shadow)
+    assert (captions.max_text_px("portrait"), captions.max_text_px("landscape")) == (864, 1536)
+
+
+def test_hook_payoff_events_timing():
+    ev = captions.hook_payoff_events("Hook", "Payoff", 4.0, 10.0)
+    assert [(e["style"], e["start"], e["end"]) for e in ev] == [("Hook", 0.0, 3.0), ("Payoff", 4.0, 5.8)]
+    # no peak: hook runs the full 3 s, no payoff
+    assert [(e["style"], e["start"], e["end"]) for e in captions.hook_payoff_events("Hook", "Payoff", None, 10.0)] == [("Hook", 0.0, 3.0)]
+    # peak near the start: the hook ends 0.5 s before it (shorter than 1 s); too close = no hook at all
+    assert [(e["style"], e["end"]) for e in captions.hook_payoff_events("Hook", "P", 1.2, 10.0)] == [("Hook", 0.7), ("Payoff", 3.0)]
+    assert [e["style"] for e in captions.hook_payoff_events("Hook", "P", 0.4, 10.0)] == ["Payoff"]
+    # payoff clamped at the end of the clip; hook clamped by a very short clip
+    assert captions.hook_payoff_events(None, "P", 9.0, 10.0)[0]["end"] == 10.0
+    assert captions.hook_payoff_events("H", None, None, 2.0)[0]["end"] == 2.0
+    # empty / whitespace texts give nothing
+    assert captions.hook_payoff_events("  ", "", 4.0, 10.0) == []
+
+
+def test_fit_font_size_by_pixels():
+    short, eight, overlong = "Watch this", "the boss shows up and we all die", "the boss finally shows up and we all die here"
+    # a short hook lands at the ceiling on one line
+    assert captions.fit_font_size(short, 864, 141, 79) == (141, ["Watch this"], True)
+    # eight words: two balanced lines (17 chars max) fit from 89 px down (17 * 89 * 0.55 = 832 <= 864; 93 would be 870)
+    f = captions.fit_font_size(eight, 864, 141, 79)
+    assert f == (89, ["the boss shows", "up and we all die"], True)
+    # landscape is wide enough for the same text at the ceiling
+    f = captions.fit_font_size(eight, 1536, 141, 79)
+    assert f.size == 141 and len(f.lines) == 2 and f.fits
+    # overlong: even the floor needs three lines -> floor, three balanced lines, fits=False
+    f = captions.fit_font_size(overlong, 864, 141, 79)
+    assert f.size == 79 and len(f.lines) == 3 and not f.fits and max(len(x) for x in f.lines) <= 19
+    assert captions.fit_font_size(overlong, 1536, 141, 79).fits   # ... but two lines in landscape (at 125 px)
+    assert captions.fit_font_size("", 864, 141, 79) == (141, [], True)
+    assert captions.fit_font_size("x", 864, 79, 79).size == 79   # ceiling == floor
+    # the warning the render result carries
+    assert captions.fit_warning(overlong, "Boom") == "hook needs 3 lines"
+    assert captions.fit_warning(overlong, overlong) == "hook needs 3 lines"   # the payoff's 70 px floor still fits two lines
+    assert captions.fit_warning(overlong, overlong + " tonight") == "hook needs 3 lines; payoff needs 3 lines"
+    assert captions.fit_warning(overlong, None, "karaoke", "landscape") is None and captions.fit_warning("hi", "ok") is None
+    # the events carry the chosen size, lines joined with \N, braces neutralised
+    ev = captions.hook_payoff_events(eight, "a {b}", 5.0, 10.0)
+    assert (ev[0]["fs"], ev[0]["lines"], ev[0]["fits"]) == (89, 2, True)
+    assert captions._hp_dialogue(ev[0]).endswith("Hook,,0,0,0,,{\\fs89}the boss shows\\Nup and we all die")
+    assert captions._hp_dialogue(ev[1]).endswith("Payoff,,0,0,0,,{\\fs114}a (b)")
+    ev = captions.hook_payoff_events(eight, None, None, 10.0, orientation="landscape")
+    assert ev[0]["fs"] == 141
+    s = render.RenderSettings(start=0, end=5, hook_text=overlong, caption_style="karaoke")
+    assert render.captions_warning(s) == "hook needs 3 lines"
+    s.rotate, s.rotate_captions = "right", True     # captions are built landscape, then rotated with the frame
+    assert render.captions_warning(s) is None
+    assert render.captions_warning(render.RenderSettings(start=0, end=5)) is None
+
+
+def test_render_burns_hook_without_transcript_or_captions(tmp_path):
+    src = tmp_path / "src.mkv"; src.write_bytes(b"x")
+    seen = {}
+
+    def fake_run(self, cmd, duration, report, should_cancel, note=None, stderr_sink=None):
+        graph = cmd[cmd.index("-filter_complex") + 1]
+        m = re.search(r"subtitles=filename='([^']+)'", graph)
+        seen["graph"] = graph
+        seen["ass"] = Path(m.group(1).replace("\\:", ":")).read_text() if m else None
+
+    with mock.patch.object(Tools, "run_progress", fake_run), mock.patch.object(Tools, "probe_fps", return_value=30.0), \
+         mock.patch.object(Tools, "has_subtitles_filter", return_value=True):
+        s = render.RenderSettings(start=10, end=20, captions=False, hook_text="Watch this", payoff_text="Boom", peak_s=14)
+        render.run_export(src, tmp_path / "o.mp4", s, Tools("ffmpeg"), "libx264", lambda *_: None, lambda: False)
+    assert seen["ass"] and "Hook,,0,0,0,,{\\fs141}Watch this" in seen["ass"] and "0:00:04.00,0:00:05.80,Payoff,,0,0,0,,{\\fs114}Boom" in seen["ass"]
+    assert "Cap,,0,0,0,," not in seen["ass"]
+    # a montage: the peak maps through the shots (shot 2 at 2x from offset 2.6 → 10 s lands at 3.6 s)
+    with mock.patch.object(Tools, "run_progress", fake_run), mock.patch.object(Tools, "probe_fps", return_value=30.0), \
+         mock.patch.object(Tools, "has_subtitles_filter", return_value=True):
+        s = render.RenderSettings(segments=[{"start": 1, "end": 4}, {"start": 8, "end": 12, "speed": 2}], transition={"type": "fade", "duration": 0.4},
+                                  style="crop", payoff_text="Boom", peak_s=10)
+        render.run_export(src, tmp_path / "o.mp4", s, Tools("ffmpeg"), "libx264", lambda *_: None, lambda: False)
+    assert "0:00:03.60,0:00:04.60,Payoff,,0,0,0,,{\\fs114}Boom" in seen["ass"]   # clamped at the 4.6 s montage end
+    # no text at all: no subtitles filter
+    with mock.patch.object(Tools, "run_progress", fake_run), mock.patch.object(Tools, "probe_fps", return_value=30.0):
+        render.run_export(src, tmp_path / "o.mp4", render.RenderSettings(start=0, end=5), Tools("ffmpeg"), "libx264", lambda *_: None, lambda: False)
+    assert seen["ass"] is None
+    assert render.output_name("X", render.RenderSettings(start=0, end=5, hook_text="h"), False) == "X_9x16_0s-5s_blur_hook.mp4"
+    assert render.output_name("X", render.RenderSettings(start=0, end=5, captions=True, payoff_text=" p "), False) == "X_9x16_0s-5s_blur_cap_hook.mp4"
+    assert "_hook" not in render.output_name("X", render.RenderSettings(start=0, end=5, hook_text="  "), False)
 
 
 def test_export_filter_blur_and_crop():
@@ -116,6 +240,16 @@ def test_payload_schemas():
     with pytest.raises(ValueError):
         validate_payload("teleport", {})
     assert validate_payload("download", {"url": "https://x"})["quality"] == "best"
+    # peak_s rides on a render payload but never into a recipe
+    assert validate_payload("render", {"start": 1, "end": 5, "peak_s": 3.25})["peak_s"] == 3.25
+    assert validate_payload("render", {"start": 1, "end": 5})["peak_s"] is None
+    with pytest.raises(ValueError):
+        validate_payload("render", {"start": 1, "end": 5, "peak_s": -1})
+    assert "peak_s" not in validate_recipe({"style": "crop", "peak_s": 3.0})
+    p = validate_payload("render", {"start": 1, "end": 5, "hook_text": "Watch", "payoff_text": "Boom"})
+    assert (p["hook_text"], p["payoff_text"]) == ("Watch", "Boom")
+    r = validate_recipe({"style": "crop", "hook_text": "x", "payoff_text": "y"})
+    assert "hook_text" not in r and "payoff_text" not in r
 
 
 def test_suggest_clips_with_mocked_gemini(tmp_path):
@@ -157,6 +291,59 @@ def test_output_name_recipe_extras():
     s = render.RenderSettings(start=0, end=5, watermark={"file": "l.png"}, sfx=[{"file": "a.mp3"}],
                               zoom_markers=[{"at": 1}, {"at": 2}])
     assert render.output_name("X", s, True).endswith("_music_wm_sfx_punch2.mp4")
+    # an aligned drop gets its own name so it never overwrites the unaligned render
+    assert render.output_name("X", s, True, aligned=True).endswith("_music_drop_wm_sfx_punch2.mp4")
+    assert "_drop" not in render.output_name("X", s, False, aligned=True)  # no music, no drop
+    assert "_drop" not in render.output_name("X", s, True, aligned=False)
+
+
+def test_music_offset_aligns_drop():
+    assert render.music_offset(10.0, 4.0) == (6.0, 0)        # drop after the peak: seek into the track
+    assert render.music_offset(4.0, 4.0) == (0.0, 0)         # drop on the peak: play from the top
+    assert render.music_offset(1.5, 4.0) == (0.0, 2500)      # drop before the peak: delay the track
+    assert render.music_offset(0.0004, 4.0) == (0.0, 4000)   # rounded to whole milliseconds
+
+
+def test_source_to_output():
+    one = render.RenderSettings(start=10, end=20).layout()
+    assert one[0]["offset"] == 0.0 and one[0]["len"] == 10.0
+    assert render.source_to_output(14, one) == 4.0
+    assert render.source_to_output(9.9, one) is None and render.source_to_output(20, one) == 10.0
+    fast = [{"start": 10.0, "end": 20.0, "speed": 1.5, "offset": 0.0}]
+    assert render.source_to_output(14, fast) == pytest.approx(2.6667, abs=1e-3)
+    # two shots with a gap between them (hard cut): the gap maps to nothing
+    s = render.RenderSettings(segments=[{"start": 0, "end": 4}, {"start": 8, "end": 12, "speed": 2}], transition={"type": "cut"})
+    layout = s.layout()
+    assert [L["offset"] for L in layout] == [0.0, 4.0]
+    assert render.source_to_output(2, layout) == 2.0 and render.source_to_output(10, layout) == 5.0
+    assert render.source_to_output(6, layout) is None and render.source_to_output(13, layout) is None
+
+
+def test_music_plan_and_inputs():
+    m = Path("bed.mp3")
+    # aligned: seek, no loop, apad, fade-out, no adelay when the drop is later than the peak
+    args, chain = render._music_inputs(m, 1, 0.72, 12.0, seek_s=2.5, delay_ms=0)
+    assert args == ["-ss", "2.500", "-i", "bed.mp3"]
+    assert chain == "[1:a]apad,volume=0.72,afade=t=out:st=11.920:d=0.08[mus]"
+    # aligned with the drop before the peak: adelay first
+    args, chain = render._music_inputs(m, 2, 0.72, 12.0, seek_s=0.0, delay_ms=1500)
+    assert args == ["-ss", "0.000", "-i", "bed.mp3"] and chain == "[2:a]adelay=1500|1500,apad,volume=0.72,afade=t=out:st=11.920:d=0.08[mus]"
+    # unaligned: the old infinite loop, no seek / adelay / apad, still the fade-out
+    args, chain = render._music_inputs(m, 1, 0.72, 12.0)
+    assert args == ["-stream_loop", "-1", "-i", "bed.mp3"] and chain == "[1:a]volume=0.72,afade=t=out:st=11.920:d=0.08[mus]"
+    assert "adelay" not in chain and "apad" not in chain and "-ss" not in args
+    # music_plan: the pure decision the adapter and the renderer share
+    s = render.RenderSettings(start=10, end=20, music="bed.mp3", peak_s=14)
+    p = render.music_plan(s, 9.0)
+    assert p["aligned"] and (p["seek_s"], p["delay_ms"], p["drop_at_output_s"]) == (5.0, 0, 4.0)
+    p = render.music_plan(s, 1.0)
+    assert p["aligned"] and (p["seek_s"], p["delay_ms"], p["drop_at_output_s"]) == (0.0, 3000, 4.0)
+    assert render.music_plan(s, None)["reason"].startswith("the track has no drop")
+    assert render.music_plan(render.RenderSettings(start=10, end=20, music="bed.mp3"), 9.0)["reason"] == "the clip has no peak"
+    assert render.music_plan(s, 9.0, has_music=False)["reason"] == "no music track"
+    assert render.music_plan(render.RenderSettings(start=10, end=20, music="bed.mp3", peak_s=25), 9.0)["reason"] == "the peak is outside the range"
+    with pytest.raises(ValueError, match="peak"):
+        render.RenderSettings(start=0, end=5, peak_s=-1).validate()
 
 
 def test_recipe_validation():
@@ -184,6 +371,15 @@ def test_sequence_layout_and_graph():
     assert "xfade=transition=fade:duration=0.400:offset=2.600[vx1]" in graph
     assert "[vx1][v2]xfade=transition=fade:duration=0.400:offset=4.200[vseq]" in graph
     assert "acrossfade=d=0.400" in graph and (v, a) == ("vseq", "aseq")
+    # the peak maps through the same layout (shot 2 runs at 2x from offset 2.6); gaps map to nothing
+    assert render.source_to_output(10, layout) == pytest.approx(3.6) and render.source_to_output(16, layout) == pytest.approx(8.2)
+    assert render.source_to_output(6, layout) is None
+    s.music, s.peak_s = "bed.mp3", 10
+    p = render.music_plan(s, 7.0)
+    assert p["aligned"] and (p["seek_s"], p["delay_ms"], p["drop_at_output_s"]) == (3.4, 0, 3.6)
+    s.peak_s = 6   # in the gap between shot 1 and shot 2
+    p = render.music_plan(s, 7.0)
+    assert p["aligned"] is False and p["reason"] == "the peak falls outside every shot"
 
 
 def test_sequence_cut_uses_concat_and_short_shots_clamp_transition():

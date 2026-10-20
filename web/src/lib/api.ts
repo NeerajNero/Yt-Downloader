@@ -46,9 +46,13 @@ export const clearFinishedJobs = () => del('/api/jobs/finished')
 export const updateVideo = (id: string, fields: { note?: string | null; pipeline?: string }) => patch(`/api/videos/${id}`, fields)
 export const deleteVideo = (id: string) => del(`/api/videos/${id}`)
 export const rescanLibrary = () => post<{ added: number; missing: number; videos: number }>('/api/library/rescan')
-export const insertClip = (video_id: string, start_s: number, end_s: number, title?: string | null) =>
-  post<Clip>('/api/clips', { video_id, start_s, end_s, title: title ?? null })
+export const insertClip = (video_id: string, start_s: number, end_s: number, title?: string | null, peak_s?: number | null) =>
+  post<Clip>('/api/clips', { video_id, start_s, end_s, title: title ?? null, peak_s: peak_s ?? null })
 export const setClipStatus = (id: string, status: string) => patch<Clip>(`/api/clips/${id}`, { status })
+/** Fields left out are kept; peak_s: null clears the peak. */
+export const patchClip = (id: string, fields: { start_s?: number; end_s?: number; peak_s?: number | null; title?: string; hook_text?: string | null; payoff_text?: string | null }) =>
+  patch<Clip>(`/api/clips/${id}`, fields)
+export const setClipPeak = (id: string, peak_s: number | null) => patchClip(id, { peak_s })
 export const deleteClip = (id: string) => del(`/api/clips/${id}`)
 
 // ---- recipes ----
@@ -86,6 +90,20 @@ export const uploadVideo = (file: File, note: string, pipeline: string, onProgre
   ) as Promise<{ video_id: string; title: string }>
 
 export const listMusic = () => fetch('/api/music').then(check).then((r) => r.json() as Promise<string[]>)
+/** <library>/.music/<name>.beats.json as served by GET /api/music/{name}/beats (studio/core/beats.py). */
+export interface BeatsGrid {
+  version: number; name: string | null; duration_s: number | null; sr: number
+  bpm: number | null; beats: number[]; downbeats: number[]; downbeats_method: string
+  drop_s: number | null; drop_s_manual: number | null
+  drop_effective: number | null   // drop_s_manual if set, else drop_s
+  current: boolean                // analysed with the running BEATS_VERSION (a version-0 stub is not)
+}
+export const beatsUrl = (name: string) => `/api/music/${encodeURIComponent(name)}/beats`
+export const getBeats = (name: string): Promise<BeatsGrid | null> =>
+  fetch(beatsUrl(name)).then((r) => (r.status === 404 ? null : check(r).then((x) => x.json() as Promise<BeatsGrid>)))
+/** Set (seconds into the track) or clear (null) the manual drop. */
+export const setTrackDrop = (name: string, drop_s_manual: number | null) => patch<BeatsGrid>(beatsUrl(name), { drop_s_manual })
+export const musicUrl = (name: string) => fileUrl(`.music/${name}`)
 export const uploadMusic = (file: File) =>
   fetch(`/api/music?filename=${encodeURIComponent(file.name)}`, { method: 'POST', body: file })
     .then(check).then((r) => r.json() as Promise<{ name: string }>)
