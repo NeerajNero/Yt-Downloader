@@ -30,7 +30,7 @@ if [ ! -x venv/bin/python ]; then
   echo "Creating venv with $PY..."
   "$PY" -m venv venv
 fi
-if ! venv/bin/python -c 'import fastapi, uvicorn, yt_dlp, faster_whisper, pydantic' 2>/dev/null; then
+if ! venv/bin/python -c 'import fastapi, uvicorn, yt_dlp, faster_whisper, pydantic, librosa' 2>/dev/null; then
   echo "Installing Python dependencies..."
   venv/bin/pip install --no-cache-dir -q -r requirements.txt
 fi

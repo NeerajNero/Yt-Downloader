@@ -13,7 +13,8 @@ real files, and the only place that knows the sidecar layout:
                       shorts/*.mp4         renders
                       clips/ + clippack.json
     <library>/.ytstudio/                   videos index, recipes, styles
-    <library>/.music, .overlays, .refs, .cache
+    <library>/.music/<name>               music beds + <name>.beats.json (beat grid)
+    <library>/.overlays, .fx, .refs, .cache
 
 "Assets" are not stored anywhere: an asset exists when its file does.
 """
@@ -28,7 +29,10 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+from studio.core import beats as _beats
 from studio.core.ffmpeg import IMAGE_EXTS, MEDIA_EXTS
+
+AUDIO_EXTS = {".mp3", ".m4a", ".aac", ".wav", ".ogg", ".opus", ".flac"}
 
 SIDECAR_SUFFIX = {
     "transcript": ".transcript.json",
@@ -156,6 +160,27 @@ class Library:
 
     def music_dir(self) -> Path:
         return self.root / ".music"
+
+    def music_names(self) -> list[str]:
+        d = self.music_dir()
+        return sorted(f.name for f in d.iterdir() if f.suffix.lower() in AUDIO_EXTS) if d.is_dir() else []
+
+    @staticmethod
+    def beats_rel(name: str) -> str:
+        """`.music/<name>.beats.json` (full file name, so a.mp3 / a.wav don't collide)."""
+        return f".music/{Path(name).name}.beats.json"
+
+    def read_beats(self, name: str) -> dict | None:
+        p = self.root / self.beats_rel(name)
+        if not p.is_file():
+            return None
+        try:
+            return json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+
+    def beats_current(self, name: str) -> bool:
+        return _beats.is_current(self.read_beats(name))
 
     def overlays_dir(self) -> Path:
         return self.root / ".overlays"

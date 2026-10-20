@@ -40,7 +40,7 @@ if errorlevel 1 (
   )
 )
 
-venv\Scripts\python -c "import fastapi, uvicorn, yt_dlp, faster_whisper, pydantic" >nul 2>nul
+venv\Scripts\python -c "import fastapi, uvicorn, yt_dlp, faster_whisper, pydantic, librosa" >nul 2>nul
 if errorlevel 1 (
   echo Installing Python dependencies...
   venv\Scripts\pip install --no-cache-dir -q -r requirements.txt

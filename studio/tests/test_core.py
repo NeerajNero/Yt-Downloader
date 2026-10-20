@@ -97,6 +97,9 @@ def test_encoders_table():
     assert encoders.video_args("libx264", "final")[:4] == ["-c:v", "libx264", "-crf", "18"]
     assert "h264_amf" in encoders.video_args("h264_amf", "fast")
     assert encoders.video_args("h264_videotoolbox", "edit")[-2:] == ["-pix_fmt", "yuv420p"]
+    for enc in encoders.ENCODERS:  # proxy profile exists everywhere and is the cheap one
+        assert enc in encoders.video_args(enc, "proxy")
+    assert encoders.video_args("libx264", "proxy")[2:6] == ["-crf", "30", "-preset", "veryfast"]
     with pytest.raises(ValueError):
         encoders.video_args("libx265", "final")
 

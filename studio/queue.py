@@ -5,7 +5,7 @@ run-when-needed tool).
 Two lanes so the machine is never asked to do two ffmpeg/whisper jobs at
 once, while downloads and Gemini calls (network-bound) run alongside:
   heavy : render, convert, clippack, tighten, transcribe, scenes, borders
-  light : download, suggest, postkit, plan, style, noop
+  light : download, suggest, postkit, plan, style, dialogue, tags, beats, noop
 
 Statuses: queued → running → done | error | cancelled. Cancel a running job =
 status 'cancel_requested'; the handler's should_cancel() notices and it flips

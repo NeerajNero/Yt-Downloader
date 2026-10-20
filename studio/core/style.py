@@ -11,7 +11,7 @@ import re
 import subprocess
 from pathlib import Path
 
-from . import gemini
+from . import encoders, gemini
 from .errors import Cancelled
 from .ffmpeg import Report, ShouldCancel, Tools
 from .media import detect_borders, detect_scenes
@@ -112,20 +112,30 @@ def measure(ref: Path, tools: Tools, report: Report, should_cancel: ShouldCancel
     }
 
 
-def _video_part(ref: Path, tools: Tools, scratch: Path) -> dict:
+# Proxy for Gemini: 720p max (even height), the encoder's "proxy" profile, 64k audio.
+PROXY_SCALE = "scale=-2:trunc(min(720\\,ih)/2)*2"
+
+
+def proxy_cmd(tools: Tools, encoder: str, src: Path, out: Path) -> list[str]:
+    """ffmpeg command for the small copy sent to Gemini when the reference is
+    over the inline limit. Uses the configured encoder (never hardcoded)."""
+    return [tools.ffmpeg, "-y", "-v", "error", "-i", str(src), "-vf", PROXY_SCALE,
+            *encoders.video_args(encoder, "proxy"), "-c:a", "aac", "-b:a", "64k",
+            *encoders.MP4_ARGS, str(out)]
+
+
+def _video_part(ref: Path, tools: Tools, scratch: Path, encoder: str) -> dict:
     """Inline video part for Gemini, re-encoded small if the file is too big."""
     src = ref
     if ref.stat().st_size > MAX_INLINE_BYTES:
         small = scratch / "ref_small.mp4"
-        subprocess.run([tools.ffmpeg, "-y", "-v", "error", "-i", str(ref), "-vf", "scale=-2:360",
-                        "-c:v", "libx264", "-crf", "30", "-preset", "veryfast", "-c:a", "aac", "-b:a", "64k",
-                        "-movflags", "+faststart", str(small)], capture_output=True)
+        subprocess.run(proxy_cmd(tools, encoder, ref, small), capture_output=True)
         src = small if small.is_file() else ref
     return {"inline_data": {"mime_type": "video/mp4", "data": base64.b64encode(src.read_bytes()).decode()}}
 
 
 def analyze(ref: Path, title: str, measured: dict, tools: Tools, scratch: Path,
-            should_cancel: ShouldCancel, on_retry=None) -> dict:
+            should_cancel: ShouldCancel, encoder: str = "libx264", on_retry=None) -> dict:
     """Ask Gemini to break the edit down, grounded by the measured facts."""
     if should_cancel():
         raise Cancelled()
@@ -141,7 +151,7 @@ cut pace, punch-in zooms, colour grade, music/voice/sfx, overlays, speed ramps a
 Be concrete and honest — say "none" when an element is absent. Then give DaVinci Resolve steps that
 recreate the parts a simple renderer cannot (text animations, speed ramps, transitions, sound design),
 with exact values where you can (font size relative to frame, zoom %, EQ/compressor settings, LUFS)."""
-    parts = [{"text": prompt}, _video_part(ref, tools, scratch)]
+    parts = [{"text": prompt}, _video_part(ref, tools, scratch, encoder)]
     out = gemini.generate(parts, schema=STYLE_SCHEMA, timeout=300, on_retry=on_retry)
     out["model"] = gemini.last_used_model
     return out

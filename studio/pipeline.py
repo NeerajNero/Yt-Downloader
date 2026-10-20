@@ -17,6 +17,7 @@ from __future__ import annotations
 import logging
 
 from studio import context
+from studio.queue import ACTIVE
 
 log = logging.getLogger("pipeline")
 
@@ -35,6 +36,24 @@ def enqueue(jtype: str, video_id: str | None, payload: dict | None = None, clip_
         return None
     return context.app.queue.enqueue(jtype, video_id=video_id, clip_id=clip_id, payload=payload or {},
                              priority=priority, parent_job_id=parent_job_id)
+
+
+def ensure_beats(names: list[str] | None = None) -> list[dict]:
+    """Queue a `beats` job for every music track (or just `names`) whose
+    `.beats.json` is missing or from an older BEATS_VERSION. Deduped on the
+    track name against active beats jobs (they carry no video_id)."""
+    app = context.app
+    if names is None:
+        names = app.lib.music_names()
+    pending = {j["payload"].get("name") for j in app.queue.list()
+               if j["type"] == "beats" and j["status"] in ACTIVE}
+    made = []
+    for name in names:
+        if name in pending or app.lib.beats_current(name):
+            continue
+        made.append(app.queue.enqueue("beats", payload={"name": name}, priority=90))
+        pending.add(name)
+    return made
 
 
 def _have(video: dict) -> dict[str, dict]:
