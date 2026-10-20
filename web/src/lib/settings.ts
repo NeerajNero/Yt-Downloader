@@ -104,6 +104,11 @@ export const DEFAULT_SETTINGS: RenderSettings = {
   crop_x: 0.5, crop_y: 0.5, crop_zoom: 1, effects: { ...DEFAULT_EFFECTS }, fx: [],
 }
 
+/** Montage: snap shot boundaries and markers to the track's beats (docs/PLAYBOOK.md). */
+const SNAP_KEY = 'ytstudio.montage.snap'
+export const getSnapBeats = (): boolean => { try { return localStorage.getItem(SNAP_KEY) !== 'off' } catch { return true } }
+export const setSnapBeats = (v: boolean) => { try { localStorage.setItem(SNAP_KEY, v ? 'on' : 'off') } catch { /* */ } }
+
 export type EditLayout = 'steps' | 'page'
 const LAYOUT_KEY = 'ytstudio.edit.layout'
 export const getEditLayout = (): EditLayout => { try { return localStorage.getItem(LAYOUT_KEY) === 'page' ? 'page' : 'steps' } catch { return 'steps' } }

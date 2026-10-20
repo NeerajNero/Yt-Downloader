@@ -11,12 +11,16 @@ interface Props {
   onRange: (r: { start: number; end: number }) => void
   shots?: { start: number; end: number; active?: boolean }[]
   onSeek: (t: number) => void
+  /** Beat grid in source seconds (lib/snap.ticksForTimeline): thin beats, thick amber downbeats. */
+  ticks?: { beats: number[]; downbeats: number[] } | null
+  peak?: number | null     // the clip's peak (amber mark)
+  drop?: number | null     // where the music drop lands (labelled)
 }
 
 /** Scrub strip: scene ticks, dialogue lines (bottom) and closeups (top) as
  *  thin bars, the selected range as a band with draggable in/out handles,
- *  montage shots as bars, and the playhead. */
-export default function Timeline({ videoDuration, nowTime, scenes, dialogue, closeups, range, onRange, shots, onSeek }: Props) {
+ *  montage shots as bars, beat ticks with the drop and the peak, and the playhead. */
+export default function Timeline({ videoDuration, nowTime, scenes, dialogue, closeups, range, onRange, shots, onSeek, ticks, peak, drop }: Props) {
   const ref = useRef<HTMLDivElement>(null)
   const pct = (t: number) => (videoDuration ? Math.max(0, Math.min(100, (t / videoDuration) * 100)) : 0)
   const timeAt = (clientX: number) => {
@@ -53,6 +57,8 @@ export default function Timeline({ videoDuration, nowTime, scenes, dialogue, clo
         {shots?.map((s, i) => (
           <div key={i} className={`tl-shot ${s.active ? 'active' : ''}`} style={{ left: `${pct(s.start)}%`, width: `${pct(s.end) - pct(s.start)}%` }} />
         ))}
+        {ticks?.beats.map((t) => <div key={`b${t}`} className="tl-beat" style={{ left: `${pct(t)}%` }} />)}
+        {ticks?.downbeats.map((t) => <div key={`db${t}`} className="tl-downbeat" style={{ left: `${pct(t)}%` }} title={`downbeat ${duration(t)}`} />)}
         {range && (
           <div className="tl-range" style={{ left: `${pct(range.start)}%`, width: `${pct(range.end) - pct(range.start)}%` }}>
             <div className="tl-handle left" onPointerDown={drag('start')} aria-label="Clip start" />
@@ -60,6 +66,8 @@ export default function Timeline({ videoDuration, nowTime, scenes, dialogue, clo
           </div>
         )}
         {scenes.map((t) => <div key={t} className="tl-tick" style={{ left: `${pct(t)}%` }} title={duration(t)} />)}
+        {peak != null && <div className="tl-peak" style={{ left: `${pct(peak)}%` }} title={`peak ${duration(peak)}`} />}
+        {drop != null && <div className="tl-drop" style={{ left: `${pct(drop)}%` }} title="the music drop lands here">drop</div>}
         <div className="tl-head" style={{ left: `${pct(nowTime)}%` }} />
       </div>
       <div className="row" style={{ justifyContent: 'space-between' }}>
@@ -67,10 +75,11 @@ export default function Timeline({ videoDuration, nowTime, scenes, dialogue, clo
         {range && <span className="mono small accent-text">{duration(range.start)} → {duration(range.end)} · {duration(range.end - range.start)}</span>}
         <span className="mono muted small">{duration(videoDuration)}</span>
       </div>
-      {((dialogue && dialogue.length > 0) || (closeups && closeups.length > 0)) && (
+      {((dialogue && dialogue.length > 0) || (closeups && closeups.length > 0) || (ticks && ticks.beats.length > 0)) && (
         <div className="row wrap muted small" style={{ gap: 12 }}>
           {closeups && closeups.length > 0 && <span><span className="tl-key closeup" /> closeups</span>}
           {dialogue && dialogue.length > 0 && <span><span className="tl-key dialogue" /> dialogue</span>}
+          {ticks && ticks.beats.length > 0 && <span><span className="tl-key beat" /> beats · <span className="tl-key downbeat" /> downbeats</span>}
         </div>
       )}
     </div>

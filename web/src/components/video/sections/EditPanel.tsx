@@ -9,6 +9,7 @@ import Group from '../../ui/Group'
 import TimeInput from '../../ui/TimeInput'
 import CaptionEditor from '../CaptionEditor'
 import Montage, { type MontageView, type Plan, type Segment, type Transition } from '../Montage'
+import type { TimelineTicks } from '../../../lib/snap'
 
 export type EditStep = 'cut' | 'frame' | 'motion' | 'transitions' | 'look' | 'captions' | 'sound' | 'brand' | 'render'
 
@@ -39,6 +40,7 @@ interface Props {
   onRender: () => void
   onRenderSequence: (segments: Segment[], transition: Transition) => void
   onMontageShots: (shots: { start: number; end: number; active?: boolean }[] | null) => void
+  onBeatTicks?: (ticks: TimelineTicks | null) => void
   tweakingClip: string | null
   onStep?: (step: EditStep) => void
   shotCount?: number
@@ -225,6 +227,7 @@ export default function EditPanel(p: Props) {
   const montage = (view: MontageView) => (
     <Montage video={p.video} view={view} plan={p.plan} scenes={p.scenes} dialogue={p.dialogue} tags={p.tags} clipPack={p.clipPack} rangeStart={p.range.start} rangeEnd={p.range.end}
              seek={p.seek} playhead={p.playhead} onRangeChange={p.onRange} onRender={p.onRenderSequence} disabled={!ready} onShotsChange={p.onMontageShots} revision={p.montageRevision}
+             musicName={s.music} peakS={activeClip?.peak_s ?? null} onBeatTicks={p.onBeatTicks}
              onApplyPlanLook={(pl) => p.onChange({ ...s, captions: pl.captions, caption_style: pl.caption_style as RenderSettings['caption_style'],
                                                     caption_pos: pl.caption_pos as RenderSettings['caption_pos'], grade: pl.grade as RenderSettings['grade'], vivid_amount: pl.vivid })} />
   )
