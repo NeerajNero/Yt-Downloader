@@ -60,11 +60,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     build_context(settings)
     app = FastAPI(title="YT Studio", lifespan=lifespan)
 
-    from studio.routes import actions, files, ingest, state
+    from studio.routes import actions, files, ingest, preview, state
     app.include_router(state.router)
     app.include_router(actions.router)
     app.include_router(files.router)
     app.include_router(ingest.router)
+    app.include_router(preview.router)
 
     @app.get("/api/healthz")
     def healthz():

@@ -116,6 +116,11 @@ export const setSafeArea = (v: boolean) => { try { localStorage.setItem(SAFE_KEY
 export const getReviewSafeArea = (): boolean => { try { return localStorage.getItem(SAFE_REVIEW_KEY) === 'on' } catch { return false } }
 export const setReviewSafeArea = (v: boolean) => { try { localStorage.setItem(SAFE_REVIEW_KEY, v ? 'on' : 'off') } catch { /* */ } }
 
+/** Live preview: re-render the 540 px draft 800 ms after the last change (off by default). */
+const LIVE_KEY = 'ytstudio.edit.livepreview'
+export const getLivePreview = (): boolean => { try { return localStorage.getItem(LIVE_KEY) === 'on' } catch { return false } }
+export const setLivePreview = (v: boolean) => { try { localStorage.setItem(LIVE_KEY, v ? 'on' : 'off') } catch { /* */ } }
+
 export type EditLayout = 'steps' | 'page'
 const LAYOUT_KEY = 'ytstudio.edit.layout'
 export const getEditLayout = (): EditLayout => { try { return localStorage.getItem(LAYOUT_KEY) === 'page' ? 'page' : 'steps' } catch { return 'steps' } }

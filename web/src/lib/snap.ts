@@ -49,6 +49,12 @@ export function sourceToOutput(t: number, layout: LayoutShot[]): number | null {
   return null
 }
 
+/** Inverse of sourceToOutput: a preview-file time back into source seconds (the shot's forward leg). */
+export function outputToSource(tOut: number, layout: LayoutShot[]): number | null {
+  for (const L of layout) if (tOut >= L.offset && tOut <= L.offset + L.len) return Math.min(L.end, L.start + (tOut - L.offset) * (L.speed || 1))
+  return null
+}
+
 export function peakShotIndex(peakS: number | null | undefined, layout: LayoutShot[]): number {
   if (peakS == null) return -1
   return layout.findIndex((L) => L.start <= peakS && peakS <= L.end)

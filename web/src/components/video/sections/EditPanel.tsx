@@ -47,6 +47,11 @@ interface Props {
   pauseAt?: (t: number) => void       // seek without playing, to check a single frame
   montageStart?: number | null        // first included shot's start (frame 1 of a montage)
   onCaptionDraft?: (kind: 'hook_text' | 'payoff_text', value: string) => void
+  /** Draft preview of the current settings (540 px), and the Live re-preview toggle. */
+  onPreview?: () => void
+  previewPending?: boolean
+  livePreview?: boolean
+  onLivePreview?: (v: boolean) => void
   tweakingClip: string | null
   onStep?: (step: EditStep) => void
   shotCount?: number
@@ -536,9 +541,17 @@ export default function EditPanel(p: Props) {
       )}
     </div>
   )
+  const previewControls = p.onPreview ? (
+    <>
+      <button className="btn small" onClick={p.onPreview} disabled={!ready || p.previewPending} title="Render a 540 px draft of these exact settings on the preview lane and play it in the player">
+        {p.previewPending ? 'Previewing…' : 'Preview'}</button>
+      <label className="check small" title="Re-render the draft 800 ms after every change"><input type="checkbox" checked={Boolean(p.livePreview)} onChange={(e) => p.onLivePreview?.(e.target.checked)} /> Live</label>
+    </>
+  ) : null
   const renderBar = (
     <div className="render-bar">
       <span className="small grow">{summarize(s)}</span>
+      {previewControls}
       <button className="btn accent" onClick={p.onRender} disabled={!ready || tooLongToReverse}>{p.tweakingClip ? 'Re-render clip' : 'Render'}</button>
     </div>
   )
@@ -630,6 +643,7 @@ export default function EditPanel(p: Props) {
       {msg && <p className="muted small">{msg}</p>}
       <div className="step-nav">
         <button className="btn" onClick={() => go(-1)} disabled={idx === 0}>← {idx > 0 ? steps[idx - 1].title : 'Back'}</button>
+        {previewControls}
         {idx < steps.length - 1
           ? <button className="btn accent" onClick={() => go(1)}>{steps[idx + 1].title} →</button>
           : <span className="muted small">last step</span>}

@@ -294,10 +294,20 @@ ZOOMS = {"none", "in"}
 CAPTION_SOURCES = {"auto", "manual"}
 
 
-def _dims(resolution, orientation):
+PREVIEW_SHORT, PREVIEW_FPS = 540, 30.0   # draft previews: 540x960 / 960x540, fps capped, proxy profile, no loudnorm
+
+
+def _dims(resolution, orientation, preview=False):
+    if preview:
+        return (PREVIEW_SHORT * 16 // 9, PREVIEW_SHORT) if orientation == "landscape" else (PREVIEW_SHORT, PREVIEW_SHORT * 16 // 9)
     if orientation == "landscape":
         return (1920, 1080) if resolution == "1080" else (3840, 2160)
     return (1080, 1920) if resolution == "1080" else (2160, 3840)
+
+
+def _fps(tools: Tools, src, preview: bool) -> float:
+    fps = tools.probe_fps(src)
+    return min(fps, PREVIEW_FPS) if preview else fps
 
 
 # Rotate the source before framing (captions burn on afterwards, staying upright).
@@ -683,12 +693,14 @@ def run_export(src: Path, out_path: Path, s: RenderSettings, tools: Tools, encod
                transcript: dict | None = None, manual_captions: dict | None = None,
                music_path: Path | None = None, watermark_path: Path | None = None,
                sfx_paths: list[tuple[Path, float, float]] | None = None,
-               fx_paths: list[tuple] | None = None, music_drop_s: float | None = None) -> Path:
+               fx_paths: list[tuple] | None = None, music_drop_s: float | None = None,
+               preview: bool = False) -> Path:
     """Render one clip (portrait 9:16 or landscape 16:9) to `out_path`.
     `sfx_paths` = [(file, at_seconds, gain_0_100)]; `fx_paths` = overlay
     effect clips [(file, at, opacity, blend, flip, speed)]; `music_drop_s` =
     the track's drop (seconds into the track) to align with `s.peak_s`.
-    Raises Cancelled / RuntimeError. Returns out_path."""
+    `preview` = a 540 px draft: same graph, smaller frame, fps <= 30, proxy
+    encoder profile, no loudnorm. Raises Cancelled / RuntimeError. Returns out_path."""
     s.validate()
     src = Path(src)
     out_path = Path(out_path)
@@ -697,11 +709,14 @@ def run_export(src: Path, out_path: Path, s: RenderSettings, tools: Tools, encod
         return run_sequence(src, out_path, s, tools, encoder, report, should_cancel,
                             transcript=transcript, manual_captions=manual_captions, music_path=music_path,
                             watermark_path=watermark_path, sfx_paths=sfx_paths, fx_paths=fx_paths,
-                            music_drop_s=music_drop_s)
+                            music_drop_s=music_drop_s, preview=preview)
     start, end = float(s.start), float(s.end)
     amount = int(s.vivid_amount)
+    fps = _fps(tools, src, preview)
+    profile = "proxy" if preview else "final"
+    loud = s.loudness and not preview
 
-    final_w, final_h = _dims(s.resolution, s.orientation)
+    final_w, final_h = _dims(s.resolution, s.orientation, preview)
     match_rotate = bool(s.rotate_captions) and s.rotate != "none"
     if match_rotate:
         # Build the whole frame (video + captions) in the pre-rotation
@@ -724,15 +739,17 @@ def run_export(src: Path, out_path: Path, s: RenderSettings, tools: Tools, encod
                          crop_x=s.crop_x, crop_y=s.crop_y, crop_zoom=s.crop_zoom)
     out_len = playback_len(end - start, 1.0, s.playback, s.reverse_speed)
     if s.playback != "forward":
-        filt += _bounce_video("pb", s.playback, s.reverse_speed, tools.probe_fps(src))
+        filt += _bounce_video("pb", s.playback, s.reverse_speed, fps)
     # Zoom the framed video before captions/rotation so captions don't zoom.
     if s.zoom_markers:
-        filt += "," + _punch_filter(build_w, build_h, tools.probe_fps(src), out_len, s.zoom_markers,
+        filt += "," + _punch_filter(build_w, build_h, fps, out_len, s.zoom_markers,
                                     base_target=1.12 if s.zoom == "in" else None)
     elif s.zoom == "in":
-        filt += "," + _zoom_filter(build_w, build_h, tools.probe_fps(src), out_len)
+        filt += "," + _zoom_filter(build_w, build_h, fps, out_len)
+    elif preview and tools.probe_fps(src) > PREVIEW_FPS:
+        filt += f",fps={PREVIEW_FPS:.4f}"   # zoompan already pins the rate; otherwise cap it here
     if s.shake_markers:
-        filt += "," + _shake_filter(build_w, build_h, tools.probe_fps(src), s.shake_markers)
+        filt += "," + _shake_filter(build_w, build_h, fps, s.shake_markers)
     filt += effects_filter(s.effects, build_w, build_h)
 
     ass_file = None
@@ -772,7 +789,7 @@ def run_export(src: Path, out_path: Path, s: RenderSettings, tools: Tools, encod
 
     # ---- video graph: always a filter_complex ending in [v] ----------------
     vgraph = filt if s.style == "blur" else f"[0:v]{filt}"
-    vgraph, next_input = _finish_video(vgraph, inputs, next_input, final_w, final_h, tools.probe_fps(src), s, watermark_path, fx_paths)
+    vgraph, next_input = _finish_video(vgraph, inputs, next_input, final_w, final_h, fps, s, watermark_path, fx_paths)
 
     # ---- audio graph: source (+ ducked music bed) (+ sfx layers) -----------
     use_music = bool(music_path and Path(music_path).is_file())
@@ -816,18 +833,18 @@ def run_export(src: Path, out_path: Path, s: RenderSettings, tools: Tools, encod
         # layers on top we keep the source at full level instead.
         norm = ":normalize=0" if sfx_paths else ""
         aparts.append("".join(mix_inputs) + f"amix=inputs={len(mix_inputs)}:duration=first:dropout_transition=0{norm}[amix]")
-        aparts.append(f"[amix]{loudnorm}[a]" if s.loudness else "[amix]anull[a]")
+        aparts.append(f"[amix]{loudnorm}[a]" if loud else "[amix]anull[a]")
         graph = vgraph + ";" + ";".join(aparts)
         av_args = ["-filter_complex", graph, "-map", "[v]", "-map", "[a]"]
     elif asrc != "[0:a]":
-        aparts.append(f"[asrc]{loudnorm}[a]" if s.loudness else "[asrc]anull[a]")
+        aparts.append(f"[asrc]{loudnorm}[a]" if loud else "[asrc]anull[a]")
         av_args = ["-filter_complex", vgraph + ";" + ";".join(aparts), "-map", "[v]", "-map", "[a]"]
     else:
-        av_args = ["-filter_complex", vgraph, "-map", "[v]", "-map", "0:a?"] + (["-af", loudnorm] if s.loudness else [])
+        av_args = ["-filter_complex", vgraph, "-map", "[v]", "-map", "0:a?"] + (["-af", loudnorm] if loud else [])
 
     cmd = [
         tools.ffmpeg, "-y", *inputs, *av_args,
-        *encoders.video_args(encoder, "final"), *encoders.AUDIO_ARGS, *encoders.MP4_ARGS,
+        *encoders.video_args(encoder, profile), *encoders.AUDIO_ARGS, *encoders.MP4_ARGS,
         "-progress", "pipe:1", "-nostats", "-loglevel", "error",
         str(out_path),
     ]
@@ -1012,15 +1029,18 @@ def run_sequence(src: Path, out_path: Path, s: RenderSettings, tools: Tools, enc
                  transcript: dict | None = None, manual_captions: dict | None = None,
                  music_path: Path | None = None, watermark_path: Path | None = None,
                  sfx_paths: list[tuple[Path, float, float]] | None = None,
-                 fx_paths: list[tuple] | None = None, music_drop_s: float | None = None) -> Path:
+                 fx_paths: list[tuple] | None = None, music_drop_s: float | None = None,
+                 preview: bool = False) -> Path:
     """Assemble several ranges of the source into one clip with transitions,
     per-segment speed and punch-ins, then the usual captions / zoom / rotation /
     watermark / music / sfx on the composite. The music drop is aligned to
     `s.peak_s` mapped through the shot layout; a peak outside every shot keeps
-    the old looping bed (see music_plan)."""
+    the old looping bed (see music_plan). `preview`: see run_export."""
     layout, total, bounds = sequence_layout(s.segments, s.transition)
-    fps = tools.probe_fps(src)
-    final_w, final_h = _dims(s.resolution, s.orientation)
+    fps = _fps(tools, src, preview)
+    profile = "proxy" if preview else "final"
+    loud = s.loudness and not preview
+    final_w, final_h = _dims(s.resolution, s.orientation, preview)
     match_rotate = bool(s.rotate_captions) and s.rotate != "none"
     if match_rotate:
         if s.rotate in ("right", "left"):
@@ -1114,15 +1134,15 @@ def run_sequence(src: Path, out_path: Path, s: RenderSettings, tools: Tools, enc
             aparts = [x.replace(f"[mus][{alab}]", "[mus][aseqA]") for x in aparts]
             mix_inputs[0] = "[aseqB]"
         aparts.append("".join(mix_inputs) + f"amix=inputs={len(mix_inputs)}:duration=first:dropout_transition=0{norm}[amix]")
-        aparts.append(f"[amix]{loudnorm}[a]" if s.loudness else "[amix]anull[a]")
+        aparts.append(f"[amix]{loudnorm}[a]" if loud else "[amix]anull[a]")
     else:
-        aparts.append(f"[{alab}]{loudnorm}[a]" if s.loudness else f"[{alab}]anull[a]")
+        aparts.append(f"[{alab}]{loudnorm}[a]" if loud else f"[{alab}]anull[a]")
 
     full = graph + ";" + vgraph + ";" + ";".join(aparts)
     cmd = [
         tools.ffmpeg, "-y", *inputs,
         "-filter_complex", full, "-map", "[v]", "-map", "[a]",
-        *encoders.video_args(encoder, "final"), *encoders.AUDIO_ARGS, *encoders.MP4_ARGS,
+        *encoders.video_args(encoder, profile), *encoders.AUDIO_ARGS, *encoders.MP4_ARGS,
         "-progress", "pipe:1", "-nostats", "-loglevel", "error",
         str(out_path),
     ]

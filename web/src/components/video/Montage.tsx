@@ -25,8 +25,19 @@ export interface Shot {
 }
 
 export interface Segment { start: number; end: number; speed: number; zoom_markers: ZoomMarker[]; shake_markers: ShakeMarker[]; transition: Transition | null; playback: Playback; reverse_speed: number }
-/** What the page needs to know about the included shots (timeline bars, output-time mapping). */
-export interface ShotInfo { start: number; end: number; active?: boolean; speed: number; playback: Playback; reverse_speed: number; transition: Transition | null }
+/** What the page needs to know about the included shots (timeline bars, output-time mapping, preview payload). */
+export interface ShotInfo { id?: string; start: number; end: number; active?: boolean; speed: number; playback: Playback; reverse_speed: number; transition: Transition | null; punch?: boolean; shake?: boolean }
+
+/** Builder shots → render-payload segments (what Render montage and the draft preview both send). */
+export function toSegments(shots: { start: number; end: number; speed: number; punch?: boolean; shake?: boolean; transition: Transition | null; playback: Playback; reverse_speed: number }[]): Segment[] {
+  return shots.map((s, i) => ({
+    start: s.start, end: s.end, speed: s.speed,
+    zoom_markers: s.punch ? [{ at: 0, duration: Math.min(0.5, (s.end - s.start) / s.speed / 2), zoom: 1.15 }] : [],
+    shake_markers: s.shake ? [{ ...SHAKE, duration: Math.min(SHAKE.duration, playbackLength(s.end - s.start, s.speed, s.playback, s.reverse_speed) / 2) }] : [],
+    transition: i < shots.length - 1 ? s.transition : null,
+    playback: s.playback, reverse_speed: s.playback === 'forward' ? 1 : s.reverse_speed,
+  }))
+}
 const MAX_REVERSE = 10  // seconds of shot (after speed) ffmpeg can hold in memory to reverse
 
 /** Which part of the builder to show: one step of the Edit flow, or everything. */
@@ -185,8 +196,8 @@ export default function Montage({ video, view = 'all', plan, onApplyPlanLook, sc
   useEffect(() => {
     if (loadedFor !== video.id) return
     try { localStorage.setItem(key(video.id), JSON.stringify({ shots, transition })) } catch { /* ignore */ }
-    onShotsChange?.(shots.length ? shots.filter((x) => x.include).map((x) => ({ start: x.start, end: x.end, active: x.id === editingId, speed: x.speed, playback: x.playback,
-                                                                                     reverse_speed: x.playback === 'forward' ? 1 : x.reverse_speed, transition: x.transition })) : null, transition)
+    onShotsChange?.(shots.length ? shots.filter((x) => x.include).map((x) => ({ id: x.id, start: x.start, end: x.end, active: x.id === editingId, speed: x.speed, playback: x.playback,
+                                                                                     reverse_speed: x.playback === 'forward' ? 1 : x.reverse_speed, transition: x.transition, punch: x.punch, shake: x.shake })) : null, transition)
   }, [shots, transition, video.id, loadedFor, editingId]) // eslint-disable-line react-hooks/exhaustive-deps
   // While a shot is being trimmed, the timeline's handles (rangeStart/End) drive its in/out.
   useEffect(() => {
@@ -314,16 +325,7 @@ export default function Montage({ video, view = 'all', plan, onApplyPlanLook, sc
     if (included.length < 1) return setMsg('Include at least one shot.')
     const tooLong = included.findIndex((s) => s.playback !== 'forward' && (s.end - s.start) / s.speed > MAX_REVERSE)
     if (tooLong >= 0) return setMsg(`Shot ${shots.indexOf(included[tooLong]) + 1}: bounce and reverse need a shot of ${MAX_REVERSE} s or less. Shorten it or raise its speed.`)
-    onRender(
-      included.map((s, i) => ({
-        start: s.start, end: s.end, speed: s.speed,
-        zoom_markers: s.punch ? [{ at: 0, duration: Math.min(0.5, (s.end - s.start) / s.speed / 2), zoom: 1.15 }] : [],
-        shake_markers: s.shake ? [{ ...SHAKE, duration: Math.min(SHAKE.duration, shotLen(s) / 2) }] : [],
-        transition: i < included.length - 1 ? s.transition : null,
-        playback: s.playback, reverse_speed: s.playback === 'forward' ? 1 : s.reverse_speed,
-      })),
-      transition,
-    )
+    onRender(toSegments(included), transition)
     setMsg('Montage render queued — watch it on the Jobs tab.')
   }
 

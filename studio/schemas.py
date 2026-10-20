@@ -284,11 +284,12 @@ PAYLOADS: dict[str, type[BaseModel]] = {
     "dialogue": DialoguePayload,
     "tags": TagsPayload,
     "beats": BeatsPayload,
+    "preview": RenderPayload,   # a draft of a render: same payload, 540 px output under work/preview
 }
 
 # Job types that need a video_id.
 NEEDS_VIDEO = {"transcribe", "scenes", "borders", "convert", "render", "clippack",
-               "tighten", "suggest", "postkit", "plan", "dialogue", "tags"}
+               "tighten", "suggest", "postkit", "plan", "dialogue", "tags", "preview"}
 
 
 def _explain(e: ValidationError) -> str:
