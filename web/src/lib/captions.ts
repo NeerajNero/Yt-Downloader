@@ -5,6 +5,12 @@ export const HOOK_GAP_S = 0.5
 export const PAYOFF_S = 1.8
 
 export const CAP_SIZES: Record<string, number> = { karaoke: 88, typewriter: 88, pop: 96, minimal: 64 }
+export const CAP_STROKE: Record<string, { outline: number; shadow: number }> = { karaoke: { outline: 6, shadow: 2 }, typewriter: { outline: 6, shadow: 2 }, pop: { outline: 8, shadow: 9 }, minimal: { outline: 3, shadow: 2 } }
+/** Hook / payoff stroke (PlayRes px): outline max(1.5x, 6), shadow min(1.5x, 6) — studio/core/captions.hp_sizes. */
+export function hpStroke(style: string) {
+  const s = CAP_STROKE[style] ?? CAP_STROKE.karaoke
+  return { outline: Math.max(s.outline * 1.5, 6), shadow: Math.min(s.shadow * 1.5, 6) }
+}
 export const SAFE_AREA = { top: 0.10, bottom: 0.20, left: 0.05, right: 0.15 }
 export const CANVAS: Record<string, [number, number]> = { portrait: [1080, 1920], landscape: [1920, 1080] }
 export const HOOK_CEIL = 1.6, HOOK_FLOOR = 0.9, PAYOFF_CEIL = 1.3, PAYOFF_FLOOR = 0.8

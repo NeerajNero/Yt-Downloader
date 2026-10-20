@@ -109,6 +109,13 @@ const SNAP_KEY = 'ytstudio.montage.snap'
 export const getSnapBeats = (): boolean => { try { return localStorage.getItem(SNAP_KEY) !== 'off' } catch { return true } }
 export const setSnapBeats = (v: boolean) => { try { localStorage.setItem(SNAP_KEY, v ? 'on' : 'off') } catch { /* */ } }
 
+/** Safe-area overlay on the player (docs/PLAYBOOK.md): on by default in Edit, off by default in Review. */
+const SAFE_KEY = 'ytstudio.edit.safearea', SAFE_REVIEW_KEY = 'ytstudio.review.safearea'
+export const getSafeArea = (): boolean => { try { return localStorage.getItem(SAFE_KEY) !== 'off' } catch { return true } }
+export const setSafeArea = (v: boolean) => { try { localStorage.setItem(SAFE_KEY, v ? 'on' : 'off') } catch { /* */ } }
+export const getReviewSafeArea = (): boolean => { try { return localStorage.getItem(SAFE_REVIEW_KEY) === 'on' } catch { return false } }
+export const setReviewSafeArea = (v: boolean) => { try { localStorage.setItem(SAFE_REVIEW_KEY, v ? 'on' : 'off') } catch { /* */ } }
+
 export type EditLayout = 'steps' | 'page'
 const LAYOUT_KEY = 'ytstudio.edit.layout'
 export const getEditLayout = (): EditLayout => { try { return localStorage.getItem(LAYOUT_KEY) === 'page' ? 'page' : 'steps' } catch { return 'steps' } }

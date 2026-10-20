@@ -16,11 +16,13 @@ interface Props {
   range?: { start: number; end: number }
   style?: string          // caption preset: decides the hook / payoff size bounds
   orientation?: string    // the canvas captions are built on (portrait / landscape)
+  onDraft?: (kind: 'hook_text' | 'payoff_text', value: string) => void   // live text for the player preview
 }
 
 /** One hook / payoff field: typed text saved on blur, Gemini's suggestion only as a placeholder. */
-function HookField({ clip, kind, label, placeholder, timing, style, orientation }: {
+function HookField({ clip, kind, label, placeholder, timing, style, orientation, onDraft }: {
   clip: Clip; kind: 'hook_text' | 'payoff_text'; label: string; placeholder: string | null; timing: string | null; style: string; orientation: string
+  onDraft?: (kind: 'hook_text' | 'payoff_text', value: string) => void
 }) {
   const saved = clip[kind] ?? ''
   const [draft, setDraft] = useState(saved)
@@ -38,9 +40,9 @@ function HookField({ clip, kind, label, placeholder, timing, style, orientation 
       <div className="row">
         <span className="muted small" style={{ width: 120 }}>{label}</span>
         <input type="text" className="grow" value={draft} placeholder={placeholder ?? ''} aria-label={label} maxLength={160}
-               onChange={(e) => setDraft(e.target.value)} onBlur={(e) => void commit(e.target.value)} />
+               onChange={(e) => { setDraft(e.target.value); onDraft?.(kind, e.target.value) }} onBlur={(e) => void commit(e.target.value)} />
         {placeholder && draft !== placeholder && (
-          <button className="btn small" title="Copy the suggestion into the field" onClick={() => { setDraft(placeholder); void commit(placeholder) }}>use</button>
+          <button className="btn small" title="Copy the suggestion into the field" onClick={() => { setDraft(placeholder); onDraft?.(kind, placeholder); void commit(placeholder) }}>use</button>
         )}
       </div>
       <div className="row wrap small" style={{ paddingLeft: 120 }}>
@@ -52,7 +54,7 @@ function HookField({ clip, kind, label, placeholder, timing, style, orientation 
   )
 }
 
-export default function CaptionEditor({ videoId, manual, currentTime, onSaved, clip, range, style = 'karaoke', orientation = 'portrait' }: Props) {
+export default function CaptionEditor({ videoId, manual, currentTime, onSaved, clip, range, style = 'karaoke', orientation = 'portrait', onDraft }: Props) {
   const [open, setOpen] = useState(false)
   const [speed, setSpeed] = useState('2.5')
   const [rows, setRows] = useState<Row[]>([])
@@ -97,8 +99,8 @@ export default function CaptionEditor({ videoId, manual, currentTime, onSaved, c
     <div className="stack" style={{ gap: 8 }}>
       {clip ? (
         <div className="stack" style={{ gap: 6 }}>
-          <HookField clip={clip} kind="hook_text" label="Hook (frame 1)" placeholder={clip.hook} timing={hookT} style={style} orientation={orientation} />
-          <HookField clip={clip} kind="payoff_text" label="Payoff (on the peak)" placeholder={clip.title} timing={payoffT} style={style} orientation={orientation} />
+          <HookField clip={clip} kind="hook_text" label="Hook (frame 1)" placeholder={clip.hook} timing={hookT} style={style} orientation={orientation} onDraft={onDraft} />
+          <HookField clip={clip} kind="payoff_text" label="Payoff (on the peak)" placeholder={clip.title} timing={payoffT} style={style} orientation={orientation} onDraft={onDraft} />
           <span className="muted small">Burned in large on frame 1 and on the peak, even with captions off. Only what you type is used: the grey suggestion is never burned.</span>
         </div>
       ) : (

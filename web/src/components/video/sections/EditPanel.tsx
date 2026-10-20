@@ -8,7 +8,7 @@ import type { Job, Recipe, VideoDetail as Video } from '../../../lib/types'
 import Group from '../../ui/Group'
 import TimeInput from '../../ui/TimeInput'
 import CaptionEditor from '../CaptionEditor'
-import Montage, { type MontageView, type Plan, type Segment, type Transition } from '../Montage'
+import Montage, { type MontageView, type Plan, type Segment, type ShotInfo, type Transition } from '../Montage'
 import type { TimelineTicks } from '../../../lib/snap'
 
 export type EditStep = 'cut' | 'frame' | 'motion' | 'transitions' | 'look' | 'captions' | 'sound' | 'brand' | 'render'
@@ -39,8 +39,14 @@ interface Props {
   onRecipe: (id: string | null) => void
   onRender: () => void
   onRenderSequence: (segments: Segment[], transition: Transition) => void
-  onMontageShots: (shots: { start: number; end: number; active?: boolean }[] | null) => void
+  onMontageShots: (shots: ShotInfo[] | null, transition?: Transition) => void
   onBeatTicks?: (ticks: TimelineTicks | null) => void
+  /** Safe-area overlay + hook/payoff preview on the player (docs/PLAYBOOK.md). */
+  safeArea?: boolean
+  onSafeArea?: (v: boolean) => void
+  pauseAt?: (t: number) => void       // seek without playing, to check a single frame
+  montageStart?: number | null        // first included shot's start (frame 1 of a montage)
+  onCaptionDraft?: (kind: 'hook_text' | 'payoff_text', value: string) => void
   tweakingClip: string | null
   onStep?: (step: EditStep) => void
   shotCount?: number
@@ -198,6 +204,17 @@ export default function EditPanel(p: Props) {
   // The clip whose hook / payoff / peak this edit belongs to: the one being tweaked, else the one whose range is loaded.
   const activeClip = p.video.clips.find((c) => c.id === p.tweakingClip)
     ?? p.video.clips.find((c) => Math.abs(c.start_s - p.range.start) < 0.01 && Math.abs(c.end_s - p.range.end) < 0.01) ?? null
+  const frame1 = p.mode === 'montage' ? (p.montageStart ?? p.range.start) : p.range.start
+  const previewRow = (
+    <div className="row wrap">
+      <label className="check" title="Shaded bands are off limits for captions; the dashed box is where the subject should stay">
+        <input type="checkbox" checked={Boolean(p.safeArea)} onChange={(e) => p.onSafeArea?.(e.target.checked)} /> Safe area on the player</label>
+      <button className="btn small" onClick={() => (p.pauseAt ?? p.seek)(frame1)} title="Pause on the first frame: the hook must land on it">Frame 1</button>
+      <button className="btn small" disabled={activeClip?.peak_s == null} onClick={() => (p.pauseAt ?? p.seek)(activeClip!.peak_s!)}
+              title={activeClip?.peak_s == null ? 'No peak on this clip (Clips → Peak at playhead)' : 'Pause on the peak: the payoff lands here'}>Peak</button>
+      <span className="muted small">{activeClip ? 'hook and payoff show on the player at their times' : 'no clip loaded: no hook / payoff preview'}</span>
+    </div>
+  )
 
   // ---- summaries (one line per step; also the Render summary) ----
   const rangeOut = playbackLength(p.range.end - p.range.start, 1, s.playback, s.reverse_speed)
@@ -456,7 +473,7 @@ export default function EditPanel(p: Props) {
         )}
       </div>
       <CaptionEditor videoId={p.video.id} manual={p.manual} currentTime={p.playhead} onSaved={() => p.onChange({ ...s, captions: true, caption_source: 'manual' })}
-                     clip={activeClip} range={p.range} style={s.caption_style}
+                     clip={activeClip} range={p.range} style={s.caption_style} onDraft={p.onCaptionDraft}
                      orientation={s.rotate_captions && (s.rotate === 'right' || s.rotate === 'left') ? (s.orientation === 'portrait' ? 'landscape' : 'portrait') : s.orientation} />
     </>
   )
@@ -539,7 +556,7 @@ export default function EditPanel(p: Props) {
         <Group title="Look" summary={`${lookSummary}${p.mode === 'range' && motionSummary !== 'none' ? ` · ${motionSummary}` : ''}`} help="effects" info="Colour and motion. Grades are film looks; vivid boosts saturation; HDR look adds crunchy local contrast. Punch-ins are quick zooms and shakes are camera jolts at moments you mark.">
           {lookSection}{p.mode === 'range' && markersSection}
         </Group>
-        <Group title="Captions" summary={capSummary} help="captions" info="Burns word-timed captions from the transcript, or hand-typed ones.">{captionsSection}</Group>
+        <Group title="Captions" summary={capSummary} help="captions" info="Burns word-timed captions from the transcript, or hand-typed ones.">{previewRow}{captionsSection}</Group>
         <Group title="Sound" summary={soundSummary} help="sound" info="A looped music bed under the original audio, optionally ducked under speech; one-shot sound effects; loudness normalised to -14 LUFS.">{soundSection}</Group>
         <Group title="Brand" summary={brandSummary} help="ai" info="A PNG logo or handle overlaid on every render.">{brandSection}</Group>
         {msg && <p className="muted small">{msg}</p>}
@@ -587,11 +604,11 @@ export default function EditPanel(p: Props) {
           </div>
         </div>
       )}
-      {effectiveStep === 'frame' && <div className="stack" style={{ gap: 8 }}>{formatSection}</div>}
+      {effectiveStep === 'frame' && <div className="stack" style={{ gap: 8 }}>{formatSection}{previewRow}</div>}
       {effectiveStep === 'motion' && <div className="stack" style={{ gap: 8 }}>{p.mode === 'range' ? <>{playbackRow}{markersSection}</> : montage('motion')}</div>}
       {effectiveStep === 'transitions' && montage('transitions')}
       {effectiveStep === 'look' && <div className="stack" style={{ gap: 8 }}>{lookSection}</div>}
-      {effectiveStep === 'captions' && <div className="stack" style={{ gap: 8 }}>{captionsSection}</div>}
+      {effectiveStep === 'captions' && <div className="stack" style={{ gap: 8 }}>{previewRow}{captionsSection}</div>}
       {effectiveStep === 'sound' && <div className="stack" style={{ gap: 8 }}>{soundSection}</div>}
       {effectiveStep === 'brand' && <div className="stack" style={{ gap: 8 }}>{brandSection}</div>}
       {effectiveStep === 'render' && (

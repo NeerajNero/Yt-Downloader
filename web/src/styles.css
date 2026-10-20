@@ -505,6 +505,16 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; }
 .player-wrap.cropping { cursor: default; }
 .crop-layer { position: absolute; inset: 0; pointer-events: none; overflow: hidden; border-radius: 8px; }
 .crop-box { position: absolute; box-sizing: border-box; border: 2px solid var(--accent); box-shadow: 0 0 0 4000px rgba(0,0,0,0.55); pointer-events: auto; touch-action: none; }
+.frame-layer { position: absolute; inset: 0; pointer-events: none; overflow: hidden; border-radius: 8px; }
+.frame-box { position: absolute; }
+.safe-band { position: absolute; background: rgba(0,0,0,0.42); }
+.safe-zone { position: absolute; box-sizing: border-box; border: 1px dashed rgba(242,163,60,0.75); }
+.cap-hp { position: absolute; left: 5%; right: 15%; text-align: center; color: #fff; font-family: Arial, Helvetica, sans-serif; font-weight: 700; line-height: 1.15; paint-order: stroke fill; }
+.cap-hp.hook { top: 10%; }
+.cap-hp.payoff { top: 50%; transform: translateY(-50%); }
+.cap-badge { display: inline-block; margin-top: 2px; padding: 0 4px; border-radius: 3px; background: var(--accent); color: #101317; font-family: ui-monospace, Menlo, monospace; font-weight: 700; -webkit-text-stroke: 0; text-shadow: none; }
+.review-wrap { position: relative; }
+.review-wrap .frame-layer { border-radius: 8px; }
 .crop-box.movable { cursor: grab; }
 .crop-box.movable:active { cursor: grabbing; }
 .crop-tag { position: absolute; left: 4px; top: 4px; font-size: 11px; background: rgba(16,19,23,0.8); color: var(--accent); padding: 1px 6px; border-radius: 4px; white-space: nowrap; }

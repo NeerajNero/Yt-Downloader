@@ -25,6 +25,8 @@ export interface Shot {
 }
 
 export interface Segment { start: number; end: number; speed: number; zoom_markers: ZoomMarker[]; shake_markers: ShakeMarker[]; transition: Transition | null; playback: Playback; reverse_speed: number }
+/** What the page needs to know about the included shots (timeline bars, output-time mapping). */
+export interface ShotInfo { start: number; end: number; active?: boolean; speed: number; playback: Playback; reverse_speed: number; transition: Transition | null }
 const MAX_REVERSE = 10  // seconds of shot (after speed) ffmpeg can hold in memory to reverse
 
 /** Which part of the builder to show: one step of the Edit flow, or everything. */
@@ -78,7 +80,7 @@ interface Props {
   playhead?: () => number
   onRangeChange?: (r: { start: number; end: number }) => void   // moves the timeline's handles
   onRender: (segments: Segment[], transition: Transition) => void
-  onShotsChange?: (shots: { start: number; end: number; active?: boolean }[] | null) => void
+  onShotsChange?: (shots: ShotInfo[] | null, transition?: Transition) => void
   disabled: boolean
   revision?: number   // bump to re-read the saved montage (after Tweak wrote one)
   /** Beat snapping (docs/PLAYBOOK.md): the Sound step's track and the clip's peak. */
@@ -183,7 +185,8 @@ export default function Montage({ video, view = 'all', plan, onApplyPlanLook, sc
   useEffect(() => {
     if (loadedFor !== video.id) return
     try { localStorage.setItem(key(video.id), JSON.stringify({ shots, transition })) } catch { /* ignore */ }
-    onShotsChange?.(shots.length ? shots.filter((x) => x.include).map((x) => ({ start: x.start, end: x.end, active: x.id === editingId })) : null)
+    onShotsChange?.(shots.length ? shots.filter((x) => x.include).map((x) => ({ start: x.start, end: x.end, active: x.id === editingId, speed: x.speed, playback: x.playback,
+                                                                                     reverse_speed: x.playback === 'forward' ? 1 : x.reverse_speed, transition: x.transition })) : null, transition)
   }, [shots, transition, video.id, loadedFor, editingId]) // eslint-disable-line react-hooks/exhaustive-deps
   // While a shot is being trimmed, the timeline's handles (rangeStart/End) drive its in/out.
   useEffect(() => {
