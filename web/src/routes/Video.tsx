@@ -144,7 +144,10 @@ export default function VideoPage() {
   const renderRange = (s?: number, e?: number, clipId?: string) => {
     const st = s ?? range.start, en = e ?? range.end
     if (en <= st) return setErr('End must be after start.')
-    void run('render', { ...basePayload(), start: st, end: en }, 'Render queued — watch it on the Jobs tab; the clip lands in Clips and Review.', clipId ?? tweakClip ?? undefined)
+    const target = clipId ?? tweakClip
+    const peak = target ? video.clips.find((c) => c.id === target)?.peak_s : null
+    void run('render', { ...basePayload(), start: st, end: en, ...(peak != null && peak >= st && peak <= en ? { peak_s: peak } : {}) },
+             'Render queued — watch it on the Jobs tab; the clip lands in Clips and Review.', target ?? undefined)
     if (!clipId) setTweakClip(null)
   }
   const renderSequence = (segments: unknown[], transition: { type: string; duration: number }) => {
@@ -249,6 +252,7 @@ export default function VideoPage() {
         {mode === 'clips' && (
           <ClipsSection video={video} plan={plan} active={active} run={(t, pl, ok) => void run(t, pl, ok)} autoShorts={() => void autoShorts()}
                         onUse={useClip} onRender={(c) => renderRange(c.start_s, c.end_s, c.id)}
+                        musicName={settings.music} nowTime={nowTime} playhead={playhead} onSeek={seek} selectedId={tweakClip}
                         onLoadPlan={() => { setEditMode('montage'); setMode('edit'); setMsg('In Edit → What → Montage, tap "AI plan" to load the shots.') }} />
         )}
         {mode === 'edit' && (

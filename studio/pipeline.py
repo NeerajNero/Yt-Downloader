@@ -101,6 +101,8 @@ def recipe_payload(recipe: dict, clip: dict, have: dict) -> dict:
     settings.pop("start", None)
     settings.pop("end", None)
     payload = {**settings, "start": clip["start_s"], "end": clip["end_s"]}
+    if clip.get("peak_s") is not None:
+        payload["peak_s"] = clip["peak_s"]
     if recipe.get("id"):
         payload["recipe_id"] = recipe["id"]
     return payload

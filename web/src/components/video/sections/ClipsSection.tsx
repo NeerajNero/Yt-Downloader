@@ -1,3 +1,8 @@
+import { useState } from 'react'
+import { beatsUrl, patchClip, setClipPeak, type BeatsGrid } from '../../../lib/api'
+import { defaultRange, gridBeats, isDefaultRange } from '../../../lib/beats'
+import { duration } from '../../../lib/format'
+import { usePoll } from '../../../lib/poll'
 import type { Clip, Job, VideoDetail as Video } from '../../../lib/types'
 import ClipsList from '../ClipsList'
 import type { Plan } from '../Montage'
@@ -11,14 +16,42 @@ interface Props {
   onUse: (c: Clip) => void
   onRender: (c: Clip) => void
   onLoadPlan: () => void
+  /** The Sound step's track: its beat grid snaps the default range around a peak. */
+  musicName?: string
+  nowTime?: number
+  playhead?: () => number
+  onSeek?: (t: number) => void
+  selectedId?: string | null
 }
 
 /** Step 2: what to make from the video — AI picks and the clips list. */
-export default function ClipsSection({ video, plan, active, run, autoShorts, onUse, onRender, onLoadPlan }: Props) {
+export default function ClipsSection({ video, plan, active, run, autoShorts, onUse, onRender, onLoadPlan, musicName, nowTime, playhead, onSeek, selectedId }: Props) {
   const has = (k: string) => video.assets.some((a) => a.kind === k)
   const prepared = has('transcript') && has('scenes')
   const ready = video.status === 'ready'
   const rendered = video.clips.filter((c) => c.output_path).length
+  const [peakMsg, setPeakMsg] = useState<string | null>(null)
+  // 404 until the track is analysed; polled so the grid appears when the beats job finishes.
+  const { data: grid } = usePoll<BeatsGrid>(musicName ? beatsUrl(musicName) : null, 3000)
+  const beats = gridBeats(grid)
+  const onPeak = async (c: Clip) => {
+    if (!playhead) return
+    const peak = Math.round(playhead() * 100) / 100
+    setPeakMsg(null)
+    try {
+      // First press, or the range is still the default around the old peak: move both.
+      // A range you've edited by hand is left alone; only the peak moves.
+      if (c.peak_s == null || isDefaultRange(c, beats, video.duration)) {
+        const r = defaultRange(peak, beats, video.duration)
+        await patchClip(c.id, { peak_s: peak, start_s: r.start, end_s: r.end })
+        setPeakMsg(`Peak at ${duration(peak)}; range ${duration(r.start)} → ${duration(r.end)}${beats ? ` snapped to ${musicName} beats` : ''}.`)
+      } else {
+        await setClipPeak(c.id, peak)
+        setPeakMsg(`Peak moved to ${duration(peak)}; the range you edited is kept.`)
+      }
+    } catch (e) { setPeakMsg((e as Error).message) }
+  }
+  const onClearPeak = async (c: Clip) => { try { await setClipPeak(c.id, null); setPeakMsg(null) } catch (e) { setPeakMsg((e as Error).message) } }
   const action = (type: string, name: string, what: string, payload: Record<string, unknown> = {}, opts?: { accent?: boolean; disabled?: boolean; note?: string }) => {
     const job = active(type)
     return (
@@ -64,11 +97,14 @@ export default function ClipsSection({ video, plan, active, run, autoShorts, onU
         <span className="muted small">{video.clips.length ? `${rendered}/${video.clips.length} rendered` : 'none yet'}</span>
       </div>
       {video.clips.length ? (
-        <ClipsList clips={video.clips} jobs={video.jobs} onUse={onUse} onRender={onRender} />
+        <ClipsList clips={video.clips} jobs={video.jobs} onUse={onUse} onRender={onRender}
+                   nowTime={nowTime} onSeek={onSeek} onPeak={playhead ? onPeak : undefined} onClearPeak={onClearPeak} selectedId={selectedId} />
       ) : (
         <p className="muted small">No clips yet. Pick moments above, or set a range in Edit and render it.</p>
       )}
-      <p className="muted small">"Use" loads a clip's range into Edit. "Render" renders it with the current Edit settings.</p>
+      {peakMsg && <p className="muted small">{peakMsg}</p>}
+      <p className="muted small">"Use" loads a clip's range into Edit. "Render" renders it with the current Edit settings. "Peak at playhead" marks the moment and sets the playbook range around it
+        ({musicName ? (beats ? `snapped to ${musicName}'s beats` : `${musicName} has no beat grid yet`) : 'pick a track in Edit → Sound to snap it to beats'}).</p>
     </div>
   )
 }

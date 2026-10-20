@@ -43,6 +43,7 @@ export interface Clip {
   recipe_id: string | null
   start_s: number
   end_s: number
+  peak_s: number | null      // the moment, source seconds (docs/PLAYBOOK.md)
   title: string | null
   hook: string | null
   reason: string | null

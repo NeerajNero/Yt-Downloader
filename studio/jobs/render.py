@@ -19,6 +19,7 @@ def handle(ctx: JobContext) -> dict:
     video = ctx.video()
     p = ctx.payload
     recipe_id = p.pop("recipe_id", None)
+    peak_s = p.pop("peak_s", None)
     settings = core.RenderSettings(**p)
     settings.validate()
     clip_id = ctx.job.get("clip_id")
@@ -63,11 +64,13 @@ def handle(ctx: JobContext) -> dict:
         raise
 
     if clip_id and ctx.store.get_clip(clip_id):
+        existing = ctx.store.get_clip(clip_id)
         clip = ctx.store.update_clip(clip_id, status="rendered", output_path=rel, render_settings=p,
                                      start_s=settings.range_start, end_s=settings.range_end,
-                                     recipe_id=recipe_id or ctx.store.get_clip(clip_id).get("recipe_id"))
+                                     recipe_id=recipe_id or existing.get("recipe_id"),
+                                     peak_s=peak_s if peak_s is not None else existing.get("peak_s"))
     else:
         clip = ctx.store.add_clip(video["id"], settings.range_start, settings.range_end,
                                   origin="recipe" if recipe_id else "manual", status="rendered",
-                                  output_path=rel, render_settings=p, job_id=ctx.id, recipe_id=recipe_id)
+                                  output_path=rel, render_settings=p, job_id=ctx.id, recipe_id=recipe_id, peak_s=peak_s)
     return {"output_path": rel, "clip_id": clip["id"], "encoder": ctx.encoder}

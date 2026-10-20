@@ -116,6 +116,12 @@ def test_payload_schemas():
     with pytest.raises(ValueError):
         validate_payload("teleport", {})
     assert validate_payload("download", {"url": "https://x"})["quality"] == "best"
+    # peak_s rides on a render payload but never into a recipe
+    assert validate_payload("render", {"start": 1, "end": 5, "peak_s": 3.25})["peak_s"] == 3.25
+    assert validate_payload("render", {"start": 1, "end": 5})["peak_s"] is None
+    with pytest.raises(ValueError):
+        validate_payload("render", {"start": 1, "end": 5, "peak_s": -1})
+    assert "peak_s" not in validate_recipe({"style": "crop", "peak_s": 3.0})
 
 
 def test_suggest_clips_with_mocked_gemini(tmp_path):

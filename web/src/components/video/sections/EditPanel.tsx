@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { deleteRecipe, insertRecipe, listFx, listMusic, listOverlays, updateRecipe, uploadFx, uploadMusic, uploadOverlay, type DialogueLine, type ManualCaptions, type TaggedShot } from '../../../lib/api'
+import { beatsUrl, deleteRecipe, insertRecipe, listFx, listMusic, listOverlays, musicUrl, setTrackDrop, updateRecipe, uploadFx, uploadMusic, uploadOverlay, type BeatsGrid, type DialogueLine, type ManualCaptions, type TaggedShot } from '../../../lib/api'
 import { duration } from '../../../lib/format'
 import { usePoll } from '../../../lib/poll'
 import { DEFAULT_EFFECTS, DEFAULT_SETTINGS, EFFECT_SLIDERS, FX_BLENDS, PLAYBACKS, REVERSE_SPEEDS, effectsSummary, fromStored, getEditLayout, playbackLength, summarize, type Effects, type FxLayer, type RenderSettings, type SfxLayer, type ShakeMarker, type ZoomMarker } from '../../../lib/settings'
@@ -59,6 +59,63 @@ const STEPS: { id: EditStep; title: string; blurb: string; help: string; montage
 const stepKey = (id: string) => `ytstudio.edit.step.${id}`
 
 const EDIT_GUIDE_KEY = 'ytstudio.guide.edit'
+
+/** The selected track's beat grid and drop (docs/PLAYBOOK.md): a player for the
+ *  track, a bar with the downbeats and the effective drop, and the manual
+ *  override. "Set drop at playhead" uses the track's own playhead. */
+function TrackDrop({ name }: { name: string }) {
+  const { data: grid } = usePoll<BeatsGrid>(beatsUrl(name), 3000)   // 404 until the beats job has run
+  const audio = useRef<HTMLAudioElement>(null)
+  const [t, setT] = useState(0)
+  const [len, setLen] = useState(0)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  useEffect(() => { setT(0); setLen(0); setErr(null) }, [name])
+  const total = grid?.duration_s || len || 0
+  const pct = (x: number) => (total ? Math.max(0, Math.min(100, (x / total) * 100)) : 0)
+  const seekTo = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!total) return
+    const r = e.currentTarget.getBoundingClientRect()
+    const x = Math.max(0, Math.min(total, ((e.clientX - r.left) / r.width) * total))
+    if (audio.current) audio.current.currentTime = x
+    setT(x)
+  }
+  const write = async (v: number | null) => {
+    setBusy(true); setErr(null)
+    try { await setTrackDrop(name, v) } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
+  }
+  const current = grid?.current ?? false
+  const manual = grid?.drop_s_manual != null
+  const drop = grid?.drop_effective ?? null
+  const status = !grid ? 'no beat grid yet — analysing (queued on upload, or Rescan the library)'
+    : !current ? 'beat grid is being re-analysed…'
+    : grid.bpm ? `${Math.round(grid.bpm)} bpm · ${grid.beats.length} beats · ${grid.downbeats.length} downbeats (suggested)`
+    : 'no clear beat found'
+  return (
+    <div className="stack" style={{ gap: 6 }}>
+      <audio ref={audio} controls preload="metadata" src={musicUrl(name)} style={{ width: '100%' }}
+             onTimeUpdate={(e) => setT(e.currentTarget.currentTime)} onLoadedMetadata={(e) => setLen(e.currentTarget.duration || 0)} />
+      <div className="marker-strip" onClick={seekTo} role="slider" aria-label="Track" aria-valuemin={0} aria-valuemax={total} aria-valuenow={t}>
+        {grid?.current && grid.downbeats.map((b) => <span key={b} className="marker beat" style={{ left: `${pct(b)}%` }} />)}
+        {drop != null && <span className="marker drop" style={{ left: `${pct(drop)}%` }} title={`drop at ${duration(drop)}`} />}
+        <span className="marker-head" style={{ left: `${pct(t)}%` }} />
+      </div>
+      <div className="row wrap small">
+        <span className="muted">{status}</span>
+        <span className="mono">{drop != null ? `drop ${duration(drop)}` : grid ? 'no drop' : ''}</span>
+        {drop != null && <span className={`chip ${manual ? 'accent' : 'ok'}`}>{manual ? 'manual' : 'detected'}</span>}
+        {grid && <span className={`chip ${current ? 'ok' : ''}`}>{current ? 'current' : 'analysing'}</span>}
+      </div>
+      <div className="row wrap">
+        <button className="btn small" disabled={busy} onClick={() => void write(Math.round(t * 100) / 100)} title="The track's playhead above becomes the drop (where the beat lands on the clip's peak)">Set drop at playhead</button>
+        <button className="btn small" disabled={busy || !manual || !current} onClick={() => void write(null)}
+                title={!manual ? 'No manual drop to clear' : !current ? 'Wait for the beat grid to finish analysing' : 'Back to the detected drop'}>Clear</button>
+        <span className="muted small">{!grid ? 'Setting a drop now is fine: it is kept when the analysis lands.' : !current && manual ? 'The manual drop is kept across re-analysis.' : 'The drop is aligned to the clip\'s peak at render.'}</span>
+      </div>
+      {err && <p className="job-error small">{err}</p>}
+    </div>
+  )
+}
 
 /** Step 3: the export. Default layout is one step at a time (Cut → Frame → … → Render);
  *  "Everything on one page" (More) shows the old collapsible groups. */
@@ -412,6 +469,7 @@ export default function EditPanel(p: Props) {
         )}
         <label className="check"><input type="checkbox" checked={s.loudness} onChange={(e) => set('loudness', e.target.checked)} /> Normalise loudness</label>
       </div>
+      {s.music && <TrackDrop key={s.music} name={s.music} />}
       <div className="row wrap">
         <span className="muted small">Sound effects</span>
         <button className="btn small" disabled={!music.length} title={music.length ? '' : 'Add an audio file first'} onClick={() => setSfx([...s.sfx, { file: music[0], at: rel(), gain: 80 }])}>Add at playhead</button>

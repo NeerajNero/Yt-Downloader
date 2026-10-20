@@ -246,7 +246,7 @@ class Store:
     def add_clip(self, video_id: str, start_s: float, end_s: float, **fields) -> dict:
         clip = {
             "id": _new_id(), "video_id": video_id, "recipe_id": None, "start_s": float(start_s),
-            "end_s": float(end_s), "title": None, "hook": None, "reason": None, "origin": "manual",
+            "end_s": float(end_s), "peak_s": None, "title": None, "hook": None, "reason": None, "origin": "manual",
             "status": "proposed", "output_path": None, "render_settings": None, "job_id": None,
             "created_at": now_iso(), "updated_at": now_iso(),
         }

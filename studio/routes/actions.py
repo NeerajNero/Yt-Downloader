@@ -174,6 +174,7 @@ class ClipIn(BaseModel):
     start_s: float
     end_s: float
     title: str | None = None
+    peak_s: float | None = None      # the moment, source seconds (docs/PLAYBOOK.md)
 
 
 @router.post("/clips")
@@ -181,16 +182,23 @@ def add_clip(body: ClipIn):
     video_or_404(body.video_id)
     if body.end_s <= body.start_s:
         raise fail("End time must be after start time.")
-    return context.app.store.add_clip(body.video_id, body.start_s, body.end_s, title=body.title, origin="manual")
+    if body.peak_s is not None and body.peak_s < 0:
+        raise fail("The peak must be at or after 0 s.")
+    return context.app.store.add_clip(body.video_id, body.start_s, body.end_s, title=body.title, origin="manual",
+                                      peak_s=None if body.peak_s is None else float(body.peak_s))
 
 
 class ClipPatch(BaseModel):
     status: str | None = None
     title: str | None = None
+    start_s: float | None = None
+    end_s: float | None = None
+    peak_s: float | None = None      # send null to clear; leave out to keep
 
 
 @router.patch("/clips/{clip_id}")
 def patch_clip(clip_id: str, body: ClipPatch):
+    app = context.app
     fields = {}
     if body.status is not None:
         if body.status not in ("proposed", "approved", "rendering", "rendered", "rejected", "posted"):
@@ -198,7 +206,20 @@ def patch_clip(clip_id: str, body: ClipPatch):
         fields["status"] = body.status
     if body.title is not None:
         fields["title"] = body.title.strip() or None
-    c = context.app.store.update_clip(clip_id, **fields)
+    if body.start_s is not None or body.end_s is not None:
+        cur = app.store.get_clip(clip_id)
+        if cur is None:
+            raise fail("Clip not found.", 404)
+        start = float(cur["start_s"] if body.start_s is None else body.start_s)
+        end = float(cur["end_s"] if body.end_s is None else body.end_s)
+        if start < 0 or end <= start:
+            raise fail("End time must be after start time.")
+        fields["start_s"], fields["end_s"] = start, end
+    if "peak_s" in body.model_fields_set:
+        if body.peak_s is not None and body.peak_s < 0:
+            raise fail("The peak must be at or after 0 s.")
+        fields["peak_s"] = None if body.peak_s is None else float(body.peak_s)
+    c = app.store.update_clip(clip_id, **fields)
     if c is None:
         raise fail("Clip not found.", 404)
     return c

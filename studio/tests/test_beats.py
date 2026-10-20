@@ -89,6 +89,18 @@ def test_nearest_beat_and_default_range():
     assert e - s == 20.0
 
 
+def test_default_range_keeps_an_edge_that_would_snap_too_close_to_the_peak():
+    # beats every 2 s: 10-2=8 snaps to 8 (fine), 10+3=13 snaps to 12 (>= 11.5, fine); 8..12 widened to 6..14
+    assert beats.default_range(10.0, [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20], 60.0) == (6.0, 14.0)
+    # a beat at 9.4 would pull the start past peak-1.0 -> start stays at the unsnapped 8.0; end snaps to 13.0
+    assert beats.default_range(10.0, [9.4, 13.0, 20.0], 60.0) == (6.5, 14.5)   # 8..13 widened by 1.5 each side
+    # a beat at 11.2 would pull the end before peak+1.5 -> end stays at the unsnapped 13.0; start snaps to 8.0
+    assert beats.default_range(10.0, [8.0, 11.2], 60.0) == (6.5, 14.5)
+    # both edges fine: start 7.9 (<= 9.0) and end 12.6 (>= 11.5) are kept as snapped
+    s, e = beats.default_range(10.0, [7.9, 12.6], 60.0)
+    assert (s, e) == (6.25, 14.25)   # 7.9..12.6 is 4.7 s, widened by 1.65 each side to 8 s
+
+
 def test_analyze_track_decodes_then_analyses_and_cancels(tmp_path: Path):
     tools = Tools("ffmpeg")
     track = tmp_path / "song.mp3"

@@ -252,6 +252,15 @@ textarea { resize: vertical; }
 .marker-strip { position: relative; height: 14px; background: var(--border); border-radius: 999px; cursor: pointer; }
 .marker { position: absolute; top: 0; bottom: 0; width: 3px; margin-left: -1px; background: var(--accent); border: 0; padding: 0; cursor: pointer; }
 .marker-head { position: absolute; top: -2px; bottom: -2px; width: 2px; background: #fff; }
+.marker.beat { width: 1px; margin-left: 0; background: rgba(255,255,255,0.22); pointer-events: none; }
+.marker.drop { width: 4px; margin-left: -2px; background: var(--accent); box-shadow: 0 0 6px var(--accent); pointer-events: none; }
+
+/* a clip's own scrub bar with its peak (docs/PLAYBOOK.md) */
+.peak-strip { position: relative; height: 10px; margin-top: 2px; background: var(--border); border-radius: 999px; cursor: pointer; overflow: visible; }
+.peak-mark { position: absolute; top: -3px; bottom: -3px; width: 3px; margin-left: -1px; background: var(--accent); border-radius: 2px; box-shadow: 0 0 5px var(--accent); }
+.peak-head { position: absolute; top: 0; bottom: 0; width: 2px; background: #fff; pointer-events: none; }
+.clip-row.selected { border-left: 2px solid var(--accent); padding-left: 8px; }
+.link-btn { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; font: inherit; }
 
 .time-field { display: flex; gap: 4px; align-items: center; }
 .time-field input { width: 64px; }

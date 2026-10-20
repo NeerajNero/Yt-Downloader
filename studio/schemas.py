@@ -174,6 +174,7 @@ class RenderPayload(BaseModel):
     effects: Effects = Field(default_factory=Effects)
     fx: list[FxLayer] = Field(default_factory=list, max_length=12)
     recipe_id: str | None = None    # recorded on the clips row when set
+    peak_s: float | None = Field(None, ge=0)   # the moment (source seconds); recorded on the clip, never in a recipe
 
     @model_validator(mode="after")
     def _range(self):
@@ -313,6 +314,6 @@ def validate_payload(job_type: str, payload: dict | None) -> dict:
 def validate_recipe(settings: dict | None) -> dict:
     """Recipe settings as stored in `recipes.settings`; raises ValueError."""
     try:
-        return RecipeSettings.model_validate(settings or {}).model_dump(exclude={"start", "end", "recipe_id", "segments"})
+        return RecipeSettings.model_validate(settings or {}).model_dump(exclude={"start", "end", "recipe_id", "segments", "peak_s"})
     except ValidationError as e:
         raise ValueError(_explain(e)) from e
