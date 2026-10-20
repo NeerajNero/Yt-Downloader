@@ -24,13 +24,20 @@ studio/            the app (python -m studio)
   store.py         JSON state: <library>/.ytstudio/{videos,recipes,styles}.json + <stem>.clips.json
   queue.py         in-memory job queue, heavy (ffmpeg/whisper, 1 at a time) + light lanes
   jobs/            adapters: payload → studio.core function → files + store updates
-                   (dialogue = speech lines from the transcript; tags = Gemini shot labels per scene)
+                   (dialogue = speech lines from the transcript; tags = Gemini shot labels per scene;
+                   beats = beat grid for one music track, light lane, keeps drop_s_manual across re-runs)
   pipeline.py      the automatic chain (prepare / shorts) after downloads and finished jobs
   routes/          JSON API (state.py reads, actions.py writes, files.py, ingest.py)
   core/            pure media functions (ffmpeg, yt-dlp, whisper, Gemini) — no app state
+  core/beats.py    beat grid: ffmpeg decode → librosa (only there) → bpm, beats, 4/4 downbeat guess,
+                   drop; plus the playbook's default_range / nearest_beat maths
   schemas.py       pydantic payload/recipe schemas
   tests/           pytest (no ffmpeg needed)
 web/               React + Vite + TS PWA; polls the API every second (lib/poll.ts)
+  src/lib/beats.ts     mirror of core/beats default_range / nearest_beat (change both together)
+  src/lib/captions.ts  mirror of core/captions hook / payoff timing and fit_font_size sizing
+  src/lib/snap.ts      montage beat snapping: sequence_layout mirror, beats in output time, snapCut
+docs/PLAYBOOK.md   the Shorts rules the Phase 1 features implement (peak, drop, hook, payoff, safe area)
 ```
 
 ## Conventions
@@ -50,6 +57,16 @@ web/               React + Vite + TS PWA; polls the API every second (lib/poll.t
 - `studio/core/` functions take `report(percent, note)` + `should_cancel()` and never touch the
   store. Only `studio/jobs/`, `studio/pipeline.py` and `studio/routes/` do.
 - Encoder from `studio/core/encoders.py`, keyed by `Settings.encoder` — never hardcode libx264.
+  Profiles: `final`, `fast`, `edit`, and `proxy` (720p max, lowest quality; only the style-clone
+  copy sent to Gemini uses it).
+- Captions (`core/captions.py`): every style stays inside the safe area, left 5 % / right 15 % /
+  top 10 % / bottom 20 % of the frame (portrait margins 54 / 162 / 192 / 384 px, landscape
+  96 / 288 / 108 / 216). Hook (frame 1) and Payoff (on the peak) are sized by `fit_font_size`
+  between a ceiling (1.6× / 1.3× the preset's Cap size) and a floor (0.9× / 0.8×), never with
+  `\k`; regular captions are suppressed while one is on screen. `web/src/lib/captions.ts` mirrors it.
+- Clips carry `peak_s`, `hook_text`, `payoff_text`; they ride on the render payload and are never
+  in a recipe. The music drop (`.music/<name>.beats.json`, manual override first) is aligned to the
+  peak by `render.music_plan`; a peak outside every montage shot keeps the old looping bed.
 - Payloads validated by `studio/schemas.py` (render payload rejects unknown keys).
 - Frontend: `usePoll(url)` for reads; every mutation in `web/src/lib/api.ts` calls `invalidate()`.
   Types in `web/src/lib/types.ts` mirror `studio/routes/state.py`.

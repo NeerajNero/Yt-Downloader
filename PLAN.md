@@ -46,6 +46,46 @@ The old code is at git tag `v2-multimachine` (and `v1-last` for the original app
 Manual by choice: judging clips, real editing in Resolve, posting.
 Automatic: everything the pipelines do. Nothing runs while the app is closed.
 
+## Phase 1: beat-locked structure (shipped 2026-10-20, branch `feat/phase1-beats`)
+
+The rules are in `docs/PLAYBOOK.md`. What landed:
+
+- **Beat grid per track** — `beats` job (librosa, decoded through ffmpeg) writes
+  `.music/<name>.beats.json`: bpm, beats, downbeats (4/4 phase guess, flagged as such), a detected
+  drop and a manual `drop_s_manual` that survives re-analysis. Queued on upload and by Rescan;
+  "Set drop at playhead" in Sound. Silence, ambient and <4 s tracks give an empty grid.
+- **Peak on the clip** (`peak_s`) — "Peak at playhead" in Clips sets it and the default range
+  (peak−2 .. peak+3, snapped to beats, 8–20 s) unless the range was edited by hand.
+- **Drop aligned to the peak** — renders seek or delay the bed so the drop lands on the peak
+  (`music_seek_s`, `music_delay_ms`, `drop_at_output_s` in the job result; `_drop` in the file
+  name), with an 80 ms fade-out. Montage: the peak is mapped through the shot layout; outside every
+  shot the bed loops as before and the result says why.
+- **Hook / payoff captions** — typed per clip (Gemini's hook/title only as placeholders), burned
+  on frame 1 and on the peak even with captions off, sized by fit, inside the safe area; regular
+  captions step aside while they show. `captions_warning` when a block needs three lines.
+- **Safe area everywhere** — all caption presets clamp to it; the player shades the bands and the
+  subject zone; Review can show the same bands over renders.
+- **Montage snapping** — beat ticks on the timeline (downbeats stronger, the drop labelled), dragged
+  cuts snap to the nearest beat (Shift bypasses), "Snap all to beats", ◉ on shots that start on a
+  downbeat.
+- Proxy encoder profile for the style-clone copy (no more hardcoded libx264).
+
+Gate before Phase 2: five shorts posted through this flow; compare swipe-away at 2 s against the
+previous ten. Verification steps: `docs/pr/phase1.md`.
+
+## Phase 2: motion without Resolve (placeholder)
+
+Three effects the renderer can do itself, so the plan's "resolve_notes" shrink:
+
+- **trackzoom** — a punch-in that follows the subject instead of the frame centre.
+- **lock** — hold the subject in the centre 60 % across a shot (crop window keyframed per frame).
+- **ramp** — the playbook's speed ramp into the drop: 4–8 frames slow before `drop_s`, snap to full
+  speed on it (segment-level retime curve instead of one speed per shot).
+
+All three need a subject box over time. Idea: ask Gemini for a subject bounding box on the
+keyframes it already sees (one per scene interval, `gemini.tag_shots`), interpolate between them,
+and let the Frame step show the track so it can be corrected by dragging.
+
 ## Next
 
 - **Phone outbox** — when the PC is off, the PWA keeps pasted links + notes in the browser and
