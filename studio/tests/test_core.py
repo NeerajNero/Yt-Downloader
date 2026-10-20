@@ -163,6 +163,59 @@ def test_output_name_recipe_extras():
     s = render.RenderSettings(start=0, end=5, watermark={"file": "l.png"}, sfx=[{"file": "a.mp3"}],
                               zoom_markers=[{"at": 1}, {"at": 2}])
     assert render.output_name("X", s, True).endswith("_music_wm_sfx_punch2.mp4")
+    # an aligned drop gets its own name so it never overwrites the unaligned render
+    assert render.output_name("X", s, True, aligned=True).endswith("_music_drop_wm_sfx_punch2.mp4")
+    assert "_drop" not in render.output_name("X", s, False, aligned=True)  # no music, no drop
+    assert "_drop" not in render.output_name("X", s, True, aligned=False)
+
+
+def test_music_offset_aligns_drop():
+    assert render.music_offset(10.0, 4.0) == (6.0, 0)        # drop after the peak: seek into the track
+    assert render.music_offset(4.0, 4.0) == (0.0, 0)         # drop on the peak: play from the top
+    assert render.music_offset(1.5, 4.0) == (0.0, 2500)      # drop before the peak: delay the track
+    assert render.music_offset(0.0004, 4.0) == (0.0, 4000)   # rounded to whole milliseconds
+
+
+def test_source_to_output():
+    one = render.RenderSettings(start=10, end=20).layout()
+    assert one[0]["offset"] == 0.0 and one[0]["len"] == 10.0
+    assert render.source_to_output(14, one) == 4.0
+    assert render.source_to_output(9.9, one) is None and render.source_to_output(20, one) == 10.0
+    fast = [{"start": 10.0, "end": 20.0, "speed": 1.5, "offset": 0.0}]
+    assert render.source_to_output(14, fast) == pytest.approx(2.6667, abs=1e-3)
+    # two shots with a gap between them (hard cut): the gap maps to nothing
+    s = render.RenderSettings(segments=[{"start": 0, "end": 4}, {"start": 8, "end": 12, "speed": 2}], transition={"type": "cut"})
+    layout = s.layout()
+    assert [L["offset"] for L in layout] == [0.0, 4.0]
+    assert render.source_to_output(2, layout) == 2.0 and render.source_to_output(10, layout) == 5.0
+    assert render.source_to_output(6, layout) is None and render.source_to_output(13, layout) is None
+
+
+def test_music_plan_and_inputs():
+    m = Path("bed.mp3")
+    # aligned: seek, no loop, apad, fade-out, no adelay when the drop is later than the peak
+    args, chain = render._music_inputs(m, 1, 0.72, 12.0, seek_s=2.5, delay_ms=0)
+    assert args == ["-ss", "2.500", "-i", "bed.mp3"]
+    assert chain == "[1:a]apad,volume=0.72,afade=t=out:st=11.920:d=0.08[mus]"
+    # aligned with the drop before the peak: adelay first
+    args, chain = render._music_inputs(m, 2, 0.72, 12.0, seek_s=0.0, delay_ms=1500)
+    assert args == ["-ss", "0.000", "-i", "bed.mp3"] and chain == "[2:a]adelay=1500|1500,apad,volume=0.72,afade=t=out:st=11.920:d=0.08[mus]"
+    # unaligned: the old infinite loop, no seek / adelay / apad, still the fade-out
+    args, chain = render._music_inputs(m, 1, 0.72, 12.0)
+    assert args == ["-stream_loop", "-1", "-i", "bed.mp3"] and chain == "[1:a]volume=0.72,afade=t=out:st=11.920:d=0.08[mus]"
+    assert "adelay" not in chain and "apad" not in chain and "-ss" not in args
+    # music_plan: the pure decision the adapter and the renderer share
+    s = render.RenderSettings(start=10, end=20, music="bed.mp3", peak_s=14)
+    p = render.music_plan(s, 9.0)
+    assert p["aligned"] and (p["seek_s"], p["delay_ms"], p["drop_at_output_s"]) == (5.0, 0, 4.0)
+    p = render.music_plan(s, 1.0)
+    assert p["aligned"] and (p["seek_s"], p["delay_ms"], p["drop_at_output_s"]) == (0.0, 3000, 4.0)
+    assert render.music_plan(s, None)["reason"].startswith("the track has no drop")
+    assert render.music_plan(render.RenderSettings(start=10, end=20, music="bed.mp3"), 9.0)["reason"] == "the clip has no peak"
+    assert render.music_plan(s, 9.0, has_music=False)["reason"] == "no music track"
+    assert render.music_plan(render.RenderSettings(start=10, end=20, music="bed.mp3", peak_s=25), 9.0)["reason"] == "the peak is outside the range"
+    with pytest.raises(ValueError, match="peak"):
+        render.RenderSettings(start=0, end=5, peak_s=-1).validate()
 
 
 def test_recipe_validation():
@@ -190,6 +243,15 @@ def test_sequence_layout_and_graph():
     assert "xfade=transition=fade:duration=0.400:offset=2.600[vx1]" in graph
     assert "[vx1][v2]xfade=transition=fade:duration=0.400:offset=4.200[vseq]" in graph
     assert "acrossfade=d=0.400" in graph and (v, a) == ("vseq", "aseq")
+    # the peak maps through the same layout (shot 2 runs at 2x from offset 2.6); gaps map to nothing
+    assert render.source_to_output(10, layout) == pytest.approx(3.6) and render.source_to_output(16, layout) == pytest.approx(8.2)
+    assert render.source_to_output(6, layout) is None
+    s.music, s.peak_s = "bed.mp3", 10
+    p = render.music_plan(s, 7.0)
+    assert p["aligned"] and (p["seek_s"], p["delay_ms"], p["drop_at_output_s"]) == (3.4, 0, 3.6)
+    s.peak_s = 6   # in the gap between shot 1 and shot 2
+    p = render.music_plan(s, 7.0)
+    assert p["aligned"] is False and p["reason"] == "the peak falls outside every shot"
 
 
 def test_sequence_cut_uses_concat_and_short_shots_clamp_transition():

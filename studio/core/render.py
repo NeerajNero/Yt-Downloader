@@ -427,6 +427,7 @@ class RenderSettings:
     crop_zoom: float = 1.0
     effects: dict = field(default_factory=dict)   # see effects_filter()
     fx: list = field(default_factory=list)         # [{"file","at","opacity","blend","flip","speed"}] resolved by the adapter
+    peak_s: float | None = None      # the moment, source seconds (docs/PLAYBOOK.md); the music drop is aligned to it
     extra: dict = field(default_factory=dict)
 
     @property
@@ -441,9 +442,20 @@ class RenderSettings:
     def range_end(self) -> float:
         return float(self.segments[-1]["end"]) if self.segments else float(self.end or 0)
 
+    def layout(self) -> list[dict]:
+        """Output-time layout: the sequence's shots, or the single range as one
+        shot at speed 1 (its forward leg; bounce/reverse legs come after)."""
+        if self.segments:
+            return sequence_layout(self.segments, self.transition)[0]
+        start, end = float(self.start or 0), float(self.end or 0)
+        return [{"start": start, "end": end, "speed": 1.0, "len": end - start, "offset": 0.0,
+                 "zoom_markers": [], "shake_markers": [], "playback": self.playback, "reverse_speed": self.reverse_speed}]
+
     def validate(self) -> None:
         if self.style not in STYLES:
             raise ValueError("Style must be 'crop' or 'blur'.")
+        if self.peak_s is not None and float(self.peak_s) < 0:
+            raise ValueError("The peak must be at or after 0 s.")
         if self.segments:
             for i, seg in enumerate(self.segments, 1):
                 a, b = float(seg.get("start", -1)), float(seg.get("end", -1))
@@ -517,8 +529,10 @@ class RenderSettings:
             raise ValueError("Vivid amount must be between 0 and 100.")
 
 
-def output_name(stem: str, s: RenderSettings, has_music: bool) -> str:
-    """v1's descriptive output filename: <stem>_9x16_12s-40s_blur_vivid60_cap.mp4"""
+def output_name(stem: str, s: RenderSettings, has_music: bool, aligned: bool = False) -> str:
+    """v1's descriptive output filename: <stem>_9x16_12s-40s_blur_vivid60_cap.mp4
+    `aligned` = the music drop was aligned to the peak (adds _drop so aligned
+    and unaligned renders of the same settings never overwrite each other)."""
     amount = int(s.vivid_amount)
     suffix = f"_vivid{amount}" if amount else ""
     if s.trim_x or s.trim_y:
@@ -551,6 +565,8 @@ def output_name(stem: str, s: RenderSettings, has_music: bool) -> str:
         suffix += "_norm"
     if has_music:
         suffix += "_music"
+        if aligned:
+            suffix += "_drop"
     if s.watermark:
         suffix += "_wm"
     if s.sfx:
@@ -579,16 +595,77 @@ def output_name(stem: str, s: RenderSettings, has_music: bool) -> str:
     return f"{stem}_{aspect}_{int(s.start)}s-{int(s.end)}s_{s.style}{suffix}.mp4"
 
 
+# ---------------------------------------------------------------- music / drop alignment
+
+MUSIC_FADE_S = 0.08   # fade the bed out over the last 80 ms so a hard end never clicks
+
+
+def source_to_output(t_source: float, layout: list[dict]) -> float | None:
+    """Source seconds → output seconds through the shot layout (the maths
+    remap_transcript uses: per-shot offset + retimed distance from the shot's
+    start). The first shot containing t wins; None when no shot does."""
+    t = float(t_source)
+    for L in layout:
+        if float(L["start"]) <= t <= float(L["end"]):
+            return float(L["offset"]) + (t - float(L["start"])) / float(L.get("speed", 1.0) or 1.0)
+    return None
+
+
+def music_offset(drop_s: float, peak_out_s: float) -> tuple[float, int]:
+    """How to place the track so its drop lands on the peak: seek into the
+    track (drop later than the peak) or delay its start (drop earlier)."""
+    seek_s = max(0.0, float(drop_s) - float(peak_out_s))
+    delay_ms = max(0, int(round((float(peak_out_s) - float(drop_s)) * 1000)))
+    return seek_s, delay_ms
+
+
+def music_plan(s: RenderSettings, music_drop_s: float | None, has_music: bool = True) -> dict:
+    """Pure: whether and how the bed is aligned for these settings.
+    {"aligned", "reason", "seek_s", "delay_ms", "drop_at_output_s", "peak_out_s"}."""
+    no = lambda reason: {"aligned": False, "reason": reason, "seek_s": None, "delay_ms": None,  # noqa: E731
+                         "drop_at_output_s": None, "peak_out_s": None}
+    if not has_music or not s.music:
+        return no("no music track")
+    if music_drop_s is None:
+        return no("the track has no drop (no beat grid, grid out of date, or none detected)")
+    if s.peak_s is None:
+        return no("the clip has no peak")
+    peak_out = source_to_output(float(s.peak_s), s.layout())
+    if peak_out is None:
+        return no("the peak falls outside every shot" if s.is_sequence else "the peak is outside the range")
+    seek_s, delay_ms = music_offset(float(music_drop_s), peak_out)
+    return {"aligned": True, "reason": None, "seek_s": round(seek_s, 3), "delay_ms": delay_ms,
+            "drop_at_output_s": round(peak_out, 3), "peak_out_s": round(peak_out, 3)}
+
+
+def _music_inputs(music_path: Path, idx: int, gain: float, out_len: float,
+                  seek_s: float | None = None, delay_ms: int | None = None) -> tuple[list[str], str]:
+    """(ffmpeg input args, filter chain ending in [mus]) for the music bed.
+    Aligned (seek_s given): input-side seek, no loop; adelay when the drop
+    must wait for the peak; apad so the track never ends before the video.
+    Unaligned: the old infinite loop. Both: gain, then an 80 ms fade-out at
+    the very end (no fade-in)."""
+    fade = f"afade=t=out:st={max(0.0, float(out_len) - MUSIC_FADE_S):.3f}:d={MUSIC_FADE_S:.2f}"
+    if seek_s is None:
+        return ["-stream_loop", "-1", "-i", str(music_path)], f"[{idx}:a]volume={gain},{fade}[mus]"
+    parts = []
+    if delay_ms:
+        parts.append(f"adelay={int(delay_ms)}|{int(delay_ms)}")
+    parts += ["apad", f"volume={gain}", fade]
+    return ["-ss", f"{float(seek_s):.3f}", "-i", str(music_path)], f"[{idx}:a]" + ",".join(parts) + "[mus]"
+
+
 def run_export(src: Path, out_path: Path, s: RenderSettings, tools: Tools, encoder: str,
                report: Report, should_cancel: ShouldCancel,
                transcript: dict | None = None, manual_captions: dict | None = None,
                music_path: Path | None = None, watermark_path: Path | None = None,
                sfx_paths: list[tuple[Path, float, float]] | None = None,
-               fx_paths: list[tuple] | None = None) -> Path:
+               fx_paths: list[tuple] | None = None, music_drop_s: float | None = None) -> Path:
     """Render one clip (portrait 9:16 or landscape 16:9) to `out_path`.
     `sfx_paths` = [(file, at_seconds, gain_0_100)]; `fx_paths` = overlay
-    effect clips [(file, at, opacity, blend, flip, speed)]. Raises Cancelled /
-    RuntimeError. Returns out_path."""
+    effect clips [(file, at, opacity, blend, flip, speed)]; `music_drop_s` =
+    the track's drop (seconds into the track) to align with `s.peak_s`.
+    Raises Cancelled / RuntimeError. Returns out_path."""
     s.validate()
     src = Path(src)
     out_path = Path(out_path)
@@ -596,7 +673,8 @@ def run_export(src: Path, out_path: Path, s: RenderSettings, tools: Tools, encod
     if s.is_sequence:
         return run_sequence(src, out_path, s, tools, encoder, report, should_cancel,
                             transcript=transcript, manual_captions=manual_captions, music_path=music_path,
-                            watermark_path=watermark_path, sfx_paths=sfx_paths, fx_paths=fx_paths)
+                            watermark_path=watermark_path, sfx_paths=sfx_paths, fx_paths=fx_paths,
+                            music_drop_s=music_drop_s)
     start, end = float(s.start), float(s.end)
     amount = int(s.vivid_amount)
 
@@ -680,8 +758,10 @@ def run_export(src: Path, out_path: Path, s: RenderSettings, tools: Tools, encod
     mix_inputs = [asrc]
     if use_music:
         gain = round(max(0.0, min(s.music_gain, 100.0)) / 100.0 * 1.2, 3)
-        inputs += ["-stream_loop", "-1", "-i", str(music_path)]
-        aparts.append(f"[{next_input}:a]volume={gain}[mus]")
+        plan = music_plan(s, music_drop_s, has_music=True)
+        margs, mchain = _music_inputs(music_path, next_input, gain, out_len, plan["seek_s"], plan["delay_ms"])
+        inputs += margs
+        aparts.append(mchain)
         next_input += 1
         if s.duck:
             # Duck the music under speech via sidechain compression.
@@ -904,10 +984,12 @@ def run_sequence(src: Path, out_path: Path, s: RenderSettings, tools: Tools, enc
                  transcript: dict | None = None, manual_captions: dict | None = None,
                  music_path: Path | None = None, watermark_path: Path | None = None,
                  sfx_paths: list[tuple[Path, float, float]] | None = None,
-                 fx_paths: list[tuple] | None = None) -> Path:
+                 fx_paths: list[tuple] | None = None, music_drop_s: float | None = None) -> Path:
     """Assemble several ranges of the source into one clip with transitions,
     per-segment speed and punch-ins, then the usual captions / zoom / rotation /
-    watermark / music / sfx on the composite."""
+    watermark / music / sfx on the composite. The music drop is aligned to
+    `s.peak_s` mapped through the shot layout; a peak outside every shot keeps
+    the old looping bed (see music_plan)."""
     layout, total, bounds = sequence_layout(s.segments, s.transition)
     fps = tools.probe_fps(src)
     final_w, final_h = _dims(s.resolution, s.orientation)
@@ -974,8 +1056,10 @@ def run_sequence(src: Path, out_path: Path, s: RenderSettings, tools: Tools, enc
     mix_inputs = [f"[{alab}]"]
     if use_music:
         gain = round(max(0.0, min(s.music_gain, 100.0)) / 100.0 * 1.2, 3)
-        inputs += ["-stream_loop", "-1", "-i", str(music_path)]
-        aparts.append(f"[{next_input}:a]volume={gain}[mus]")
+        plan = music_plan(s, music_drop_s, has_music=True)
+        margs, mchain = _music_inputs(music_path, next_input, gain, total, plan["seek_s"], plan["delay_ms"])
+        inputs += margs
+        aparts.append(mchain)
         next_input += 1
         if s.duck:
             aparts.append(f"[mus][{alab}]sidechaincompress=threshold=0.02:ratio=8:attack=15:release=350[duckmus]")
